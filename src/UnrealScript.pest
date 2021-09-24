@@ -120,14 +120,6 @@ var_category = { "(" ~ unqualified_identifier? ~ ")" }
 var_declaration = { ^"var" ~ var_category? ~ var_modifier* ~ type_ ~ var_name ~ ("," ~ var_name)* ~ ";" }
 struct_var_editable = { "(" ~ ")" }
 struct_var_declaration = { ^"var" ~ struct_var_editable? ~ var_modifier* ~ type_ ~ var_name ~ ("," ~ var_name)* ~ ";" }
-pod_type = {
-    ^"int" |
-    ^"float" |
-    ^"string" |
-    ^"name" |
-    ^"bool" |
-    ^"byte"
-}
 array_type = { ^"array" ~ "<" ~ type_ ~ ">" }
 class_type = { ^"class" ~ "<" ~ identifier ~ ">"}
 type_ = {
@@ -172,57 +164,58 @@ function_argument_modifier = @{
 }
 function_argument = { function_argument_modifier* ~ type_ ~ var_name}
 function_arguments = _{ function_argument ~ ("," ~ function_argument)* }
-function_type = { ^"function" | ^"event" }
+function_type = { ^"function" | ^"event" | ^"delegate" }
 function_declaration = {
     function_modifier*
-    ~ function_type
+    ~ function_type+
     ~ function_modifier*
     ~ ((type_ ~ unqualified_identifier) | unqualified_identifier)
     ~ "(" ~ function_arguments? ~ ")" ~ body_or_semicolon
 }
 
-delegate_decl = { function_modifier* ~ ^"delegate" ~ function_modifier* ~ type_ ~ "(" ~ function_argument ~ ")" ~ body_or_semicolon }
 body_or_semicolon = _{ (";" | "{" ~ code_body ~ "}") }
 
 reliability = { ^"reliable" | ^"unreliable" }
-replication_condition = { reliability ~ ^"if" ~ "(" ~ expression ~ ")" ~ (unqualified_identifier ~ ("," ~ unqualified_identifier)*)? ~ ";" }
-replication_block = { ^"replication" ~ "{" ~ replication_condition*  ~ "}" }
+replication_statement = { reliability ~ ^"if" ~ "(" ~ expression ~ ")" ~ (unqualified_identifier ~ ("," ~ unqualified_identifier)*) ~ ";" }
+replication_block = { ^"replication" ~ "{" ~ replication_statement*  ~ "}" }
 
 type_declaration_statement = _{ (enum_declaration | struct_declaration) ~ ";" }
-class_statement = _{ const_declaration | var_declaration  | type_declaration_statement | function_declaration }
+class_statement = _{ const_declaration | var_declaration  | type_declaration_statement | function_declaration | replication_block }
 eoi = _{ EOI }
 program = { SOI ~ class_declaration ~ class_statement* ~ eoi }
 
 local_decl = { ^"local" ~ type_ ~ var_name ~ ("," ~ var_name)* ~ ";" }
 
 // LOGIC
-// build a straight LIST of what we see in front of us, we will build the
+// build a straight LIST of what we see in front of us, we will shuffle the AST around in a separate pass!
 //
 // member_access = { expression ~ "." ~ expression }
 // any_call = _{ super_call | call | member_call }
 
 array_access = { "[" ~ expression ~ "]" }
-member_access = { "." ~ expression }
-atom = { call | array_access | member_access }
+member_access = { "." ~ unqualified_identifier }
+default_access = { ^"default" ~ "." ~ unqualified_identifier }
+static_acesss = { ^"static" ~ "." ~ unqualified_identifier }
+atom = _{ call | array_access | ("." ~ default_access) | ("." ~ static_acesss) | member_access | dyadic_expression }
 
-dyadic_contd_expr = _{ dyadic_verb ~ expression }
-dyadic_expression = { (target | literal) ~ dyadic_contd_expr+ }
+dyadic_expression = { dyadic_verb ~ expression }
 
 // TODO: chaining unary operators don't work very well (eg. ~--A) [valid uc, invalid ucp]
-unary_prefix_operator = { "++" | "--" | "~" | "-" }
+unary_prefix_operator = { "++" | "--" | "~" | "-" | "!" }
 unary_post_operator = { "++" | "--" }
-monadic_pre_expression = { unary_prefix_operator ~ expression }
+monadic_pre_expression = { unary_prefix_operator ~ target }
 monadic_post_expression = { target ~ unary_post_operator}
 monadic_expression = { monadic_pre_expression | monadic_post_expression }
 
-primary = { cast | unqualified_identifier }
-target = { (primary ~ atom*) }
+primary = _{ arraycount | cast | literal | parenthetical_expression | default_access | static_acesss | unqualified_identifier }   // primaries are the START of a TARGET
+target = { primary ~ atom* }
 parenthetical_expression = { "(" ~ expression ~ ")" }
-expression = { parenthetical_expression | dyadic_expression | monadic_expression | literal | target | unqualified_identifier }
+expression = { monadic_expression | target | unqualified_identifier }   // TODO: monadic expression should be a target???
 
 call = { "(" ~ expression_list ~ ")" }
 empty_expression = { "," }
 expression_list = _{ (expression ~ "," | empty_expression)* ~ expression? }
+arraycount = { ^"arraycount" ~ "(" ~ expression ~ ")" }
 cast = { class_type ~ "(" ~ expression ~ ")" }
 
 code_block = { "{" ~ code_body ~ "}" }
@@ -249,12 +242,15 @@ dyadic_verb = {
     "||" | // 32
     "%" | //18
     "-=" | // 45
-    "+" | "-" | // 20
     "<<" | ">>" | ">>>" | // 22
-    "<" | ">" | "<=" | ">=" | "==" | "~=" | ^"clockwisefrom" | // 24
+    "<=" | ">=" | "==" | "~=" | "<" | ">" | ^"clockwisefrom" | // 24
     "!=" | // 26
     "&" | "|" | "^" | // 28
     "$=" | "@=" | //44
     "$" | "@" | // 40
+    "+" | "-" | // 20
     "="
 }
+
+// USP rules
+pass_statement = _{ ^"pass" ~ ";" } // Identical to Python's `pass`, just a statement that does nothing.

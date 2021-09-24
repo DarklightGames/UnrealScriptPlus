@@ -12,7 +12,7 @@ struct UnrealScriptParser;
 
 use std::fs::File;
 use std::io::Read;
-use crate::ast::{AstNode, PodType};
+use crate::ast::{AstNode};
 use std::ops::AddAssign;
 use pest::iterators::Pair;
 
@@ -28,6 +28,25 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                 Box::new(AstNode::Program {
                     class_declaration: inner_iter.next().unwrap().into(),
                     statements: inner_iter.map(|pair| { pair.into() }).collect()
+                })
+            }
+            Rule::replication_statement => {
+                let mut inner_iter = self.into_inner().into_iter();
+                Box::new(AstNode::ReplicationStatement {
+                    is_reliable: match inner_iter.next().unwrap().as_str().to_lowercase().as_str() {
+                        "reliable" => { true }
+                        "unreliable" => { false }
+                        _ => { panic!("unrecognized reliability type") }
+                    },
+                    condition: inner_iter.next().unwrap().into(),
+                    variables: inner_iter.map(|pair| { pair.as_str().to_string() }).collect()
+                })
+            }
+            Rule::replication_block => {
+                Box::new(AstNode::ReplicationBlock {
+                    statements: self.into_inner().into_iter().map(|pair| {
+                        pair.into()
+                    }).collect()
                 })
             }
             Rule::class_declaration => {
@@ -80,9 +99,6 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
             }
             Rule::class_type => {
                 Box::new(AstNode::ClassType(self.into_inner().next().unwrap().into()))
-            }
-            Rule::pod_type => {
-                Box::new(AstNode::PodType(str::parse::<PodType>(self.as_str()).unwrap()))
             }
             Rule::boolean_literal => {
                 Box::new(AstNode::BooleanLiteral(self.as_str().to_lowercase().parse::<bool>().unwrap()))
@@ -347,7 +363,7 @@ fn read_file_to_string(path: &str) -> Result<String, std::io::Error> {
 }
 
 fn main() {
-    let program = read_file_to_string("C:\\untitled\\src\\TestClass.uc")
+    let program = read_file_to_string("C:\\UnrealScriptPlus\\src\\TestClass.uc")
         .unwrap_or_else(|e| panic!("{}", e));
     let root = UnrealScriptParser::parse(Rule::program, &program)
         .expect("failed to parse")
@@ -1483,6 +1499,81 @@ mod tests {
                         type_(13, 19, [ identifier(13, 19) ]),
                         var_name(20, 23, [ unqualified_identifier(20, 23) ])
                     ])
+                ])
+            ]
+        }
+    }
+
+    #[test]
+    fn replication_block_empty() {
+        parses_to! {
+            parser: UnrealScriptParser,
+            input: "replication { }",
+            rule: Rule::replication_block,
+            tokens: [
+                replication_block(0, 15)
+            ]
+        }
+    }
+
+    #[test]
+    fn reliability_reliable() {
+        parses_to! {
+            parser: UnrealScriptParser,
+            input: "reliable",
+            rule: Rule::reliability,
+            tokens: [ reliability(0, 8) ]
+        }
+    }
+
+    #[test]
+    fn reliability_unreliable() {
+        parses_to! {
+            parser: UnrealScriptParser,
+            input: "unreliable",
+            rule: Rule::reliability,
+            tokens: [ reliability(0, 10) ]
+        }
+    }
+    #[test]
+    fn replication_statement_no_variables_fails() {
+        fails_with! {
+            parser: UnrealScriptParser,
+            input: "reliable if (true);",
+            rule: Rule::replication_statement,
+            positives: [Rule::unqualified_identifier],
+            negatives: [],
+            pos: 18
+        }
+    }
+
+    #[test]
+    fn replication_statement_single_variable() {
+        parses_to! {
+            parser: UnrealScriptParser,
+            input: "reliable if (true) Foo;",
+            rule: Rule::replication_statement,
+            tokens: [
+                replication_statement(0, 23, [
+                    reliability(0, 8),
+                    expression(13, 17, [ target(13, 17, [ literal(13, 17, [boolean_literal(13, 17)]) ]) ]),
+                    unqualified_identifier(19, 22)
+                ])
+            ]
+        }
+    }
+    #[test]
+    fn replication_statement_multiple_variables() {
+        parses_to! {
+            parser: UnrealScriptParser,
+            input: "reliable if (true) Foo, Bar;",
+            rule: Rule::replication_statement,
+            tokens: [
+                replication_statement(0, 28, [
+                    reliability(0, 8),
+                    expression(13, 17, [ target(13, 17, [ literal(13, 17, [boolean_literal(13, 17)]) ]) ]),
+                    unqualified_identifier(19, 22),
+                    unqualified_identifier(24, 27)
                 ])
             ]
         }

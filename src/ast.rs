@@ -1,61 +1,3 @@
-use std::convert::From;
-use std::str::FromStr;
-
-#[derive(Debug)]
-pub enum PodType {
-    Bool,
-    Byte,
-    Int,
-    Float,
-    Name,
-    String,
-}
-
-#[derive(Debug)]
-pub struct PodTypeParseError;
-
-impl FromStr for PodType {
-    type Err = PodTypeParseError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "bool" => Ok(PodType::Bool),
-            "byte" => Ok(PodType::Byte),
-            "int" => Ok(PodType::Int),
-            "float" => Ok(PodType::Float),
-            "name" => Ok(PodType::Name),
-            "string" => Ok(PodType::String),
-            _ => Err(PodTypeParseError)
-        }
-    }
-}
-
-impl ToString for PodType {
-    fn to_string(&self) -> String {
-        match self {
-            PodType::Bool => String::from("bool"),
-            PodType::Byte => String::from("byte"),
-            PodType::Int => String::from("int"),
-            PodType::Float => String::from("float"),
-            PodType::Name => String::from("name"),
-            PodType::String => String::from("string")
-        }
-    }
-}
-
-impl From<PodType> for &str {
-    fn from(pod_type: PodType) -> Self {
-        match pod_type {
-            PodType::Byte => "byte",
-            PodType::Bool => "bool",
-            PodType::Int => "int",
-            PodType::Float => "float",
-            PodType::Name => "name",
-            PodType::String => "string"
-        }
-    }
-}
-
 pub enum AstNode {
     Program {
         class_declaration: Box<AstNode>,
@@ -78,13 +20,13 @@ pub enum AstNode {
         type_: Box<AstNode>,
         name: Box<AstNode>
     },
-    ReplicationCondition {
+    ReplicationStatement {
         is_reliable: bool,
         condition: Box<AstNode>,
         variables: Vec<String>
     },
     ReplicationBlock {
-        conditions: Vec<Box<AstNode>>
+        statements: Vec<Box<AstNode>>
     },
     FunctionDelaration {
         type_: String,  // TODO: enum?
@@ -134,7 +76,6 @@ pub enum AstNode {
         modifiers: Vec<String>,
         members: Vec<Box<AstNode>>
     },
-    PodType(PodType),
     ArrayType(Box<AstNode>),
     VarDeclaration {
         category: Option<String>,
@@ -237,6 +178,23 @@ impl std::fmt::Debug for AstNode {
                 }
                 d.finish()
             }
+            AstNode::ReplicationStatement { is_reliable, condition, variables } => {
+                let mut d = f.debug_struct("ReplicationStatement");
+                d.field("is_reliable", is_reliable);
+                d.field("condition", condition);
+                if !variables.is_empty() {
+                    d.field("variables", variables);
+                }
+                d.finish()
+            }
+            AstNode::Expression => {
+                f.debug_struct("Expression").finish()
+            }
+            AstNode::ReplicationBlock { statements } => {
+                let mut d = f.debug_struct("ReplicationBlock");
+                d.field("statements", statements);
+                d.finish()
+            }
             AstNode::BooleanLiteral(value) => {
                 return f.write_str(value.to_string().as_str())
             }
@@ -260,11 +218,6 @@ impl std::fmt::Debug for AstNode {
             }
             AstNode::Identifier(value) => {
                 return f.write_str(value.as_str())
-            }
-            AstNode::PodType(pod_type) => {
-                f.debug_struct("PodType")
-                    .field("pod_type", &pod_type.to_string())
-                    .finish()
             }
             AstNode::FunctionArgument {modifiers, type_, name } => {
                 let mut d = f.debug_struct("FunctionArgument");
