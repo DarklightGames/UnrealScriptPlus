@@ -49,22 +49,29 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                     }).collect()
                 })
             }
+            Rule::class_modifier => {
+                let mut inner_iter = self.into_inner().into_iter();
+                Box::new(AstNode::ClassModifier {
+                    type_: inner_iter.next().unwrap().as_str().to_string(),
+                    arguments: inner_iter.map(|pair| { pair.into() }).collect()
+                })
+            }
             Rule::class_declaration => {
                 // TODO: turn this into a matching iter
                 let inner_iter = self.into_inner().into_iter();
                 let mut name: String = String::new();
                 let mut parent_class: Option<String> = None;
-                let mut modifiers: Vec<String> = Vec::new();
+                let mut modifiers: Vec<Box<AstNode>> = Vec::new();
                 inner_iter.for_each(|pair| {
                     match pair.as_rule() {
                         Rule::unqualified_identifier => {
                             name = pair.as_str().to_string()
                         }
-                        Rule::class_extends => {
+                        Rule::extends => {
                             parent_class = Some(pair.into_inner().next().unwrap().as_str().to_string())
                         }
                         Rule::class_modifier => {
-                            modifiers.push(pair.as_str().to_string())
+                            modifiers.push(pair.into())
                         }
                         _ => { panic!("unexpected pair")}
                     }
@@ -100,8 +107,49 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
             Rule::class_type => {
                 Box::new(AstNode::ClassType(self.into_inner().next().unwrap().into()))
             }
-            Rule::boolean_literal => {
-                Box::new(AstNode::BooleanLiteral(self.as_str().to_lowercase().parse::<bool>().unwrap()))
+            Rule::state_label => {
+                Box::new(AstNode::StateLabel)
+            }
+            Rule::state_declaration => {
+                let mut modifiers: Vec<String> = Vec::new();
+                let mut name: Option<String> = None;
+                let mut parent: Option<String> = None;
+                let mut ignores: Vec<String> = Vec::new();
+                let mut statements: Vec<Box<AstNode>> = Vec::new();
+                let mut labels: Vec<Box<AstNode>> = Vec::new();
+                self.into_inner().into_iter().for_each(|pair| {
+                    match pair.as_rule() {
+                        Rule::state_modifier => {
+                            modifiers.push(pair.as_str().to_string())
+                        },
+                        Rule::unqualified_identifier => {
+                            name = Some(pair.as_str().to_string())
+                        },
+                        Rule::extends => {
+                            parent = Some(pair.into_inner().next().unwrap().as_str().to_string())
+                        },
+                        Rule::state_ignores => {
+                            pair.into_inner().into_iter().for_each(|pair| {
+                                ignores.push(pair.as_str().to_string())
+                            })
+                        },
+                        Rule::state_statement => {
+                            statements.push(pair.into_inner().next().unwrap().into())
+                        }
+                        Rule::state_label => {
+                            labels.push(pair.into())
+                        },
+                        _ => panic!("unhandled rule")
+                    }
+                });
+                Box::new(AstNode::StateDeclaration {
+                    modifiers,
+                    name: name.unwrap(),
+                    parent,
+                    ignores,
+                    statements,
+                    labels
+                })
             }
             Rule::integer_literal => {
                 let mut integer: i32 = 0;
@@ -210,6 +258,13 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
             Rule::unqualified_identifier => {
                 Box::new(AstNode::UnqualifiedIdentifier(self.as_str().to_string()))
             },
+            Rule::function_modifier => {
+                let mut inner_iter = self.into_inner().into_iter();
+                Box::new(AstNode::FunctionModifier {
+                    type_: inner_iter.next().unwrap().as_str().to_string(),
+                    arguments: inner_iter.map(|pair| { pair.into() }).collect()
+                })
+            }
             Rule::function_argument => {
                 let mut modifiers: Vec<String> = Vec::new();
                 let mut type_: Option<Box<AstNode>> = None;
@@ -235,7 +290,7 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                 })
             }
             Rule::function_declaration => {
-                let mut modifiers: Vec<String> = Vec::new();
+                let mut modifiers: Vec<Box<AstNode>> = Vec::new();
                 let mut type_: String = String::new();
                 let mut return_type: Option<Box<AstNode>> = None;
                 let mut arguments: Vec<Box<AstNode>> = Vec::new();
@@ -247,7 +302,7 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                             type_ = pair.as_str().to_string()
                         }
                         Rule::function_modifier => {
-                            modifiers.push(pair.as_str().to_string())
+                            modifiers.push(pair.into())
                         }
                         Rule::type_ => {
                             return_type = Some(pair.into())
@@ -270,6 +325,52 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                     return_type,
                     name,
                     arguments,
+                    body
+                })
+            }
+            Rule::operator_type => {
+                let mut inner_iter = self.into_inner().into_iter();
+                Box::new(AstNode::OperatorType {
+                    type_: inner_iter.next().unwrap().as_str().to_string(),
+                    arguments: inner_iter.map(|pair| { pair.into() }).collect()
+                })
+            }
+            Rule::operator_declaration => {
+                let mut modifiers: Vec<Box<AstNode>> = Vec::new();
+                let mut type_: Option<Box<AstNode>> = None;
+                let mut return_type: Option<Box<AstNode>> = None;
+                let mut name: String = String::new();
+                let mut arguments: Vec<Box<AstNode>> = Vec::new();
+                let mut body: Option<Box<AstNode>> = None;
+                self.into_inner().into_iter().for_each(|pair| {
+                    match pair.as_rule() {
+                        Rule::operator_type => {
+                            type_ = Some(pair.into())
+                        }
+                        Rule::function_modifier => {
+                            modifiers.push(pair.into())
+                        }
+                        Rule::type_ => {
+                            return_type = Some(pair.into())
+                        }
+                        Rule::any_verb => {
+                            name = pair.as_str().to_string()
+                        }
+                        Rule::function_argument => {
+                            arguments.push(pair.into())
+                        }
+                        Rule::code_body => {
+                            body = None;
+                        }
+                        _ => { panic!("unhandled pair") }
+                    }
+                });
+                Box::new(AstNode::OperatorDeclaration {
+                    type_: type_.unwrap(),
+                    modifiers,
+                    return_type,
+                    arguments,
+                    name,
                     body
                 })
             }
@@ -308,7 +409,7 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                         Rule::unqualified_identifier => {
                             name.add_assign(pair.as_str())
                         }
-                        Rule::struct_extends => {
+                        Rule::extends => {
                             parent = Some(pair.into_inner().next().unwrap().as_str().to_string())
                         }
                         Rule::struct_var_declaration => {
@@ -494,26 +595,6 @@ mod tests {
     }
 
     #[test]
-    fn boolean_literal_true() {
-        parses_to!(
-            parser: UnrealScriptParser,
-            input: "true",
-            rule: Rule::boolean_literal,
-            tokens: [ boolean_literal(0, 4) ]
-        )
-    }
-
-    #[test]
-    fn boolean_literal_false() {
-        parses_to!(
-            parser: UnrealScriptParser,
-            input: "false",
-            rule: Rule::boolean_literal,
-            tokens: [ boolean_literal(0, 5) ]
-        )
-    }
-
-    #[test]
     fn float_literal_decimal() {
         parses_to!(
             parser: UnrealScriptParser,
@@ -669,6 +750,19 @@ mod tests {
     }
 
     #[test]
+    fn object_literal_with_underscore() {
+        parses_to!(
+            parser: UnrealScriptParser,
+            input: "class'Foo_Bar'",
+            rule: Rule::object_literal,
+            tokens: [ object_literal(0, 14, [
+                unqualified_identifier(0, 5),
+                single_quoted_string(5, 14, [ single_quoted_string_inner(6, 13) ])
+            ]) ]
+        )
+    }
+
+    #[test]
     fn vector_literal_with_integer_arguments() {
         parses_to! (
             parser: UnrealScriptParser,
@@ -773,7 +867,7 @@ mod tests {
             tokens: [
                 class_declaration(0, 22, [
                     unqualified_identifier(6, 9),
-                    class_extends(10, 21, [ identifier(18, 21) ])
+                    extends(10, 21, [ identifier(18, 21) ])
                 ])
             ]
         )
@@ -788,26 +882,26 @@ mod tests {
             tokens: [
                 class_declaration(0, 270, [
                     unqualified_identifier(6, 9),
-                    class_extends(10, 21, [ identifier(18, 21) ]),
-                    class_modifier(22, 30), // abstract
-                    class_modifier(31, 42), // cacheexempt
-                    class_modifier(43, 52), // instanced
-                    class_modifier(53, 64), // paseconfig
-                    class_modifier(65, 80), // perobjectconfig
-                    class_modifier(81, 92), // safereplace
-                    class_modifier(93, 102), // transient
-                    class_modifier(103, 121), // collapsecategories
-                    class_modifier(122, 144), // dontcollapsecategories
-                    class_modifier(145, 158), // editinlinenew
-                    class_modifier(159, 175), // noteditinlinenew
-                    class_modifier(176, 188), // hidedropdown
-                    class_modifier(189, 198), // placeable
-                    class_modifier(199, 211), // notplaceable
-                    class_modifier(212, 225), // exportstructs
-                    class_modifier(226, 235), // intrinsic
-                    class_modifier(236, 242), // native
-                    class_modifier(243, 260), // nativereplication
-                    class_modifier(261, 269) // noexport
+                    extends(10, 21, [ identifier(18, 21) ]),
+                    class_modifier(22, 31, [ class_modifier_type(22, 30) ]), // abstract
+                    class_modifier(31, 43, [ class_modifier_type(31, 42) ]), // cacheexempt
+                    class_modifier(43, 53, [ class_modifier_type(43, 52) ]), // instanced
+                    class_modifier(53, 65, [ class_modifier_type(53, 64) ]), // paseconfig
+                    class_modifier(65, 81, [ class_modifier_type(65, 80) ]), // perobjectconfig
+                    class_modifier(81, 93, [ class_modifier_type(81, 92) ]), // safereplace
+                    class_modifier(93, 103, [ class_modifier_type(93, 102) ]), // transient
+                    class_modifier(103, 122, [ class_modifier_type(103, 121) ]), // collapsecategories
+                    class_modifier(122, 145, [ class_modifier_type(122, 144) ]), // dontcollapsecategories
+                    class_modifier(145, 159, [ class_modifier_type(145, 158) ]), // editinlinenew
+                    class_modifier(159, 176, [ class_modifier_type(159, 175) ]), // noteditinlinenew
+                    class_modifier(176, 189, [ class_modifier_type(176, 188) ]), // hidedropdown
+                    class_modifier(189, 199, [ class_modifier_type(189, 198) ]), // placeable
+                    class_modifier(199, 212, [ class_modifier_type(199, 211) ]), // notplaceable
+                    class_modifier(212, 226, [ class_modifier_type(212, 225) ]), // exportstructs
+                    class_modifier(226, 236, [ class_modifier_type(226, 235) ]), // intrinsic
+                    class_modifier(236, 243, [ class_modifier_type(236, 242) ]), // native
+                    class_modifier(243, 261, [ class_modifier_type(243, 260) ]), // nativereplication
+                    class_modifier(261, 269, [ class_modifier_type(261, 269) ]) // noexport
                 ])
             ]
         )
@@ -822,8 +916,11 @@ mod tests {
             tokens: [
                 class_declaration(0, 34, [
                     unqualified_identifier(6, 9),
-                    class_extends(10, 21, [ identifier(18, 21) ]),
-                    class_modifier(22, 33, [ unqualified_identifier(29, 32) ])
+                    extends(10, 21, [ identifier(18, 21) ]),
+                    class_modifier(22, 33, [
+                        class_modifier_type(22, 28),
+                        expression(29, 32, [ target(29, 32, [ unqualified_identifier(29, 32) ]) ])
+                    ])
                 ])
             ]
         )
@@ -838,8 +935,11 @@ mod tests {
             tokens: [
                 class_declaration(0, 37, [
                     unqualified_identifier(6, 9),
-                    class_extends(10, 21, [ identifier(18, 21) ]),
-                    class_modifier(22, 36, [ identifier(32, 35) ])
+                    extends(10, 21, [ identifier(18, 21) ]),
+                    class_modifier(22, 36, [
+                        class_modifier_type(22, 31),
+                        expression(32, 35, [ target(32, 35, [ unqualified_identifier(32, 35) ]) ])
+                    ])
                 ])
             ]
         )
@@ -854,16 +954,39 @@ mod tests {
             tokens: [
                 class_declaration(0, 39, [
                     unqualified_identifier(6, 9),
-                    class_extends(10, 21, [ identifier(18, 21) ]),
+                    extends(10, 21, [ identifier(18, 21) ]),
                     class_modifier(22, 38, [
-                        integer_literal(27, 28, [ integer_literal_decimal(27, 28) ]),
-                        integer_literal(30, 31, [ integer_literal_decimal(30, 31) ]),
-                        integer_literal(33, 34, [ integer_literal_decimal(33, 34) ]),
-                        integer_literal(36, 37, [ integer_literal_decimal(36, 37) ]),
+                        class_modifier_type(22, 26),
+                        expression(27, 28, [ target(27, 28, [ literal(27, 28, [ integer_literal(27, 28, [ integer_literal_decimal(27, 28) ]) ]) ]) ]),
+                        expression(30, 31, [ target(30, 31, [ literal(30, 31, [ integer_literal(30, 31, [ integer_literal_decimal(30, 31) ]) ]) ]) ]),
+                        expression(33, 34, [ target(33, 34, [ literal(33, 34, [ integer_literal(33, 34, [ integer_literal_decimal(33, 34) ]) ]) ]) ]),
+                        expression(36, 37, [ target(36, 37, [ literal(36, 37, [ integer_literal(36, 37, [ integer_literal_decimal(36, 37) ]) ]) ]) ]),
                     ])
                 ])
             ]
         )
+    }
+
+    #[test]
+    fn unqualified_identifier_starts_with_number_fails() {
+        fails_with!(
+            parser: UnrealScriptParser,
+            input: "0Foo",
+            rule: Rule::unqualified_identifier,
+            positives: [Rule::unqualified_identifier],
+            negatives: [],
+            pos: 0
+        )
+    }
+
+    #[test]
+    fn unqualified_identifier_starts_with_underscore() {
+        parses_to! {
+            parser: UnrealScriptParser,
+            input: "_Foo",
+            rule: Rule::unqualified_identifier,
+            tokens: [ unqualified_identifier(0, 4) ]
+        }
     }
 
     #[test]
@@ -903,13 +1026,12 @@ mod tests {
             tokens: [
                 class_declaration(0, 52, [
                     unqualified_identifier(6, 9),
-                    class_extends(10, 21, [ identifier(18, 21) ]),
+                    extends(10, 21, [ identifier(18, 21) ]),
                     class_modifier(22, 51, [
-                        unqualified_identifier_list(37, 50, [
-                            unqualified_identifier(37, 40),
-                            unqualified_identifier(42, 45),
-                            unqualified_identifier(47, 50)
-                        ])
+                        class_modifier_type(22, 36),
+                        expression(37, 40, [ target(37, 40, [ unqualified_identifier(37, 40) ]) ]),
+                        expression(42, 45, [ target(42, 45, [ unqualified_identifier(42, 45) ]) ]),
+                        expression(47, 50, [ target(47, 50, [ unqualified_identifier(47, 50) ]) ])
                     ])
                 ])
             ]
@@ -1075,34 +1197,6 @@ mod tests {
     }
 
     #[test]
-    fn literal_boolean_literal() {
-        parses_to!(
-            parser: UnrealScriptParser,
-            input: "true",
-            rule: Rule::literal,
-            tokens: [
-                literal(0, 4, [
-                    boolean_literal(0, 4)
-                ])
-            ]
-        )
-    }
-
-    #[test]
-    fn literal_none_literal() {
-        parses_to!(
-            parser: UnrealScriptParser,
-            input: "none",
-            rule: Rule::literal,
-            tokens: [
-                literal(0, 4, [
-                    none(0, 4)
-                ])
-            ]
-        )
-    }
-
-    #[test]
     fn literal_name_literal() {
         parses_to!(
             parser: UnrealScriptParser,
@@ -1134,26 +1228,6 @@ mod tests {
                     ])
                 ])
             ]
-        )
-    }
-
-    #[test]
-    fn none() {
-        parses_to!(
-            parser: UnrealScriptParser,
-            input: "none",
-            rule: Rule::none,
-            tokens: [ none(0, 4) ]
-        )
-    }
-
-    #[test]
-    fn self_() {
-        parses_to!(
-            parser: UnrealScriptParser,
-            input: "self",
-            rule: Rule::self_,
-            tokens: [ self_(0, 4) ]
         )
     }
 
@@ -1396,7 +1470,7 @@ mod tests {
             tokens: [
                 struct_declaration(0, 26, [
                     unqualified_identifier(7, 10),
-                    struct_extends(11, 22, [ identifier(19, 22) ])
+                    extends(11, 22, [ identifier(19, 22) ])
                 ])
             ]
         }
@@ -1551,29 +1625,30 @@ mod tests {
     fn replication_statement_single_variable() {
         parses_to! {
             parser: UnrealScriptParser,
-            input: "reliable if (true) Foo;",
+            input: "reliable if (Foo) Bar;",
             rule: Rule::replication_statement,
             tokens: [
-                replication_statement(0, 23, [
+                replication_statement(0, 22, [
                     reliability(0, 8),
-                    expression(13, 17, [ target(13, 17, [ literal(13, 17, [boolean_literal(13, 17)]) ]) ]),
-                    unqualified_identifier(19, 22)
+                    expression(13, 16, [ target(13, 16, [ unqualified_identifier(13, 16) ]) ]),
+                    unqualified_identifier(18, 21)
                 ])
             ]
         }
     }
+
     #[test]
     fn replication_statement_multiple_variables() {
         parses_to! {
             parser: UnrealScriptParser,
-            input: "reliable if (true) Foo, Bar;",
+            input: "reliable if (Foo) Bar, Baz;",
             rule: Rule::replication_statement,
             tokens: [
-                replication_statement(0, 28, [
+                replication_statement(0, 27, [
                     reliability(0, 8),
-                    expression(13, 17, [ target(13, 17, [ literal(13, 17, [boolean_literal(13, 17)]) ]) ]),
-                    unqualified_identifier(19, 22),
-                    unqualified_identifier(24, 27)
+                    expression(13, 16, [ target(13, 16, [ unqualified_identifier(13, 16) ]) ]),
+                    unqualified_identifier(18, 21),
+                    unqualified_identifier(23, 26)
                 ])
             ]
         }

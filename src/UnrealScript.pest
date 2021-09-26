@@ -8,13 +8,10 @@ compiler_directive = { ^"#" ~ ANY* ~ ("\r" | "\n")}
 
 alpha = @{ 'a'..'z' | 'A'..'Z' }
 digit = @{ '0'..'9' }
-unqualified_identifier = @{ alpha ~ (alpha | digit | "_")* }
+unqualified_identifier = @{ (alpha | "_") ~ (alpha | digit | "_")* }
 unqualified_identifier_list = { unqualified_identifier ~ ("," ~ unqualified_identifier)* }
 qualified_identifier = @{ unqualified_identifier ~ "." ~ unqualified_identifier }
 identifier = @{ qualified_identifier | unqualified_identifier }
-
-none = @{ ^"none" }
-self_ = @{ ^"self" }
 
 // literals
 hex_digits = { ASCII_HEX_DIGIT+ }
@@ -39,11 +36,10 @@ string_character = @{
 string_literal_inner = @{ string_character* }
 string_literal = { "\"" ~ string_literal_inner ~ "\"" }
 
-boolean_literal = { ^"true" | ^"false" }
 name_character = @{ ASCII_ALPHANUMERIC | "_" }
 name_inner = @{ name_character* }
 name_literal = { "'" ~ name_inner ~ "'"}
-single_quoted_string_character = @{ ASCII_ALPHANUMERIC | "." | " " }
+single_quoted_string_character = @{ ASCII_ALPHANUMERIC | "." | " " | "_" }
 single_quoted_string_inner = @{ single_quoted_string_character* }
 single_quoted_string = { "'" ~ single_quoted_string_inner  ~ "'"}
 object_literal = { unqualified_identifier ~ single_quoted_string }
@@ -54,19 +50,16 @@ literal = {
     rotator_literal |
     numeric_literal |
     string_literal |
-    boolean_literal |
-    none |
     name_literal |
     object_literal
 }
 
-// TODO: fetching the original class modifier out of here might be a pain in the AST builder!
-class_modifier = {
+class_modifier_type = @{
     ^"abstract" |
     ^"cacheexempt" |
-    ^"config" ~ "(" ~ unqualified_identifier ~ ")" |
-    ^"dependson" ~ "(" ~ identifier ~ ")" |
-    ^"guid" ~ "(" ~ integer_literal ~ "," ~ integer_literal ~ "," ~ integer_literal ~ "," ~ integer_literal ~ ")" |
+    ^"config" |
+    ^"dependson" |
+    ^"guid" |
     ^"instanced" |
     ^"parseconfig" |
     ^"perobjectconfig" |
@@ -76,8 +69,8 @@ class_modifier = {
     ^"dontcollapsecategories" |
     ^"editinlinenew" |
     ^"noteditinlinenew" |
-    ^"hidecategories" ~ "(" ~ unqualified_identifier_list? ~ ")" |
-    ^"showcategories" ~ "(" ~ unqualified_identifier_list? ~ ")" |
+    ^"hidecategories"|
+    ^"showcategories"|
     ^"hidedropdown" |
     ^"placeable" |
     ^"notplaceable" |
@@ -87,8 +80,8 @@ class_modifier = {
     ^"native" |
     ^"noexport"
 }
-class_extends = { ^"extends" ~ identifier }
-class_declaration = { ^"class" ~ unqualified_identifier ~ class_extends? ~ class_modifier* ~ ";" }
+class_modifier = { class_modifier_type ~ ("(" ~ expression_list ~ ")")? }
+class_declaration = { ^"class" ~ unqualified_identifier ~ extends? ~ class_modifier* ~ ";" }
 
 var_modifier = @{
     ^"const" |
@@ -117,11 +110,11 @@ var_modifier = @{
 var_size = { "[" ~ (integer_literal | unqualified_identifier) ~ "]" }
 var_name = { unqualified_identifier ~ var_size? }
 var_category = { "(" ~ unqualified_identifier? ~ ")" }
-var_declaration = { ^"var" ~ var_category? ~ var_modifier* ~ type_ ~ var_name ~ ("," ~ var_name)* ~ ";" }
+var_declaration = { ^"var" ~ var_category? ~ var_modifier* ~ type_ ~ var_names ~ ";" }
 struct_var_editable = { "(" ~ ")" }
-struct_var_declaration = { ^"var" ~ struct_var_editable? ~ var_modifier* ~ type_ ~ var_name ~ ("," ~ var_name)* ~ ";" }
+struct_var_declaration = { ^"var" ~ struct_var_editable? ~ var_modifier* ~ type_ ~ var_names ~ ";" }
 array_type = { ^"array" ~ "<" ~ type_ ~ ">" }
-class_type = { ^"class" ~ "<" ~ identifier ~ ">"}
+class_type = { ^"class" ~ "<" ~ identifier ~ ">" }
 type_ = {
     struct_declaration | enum_declaration | array_type | class_type | identifier
 }
@@ -138,12 +131,12 @@ struct_modifier = {
     ^"native"
 }
 struct_modifiers = { struct_modifier* }
-struct_extends = { ^"extends" ~ identifier }
-struct_declaration = { ^"struct" ~ struct_modifier* ~ unqualified_identifier ~ struct_extends? ~ "{" ~ struct_var_declaration* ~ "}" }
+extends = { ^"extends" ~ identifier }
+struct_declaration = { ^"struct" ~ struct_modifier* ~ unqualified_identifier ~ extends? ~ "{" ~ struct_var_declaration* ~ "}" }
 struct_stmt = { struct_declaration ~ ";" }
 
-function_modifier = {
-    ^"native" ~ ("(" ~ integer_literal ~ ")")? |
+function_modifier_type = {
+    ^"native" |
     ^"private" |
     ^"protected" |
     ^"public" |
@@ -156,22 +149,33 @@ function_modifier = {
     ^"iterator" |
     ^"latent"
 }
+function_modifier = { function_modifier_type ~ ("(" ~ integer_literal ~ ")")? }
 function_argument_modifier = @{
     ^"coerce" |
     ^"optional" |
     ^"out" |
     ^"skip"
 }
+
 function_argument = { function_argument_modifier* ~ type_ ~ var_name}
 function_arguments = _{ function_argument ~ ("," ~ function_argument)* }
 function_type = { ^"function" | ^"event" | ^"delegate" }
 function_declaration = {
     function_modifier*
-    ~ function_type+
+    ~ function_type+    // for some reason, any number of these are allowed
     ~ function_modifier*
     ~ ((type_ ~ unqualified_identifier) | unqualified_identifier)
     ~ "(" ~ function_arguments? ~ ")" ~ body_or_semicolon
 }
+
+operator = { ^"operator" ~ "(" ~ integer_literal ~ ")" }
+preoperator = { ^"preoperator" }
+postoperator = { ^"postoperator" }
+operator_type = { operator | preoperator | postoperator }
+
+// TODO: fix the VERBS
+any_verb = { symbolic_verb | unqualified_identifier }
+operator_declaration = { function_modifier* ~ operator_type ~ type_ ~ any_verb ~ "(" ~ function_arguments? ~ ")" ~ body_or_semicolon }
 
 body_or_semicolon = _{ (";" | "{" ~ code_body ~ "}") }
 
@@ -180,70 +184,103 @@ replication_statement = { reliability ~ ^"if" ~ "(" ~ expression ~ ")" ~ (unqual
 replication_block = { ^"replication" ~ "{" ~ replication_statement*  ~ "}" }
 
 type_declaration_statement = _{ (enum_declaration | struct_declaration) ~ ";" }
-class_statement = _{ const_declaration | var_declaration  | type_declaration_statement | function_declaration | replication_block }
+class_statement = _{ const_declaration | var_declaration  | type_declaration_statement | function_declaration | operator_declaration | replication_block | state_declaration }
 eoi = _{ EOI }
 program = { SOI ~ class_declaration ~ class_statement* ~ eoi }
 
-local_decl = { ^"local" ~ type_ ~ var_name ~ ("," ~ var_name)* ~ ";" }
+var_names = _{ var_name ~ ("," ~ var_name)* }
+local_decl = { ^"local" ~ type_ ~ var_names ~ ";" }
 
 // LOGIC
 // build a straight LIST of what we see in front of us, we will shuffle the AST around in a separate pass!
-//
-// member_access = { expression ~ "." ~ expression }
-// any_call = _{ super_call | call | member_call }
-
 array_access = { "[" ~ expression ~ "]" }
 member_access = { "." ~ unqualified_identifier }
 default_access = { ^"default" ~ "." ~ unqualified_identifier }
+default_call = { ^"default" ~ "." ~ unqualified_identifier ~ "(" ~ expression_list ~ ")" }
 static_acesss = { ^"static" ~ "." ~ unqualified_identifier }
+global_call = { ^"global" ~ "." ~ unqualified_identifier ~ "(" ~ expression_list ~ ")" }
+super_call = { ^"super" ~ ("(" ~ unqualified_identifier ~ ")")? ~ "." ~ unqualified_identifier ~ "(" ~ expression_list ~ ")" }
 atom = _{ call | array_access | ("." ~ default_access) | ("." ~ static_acesss) | member_access | dyadic_expression }
 
 dyadic_expression = { dyadic_verb ~ expression }
 
 // TODO: chaining unary operators don't work very well (eg. ~--A) [valid uc, invalid ucp]
-unary_prefix_operator = { "++" | "--" | "~" | "-" | "!" }
-unary_post_operator = { "++" | "--" }
-monadic_pre_expression = { unary_prefix_operator ~ target }
-monadic_post_expression = { target ~ unary_post_operator}
+monadic_verb = { monadic_prefix_verb | monadic_post_verb }
+
+symbolic_verb = {
+    "++" | "--" | "**" | "+=" | "-=" | "*=" | "/=" | "&&" | "^^" |
+    "||" | "-=" | "<<" | ">>>" | ">>" | "<=" | ">=" | "==" | "~=" | "<" | ">" | "!=" |
+    "$=" | "@=" | "$" | "@" | "+" | "-" | "=" | "&" | "|" | "^" | "%" | "*" | "/" | "!" | "~"
+}
+
+monadic_prefix_verb = { "++" | "--" | "~" | "-" | "!" }
+monadic_post_verb = { "++" | "--" }
+monadic_pre_expression = { monadic_prefix_verb ~ target }
+monadic_post_expression = { target ~ monadic_post_verb }
 monadic_expression = { monadic_pre_expression | monadic_post_expression }
 
-primary = _{ arraycount | cast | literal | parenthetical_expression | default_access | static_acesss | unqualified_identifier }   // primaries are the START of a TARGET
-target = { primary ~ atom* }
+primary = _{ cast | literal | parenthetical_expression | default_access | static_acesss | global_call | unqualified_identifier }   // primaries are the START of a TARGET
+target = { new | (primary ~ atom*) }
 parenthetical_expression = { "(" ~ expression ~ ")" }
 expression = { monadic_expression | target | unqualified_identifier }   // TODO: monadic expression should be a target???
+
+// new is a kind of "terminal", nothing can come after it in an expression
+new = { ^"new" ~ ("(" ~ expression_list ~ ")")? ~ expression } /// fuck this syntax
 
 call = { "(" ~ expression_list ~ ")" }
 empty_expression = { "," }
 expression_list = _{ (expression ~ "," | empty_expression)* ~ expression? }
-arraycount = { ^"arraycount" ~ "(" ~ expression ~ ")" }
+constant_list = _{ (constant ~ "," | empty_expression)* ~ constant? }
 cast = { class_type ~ "(" ~ expression ~ ")" }
+// TODO: certain casts (int, string) don't follow the cast grammar
 
+code_scope = { "{" ~ statement* ~ "}" }
 code_block = { "{" ~ code_body ~ "}" }
 code_body = { local_decl* ~ statement* }
-statement_or_block = _{ statement | code_block }
+statement_or_block = _{ statement | code_scope }
+expression_or_empty = _{ expression? }
+// TODO: doesn't handle
+
+while_statement = { ^"while" ~ "(" ~ expression ~ ")" ~ statement_or_block }
+return_statement = { ^"return" ~ expression_or_empty ~ ";" }
+constant = _{ literal | unqualified_identifier }
+// For some reason unbeknownst to mere mortals, UnrealScript allows two default cases in switch statements.
+
+// CONTROL FLOW
 elif_statement = { ^"else" ~ ^"if" ~ "(" ~ expression ~ ")" ~ statement_or_block }
 else_statement = { ^"else" ~ statement_or_block }
 conditional_statement = { ^"if" ~ "(" ~ expression ~ ")" ~ statement_or_block ~ elif_statement* ~ else_statement? }
-expression_or_empty = _{ expression? }
-// TODO: doesn't handle
 for_statement = { ^"for" ~ "(" ~ expression_or_empty ~ (";" ~ expression_or_empty){2} ~ ")" ~ statement_or_block }
-// TODO: this one is tricky!
 foreach_statement = { ^"foreach" ~ (expression ~ "." )? ~ unqualified_identifier ~ call ~ statement_or_block }
-return_statement = { ^"return" ~ expression_or_empty ~ ";" }
+switch_statement = { ^"switch" ~ "(" ~ expression ~ ")" ~ "{" ~ switch_case* ~ default_case{0,2} ~ "}" }
+switch_case_label = { ^"case" ~ target ~ ":" }
+switch_default_label = { ^"default" ~ ":" }
+switch_case = { switch_case_label ~ statement* }
+default_case = { switch_default_label ~ statement* }
+continue_statement = { ^"continue" ~ ";" }
+break_statement = { ^"break" ~ ";" }
 
-statement = { conditional_statement | for_statement | foreach_statement | return_statement | compiler_directive | (expression ~ ";") }
+// STATES
+state_modifier = { ^"auto" }
+state_statement = { const_declaration | function_declaration }
+state_declaration = { state_modifier? ~ ^"state" ~ unqualified_identifier ~ extends? ~ "{" ~ state_ignores? ~ state_statement* ~ state_label* ~ "}" }
+state_label = { unqualified_identifier ~ ":" ~ statement+ }
+state_ignores = { ^"ignores" ~ unqualified_identifier_list ~ ";" }
+
+// STATES
+statement = { conditional_statement | for_statement | while_statement | foreach_statement | return_statement | break_statement | continue_statement | compiler_directive | switch_statement | (expression ~ ";") }
 
 // TODO: operator precedence is handled at the parser level
-dyadic_verb = {
+native_verb = {
     "**" |  // 12
     "+=" | "-=" | "*=" | "/=" | // 34
     "&&" | "^^" | // 30
-    "*" | "/" | ^"dot" | ^"cross" | // 16
+    "*" | "/" /*| ^"dot" | ^"cross"*/ | // 16
     "||" | // 32
     "%" | //18
     "-=" | // 45
     "<<" | ">>" | ">>>" | // 22
-    "<=" | ">=" | "==" | "~=" | "<" | ">" | ^"clockwisefrom" | // 24
+    "<=" | ">=" | "==" | "~=" | "<" | ">" /*| ^"clockwisefrom"*/ | // 24
     "!=" | // 26
     "&" | "|" | "^" | // 28
     "$=" | "@=" | //44
@@ -251,6 +288,7 @@ dyadic_verb = {
     "+" | "-" | // 20
     "="
 }
+dyadic_verb = { unqualified_identifier | native_verb }
 
 // USP rules
 pass_statement = _{ ^"pass" ~ ";" } // Identical to Python's `pass`, just a statement that does nothing.

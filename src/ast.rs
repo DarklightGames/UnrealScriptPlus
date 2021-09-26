@@ -10,15 +10,43 @@ pub enum AstNode {
     BooleanLiteral(bool),
     StringLiteral(String),
     NameLiteral(String),
+    ClassModifier {
+        type_: String,
+        arguments: Vec<Box<AstNode>>
+    },
     VectorLiteral {
         x: Box<AstNode>,
         y: Box<AstNode>,
         z: Box<AstNode>
     },
+    FunctionModifier {
+        type_: String,
+        arguments: Vec<Box<AstNode>>
+    },
     FunctionArgument {
         modifiers: Vec<String>,
         type_: Box<AstNode>,
         name: Box<AstNode>
+    },
+    FunctionDelaration {
+        type_: String,  // TODO: enum?
+        modifiers: Vec<Box<AstNode>>,
+        return_type: Option<Box<AstNode>>,
+        arguments: Vec<Box<AstNode>>,
+        name: String,
+        body: Option<Box<AstNode>>
+    },
+    OperatorType {
+        type_: String,
+        arguments: Vec<Box<AstNode>>
+    },
+    OperatorDeclaration {
+        modifiers: Vec<Box<AstNode>>,
+        type_: Box<AstNode>,
+        return_type: Option<Box<AstNode>>,
+        arguments: Vec<Box<AstNode>>,
+        name: String,
+        body: Option<Box<AstNode>>
     },
     ReplicationStatement {
         is_reliable: bool,
@@ -27,14 +55,6 @@ pub enum AstNode {
     },
     ReplicationBlock {
         statements: Vec<Box<AstNode>>
-    },
-    FunctionDelaration {
-        type_: String,  // TODO: enum?
-        modifiers: Vec<String>,
-        return_type: Option<Box<AstNode>>,
-        arguments: Vec<Box<AstNode>>,
-        name: String,
-        body: Option<Box<AstNode>>
     },
     RotatorLiteral {
         pitch: Box<AstNode>,
@@ -49,7 +69,7 @@ pub enum AstNode {
     ClassDeclaration {
         name: String,
         parent_class: Option<String>,
-        modifiers: Vec<String>,
+        modifiers: Vec<Box<AstNode>>,
     },
     ConstDeclaration {
         name: String,
@@ -59,7 +79,6 @@ pub enum AstNode {
         name: String,
         values: Vec<String>
     },
-    ClassModifier(String),
     VarName {
         name: String,
         size: Option<Box<AstNode>>
@@ -82,6 +101,15 @@ pub enum AstNode {
         modifiers: Vec<String>,
         type_: Box<AstNode>,
         names: Vec<Box<AstNode>>
+    },
+    StateLabel, // TODO
+    StateDeclaration {
+        modifiers: Vec<String>,
+        name: String,
+        parent: Option<String>,
+        ignores: Vec<String>,
+        statements: Vec<Box<AstNode>>,
+        labels: Vec<Box<AstNode>>
     },
     UnqualifiedIdentifier(String),
     VarSize(Box<AstNode>),
@@ -123,12 +151,24 @@ impl std::fmt::Debug for AstNode {
                     .finish()
             }
             AstNode::VarName {name, size} => {
-                let mut d = f.debug_struct("VarName");
-                d.field("name", name);
                 if let Some(size) = size {
-                    d.field("size", size);
+                    f.debug_struct("VarName")
+                        .field("name", name)
+                        .field("size", size)
+                        .finish()
+                } else {
+                    f.write_str(name)
                 }
-                d.finish()
+            }
+            AstNode::ClassModifier {type_, arguments} => {
+                if arguments.is_empty() {
+                    f.write_str(type_)
+                } else {
+                    f.debug_struct("ClassModifier")
+                        .field("type", type_)
+                        .field("arguments", arguments)
+                        .finish()
+                }
             }
             AstNode::ArrayType(type_) => {
                 f.debug_struct("ArrayType")
@@ -219,6 +259,36 @@ impl std::fmt::Debug for AstNode {
             AstNode::Identifier(value) => {
                 return f.write_str(value.as_str())
             }
+            AstNode::StateDeclaration { modifiers, name, parent, ignores, statements, labels } => {
+                let mut d = f.debug_struct("StateDeclaration");
+                if !modifiers.is_empty() {
+                    d.field("modifiers", modifiers);
+                }
+                if let Some(parent) = parent {
+                    d.field("parent", parent);
+                }
+                d.field("name", name);
+                if !ignores.is_empty() {
+                    d.field("ignores", ignores);
+                }
+                if !statements.is_empty() {
+                    d.field("statements", statements);
+                }
+                if !labels.is_empty() {
+                    d.field("labels", labels);
+                }
+                d.finish()
+            }
+            AstNode::FunctionModifier { type_, arguments } => {
+                if arguments.is_empty() {
+                    return f.write_str(type_)
+                } else {
+                    let mut d = f.debug_struct("FunctionModifier");
+                    d.field("type", type_);
+                    d.field("arguments", arguments);
+                    d.finish()
+                }
+            }
             AstNode::FunctionArgument {modifiers, type_, name } => {
                 let mut d = f.debug_struct("FunctionArgument");
                 if !modifiers.is_empty() {
@@ -230,6 +300,34 @@ impl std::fmt::Debug for AstNode {
             }
             AstNode::FunctionDelaration { type_, modifiers, return_type, name, arguments, body } => {
                 let mut d = f.debug_struct("FunctionDeclaration");
+                d.field("type", type_);
+                d.field("name", name);
+                if let Some(return_type) = return_type {
+                    d.field("return_type", return_type);
+                }
+                if !arguments.is_empty() {
+                    d.field("arguments", arguments);
+                }
+                if !modifiers.is_empty() {
+                    d.field("modifiers", modifiers);
+                }
+                if let Some(body) = body {
+                    d.field("body", body);
+                }
+                d.finish()
+            }
+            AstNode::OperatorType { type_, arguments } => {
+                if arguments.is_empty() {
+                    f.write_str(type_)
+                } else {
+                    f.debug_struct("OperatorType")
+                        .field("type", type_)
+                        .field("arguments", arguments)
+                        .finish()
+                }
+            }
+            AstNode::OperatorDeclaration { type_, modifiers, return_type, name, arguments, body } => {
+                let mut d = f.debug_struct("OperatorDeclaration");
                 d.field("type", type_);
                 d.field("name", name);
                 if let Some(return_type) = return_type {
