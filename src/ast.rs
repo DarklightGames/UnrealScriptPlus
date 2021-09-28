@@ -3,8 +3,6 @@ pub enum AstNode {
         class_declaration: Box<AstNode>,
         statements: Vec<Box<AstNode>>
     },
-    Call { arguments: Vec<Option<Box<AstNode>>> },
-    Expression,
     IntegerLiteral(i32),
     FloatLiteral(f32),
     BooleanLiteral(bool),
@@ -55,6 +53,9 @@ pub enum AstNode {
     },
     ReplicationBlock {
         statements: Vec<Box<AstNode>>
+    },
+    CompilerDirective {
+        contents: String
     },
     RotatorLiteral {
         pitch: Box<AstNode>,
@@ -115,6 +116,60 @@ pub enum AstNode {
     VarSize(Box<AstNode>),
     ClassType(Box<AstNode>),
     Identifier(String),
+
+    // FLOW
+    ForLoop {
+        body: Box<AstNode>
+    },
+    SwitchCase {
+        predicate: Box<AstNode>,
+        body: Option<Box<AstNode>>
+    },
+    SwitchStatement {
+        cases: Vec<Box<AstNode>>
+    },
+    CodeBlock {
+        statements: Vec<Box<AstNode>>
+    },
+    IfStatement {
+        conditional_expression: Box<AstNode>,
+        body: Box<AstNode>
+    },
+    ElifStatement {
+        conditional_expression: Box<AstNode>,
+        body: Box<AstNode>
+    },
+    ElseStatement {
+        body: Box<AstNode>
+    },
+
+    // LOGIC
+    Call {
+        operand: Box<AstNode>,
+        arguments: Vec<Option<Box<AstNode>>>
+    },
+    ArrayAccess {
+        target: Box<AstNode>,
+        argument: Box<AstNode>
+    },
+    DefaultAccess {
+        operand: Box<AstNode>,
+        target: String
+    },
+    StaticAccess {
+        operand: Box<AstNode>,
+        target: String
+    },
+    MemberAccess {
+        operand: Box<AstNode>,
+        target: String,
+    },
+    DyadicExpression {
+        lhs: Box<AstNode>,
+        operator: String,
+        rhs: Box<AstNode>
+    },
+
     Unhandled
 }
 
@@ -227,9 +282,6 @@ impl std::fmt::Debug for AstNode {
                 }
                 d.finish()
             }
-            AstNode::Expression => {
-                f.debug_struct("Expression").finish()
-            }
             AstNode::ReplicationBlock { statements } => {
                 let mut d = f.debug_struct("ReplicationBlock");
                 d.field("statements", statements);
@@ -246,6 +298,11 @@ impl std::fmt::Debug for AstNode {
             }
             AstNode::ObjectLiteral {type_, reference} => {
                 return f.write_fmt(format_args!("{}'{}'", type_, reference));
+            }
+            AstNode::CompilerDirective { contents } => {
+                f.debug_struct("CompilerDirective")
+                    .field("contents", contents)
+                    .finish()
             }
             AstNode::NameLiteral(name) => {
                 return f.write_str(name)

@@ -20,7 +20,10 @@ mod ast;
 
 use std::convert::Into;
 
+
+
 impl Into<Box<AstNode>> for Pair<'_, Rule> {
+
     fn into(self) -> Box<AstNode> {
         match self.as_rule() {
             Rule::program => {
@@ -47,6 +50,11 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                     statements: self.into_inner().into_iter().map(|pair| {
                         pair.into()
                     }).collect()
+                })
+            }
+            Rule::compiler_directive => {
+                Box::new(AstNode::CompilerDirective {
+                    contents: self.into_inner().next().unwrap().as_str().to_string()
                 })
             }
             Rule::class_modifier => {
@@ -377,24 +385,24 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
             Rule::var_size => {
                 self.into_inner().next().unwrap().into()
             }
-            Rule::call => {
-                let mut arguments: Vec<Option<Box<AstNode>>> = Vec::new();
-                self.into_inner().into_iter().for_each(|pair| {
-                    match pair.as_rule() {
-                        Rule::expression => {
-                            arguments.push(Some(pair.into()))
-                        },
-                        Rule::empty_expression => {
-                            arguments.push(None)
-                        },
-                        _ => { panic!("unhandled rule") }
-                    }
-                });
-                Box::new(AstNode::Call { arguments })
-            },
-            Rule::expression => {
-                Box::new(AstNode::Expression)
-            }
+            // Rule::call => {
+            //     let mut arguments: Vec<Option<Box<AstNode>>> = Vec::new();
+            //     self.into_inner().into_iter().for_each(|pair| {
+            //         match pair.as_rule() {
+            //             Rule::expression => {
+            //                 arguments.push(Some(pair.into()))
+            //             },
+            //             Rule::empty_expression => {
+            //                 arguments.push(None)
+            //             },
+            //             _ => { panic!("unhandled rule") }
+            //         }
+            //     });
+            //     Box::new(AstNode::Call { arguments })
+            // },
+            // Rule::expression => {
+            //     Box::new(AstNode::Expression)
+            // }
             Rule::struct_declaration => {
                 let rules_itr = self.into_inner().into_iter();
                 let mut modifiers: Vec<String> = Vec::new();
@@ -883,24 +891,24 @@ mod tests {
                 class_declaration(0, 270, [
                     unqualified_identifier(6, 9),
                     extends(10, 21, [ identifier(18, 21) ]),
-                    class_modifier(22, 31, [ class_modifier_type(22, 30) ]), // abstract
-                    class_modifier(31, 43, [ class_modifier_type(31, 42) ]), // cacheexempt
-                    class_modifier(43, 53, [ class_modifier_type(43, 52) ]), // instanced
-                    class_modifier(53, 65, [ class_modifier_type(53, 64) ]), // paseconfig
-                    class_modifier(65, 81, [ class_modifier_type(65, 80) ]), // perobjectconfig
-                    class_modifier(81, 93, [ class_modifier_type(81, 92) ]), // safereplace
-                    class_modifier(93, 103, [ class_modifier_type(93, 102) ]), // transient
-                    class_modifier(103, 122, [ class_modifier_type(103, 121) ]), // collapsecategories
-                    class_modifier(122, 145, [ class_modifier_type(122, 144) ]), // dontcollapsecategories
-                    class_modifier(145, 159, [ class_modifier_type(145, 158) ]), // editinlinenew
-                    class_modifier(159, 176, [ class_modifier_type(159, 175) ]), // noteditinlinenew
-                    class_modifier(176, 189, [ class_modifier_type(176, 188) ]), // hidedropdown
-                    class_modifier(189, 199, [ class_modifier_type(189, 198) ]), // placeable
-                    class_modifier(199, 212, [ class_modifier_type(199, 211) ]), // notplaceable
-                    class_modifier(212, 226, [ class_modifier_type(212, 225) ]), // exportstructs
-                    class_modifier(226, 236, [ class_modifier_type(226, 235) ]), // intrinsic
-                    class_modifier(236, 243, [ class_modifier_type(236, 242) ]), // native
-                    class_modifier(243, 261, [ class_modifier_type(243, 260) ]), // nativereplication
+                    class_modifier(22, 30, [ class_modifier_type(22, 30) ]), // abstract
+                    class_modifier(31, 42, [ class_modifier_type(31, 42) ]), // cacheexempt
+                    class_modifier(43, 52, [ class_modifier_type(43, 52) ]), // instanced
+                    class_modifier(53, 64, [ class_modifier_type(53, 64) ]), // paseconfig
+                    class_modifier(65, 80, [ class_modifier_type(65, 80) ]), // perobjectconfig
+                    class_modifier(81, 92, [ class_modifier_type(81, 92) ]), // safereplace
+                    class_modifier(93, 102, [ class_modifier_type(93, 102) ]), // transient
+                    class_modifier(103, 121, [ class_modifier_type(103, 121) ]), // collapsecategories
+                    class_modifier(122, 144, [ class_modifier_type(122, 144) ]), // dontcollapsecategories
+                    class_modifier(145, 158, [ class_modifier_type(145, 158) ]), // editinlinenew
+                    class_modifier(159, 175, [ class_modifier_type(159, 175) ]), // noteditinlinenew
+                    class_modifier(176, 188, [ class_modifier_type(176, 188) ]), // hidedropdown
+                    class_modifier(189, 198, [ class_modifier_type(189, 198) ]), // placeable
+                    class_modifier(199, 211, [ class_modifier_type(199, 211) ]), // notplaceable
+                    class_modifier(212, 225, [ class_modifier_type(212, 225) ]), // exportstructs
+                    class_modifier(226, 235, [ class_modifier_type(226, 235) ]), // intrinsic
+                    class_modifier(236, 242, [ class_modifier_type(236, 242) ]), // native
+                    class_modifier(243, 260, [ class_modifier_type(243, 260) ]), // nativereplication
                     class_modifier(261, 269, [ class_modifier_type(261, 269) ]) // noexport
                 ])
             ]
@@ -1630,7 +1638,7 @@ mod tests {
             tokens: [
                 replication_statement(0, 22, [
                     reliability(0, 8),
-                    expression(13, 16, [ target(13, 16, [ unqualified_identifier(13, 16) ]) ]),
+                    parenthetical_expression(12, 17, [ unqualified_identifier(13, 16) ]),
                     unqualified_identifier(18, 21)
                 ])
             ]
@@ -1646,11 +1654,24 @@ mod tests {
             tokens: [
                 replication_statement(0, 27, [
                     reliability(0, 8),
-                    expression(13, 16, [ target(13, 16, [ unqualified_identifier(13, 16) ]) ]),
+                    parenthetical_expression(12, 17, [ unqualified_identifier(13, 16) ]),
                     unqualified_identifier(18, 21),
                     unqualified_identifier(23, 26)
                 ])
             ]
+        }
+    }
+
+    // TODO: operator tests!
+
+    // TODO: compiler directive tests
+    #[test]
+    fn compiler_directive_start_of_line() {
+        parses_to! {
+            parser: UnrealScriptParser,
+            input: "#exec OBJ LOAD FILE=..\\Foo\\Bar.utx",
+            rule: Rule::compiler_directive,
+            tokens: [ compiler_directive(0, 34, [ compiler_directive_inner(1, 34) ]) ]
         }
     }
 }
