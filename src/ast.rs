@@ -144,12 +144,15 @@ pub enum AstNode {
     },
 
     // LOGIC
+    ParentheticalExpression {
+        expression: Box<AstNode>
+    },
     Call {
         operand: Box<AstNode>,
         arguments: Vec<Option<Box<AstNode>>>
     },
     ArrayAccess {
-        target: Box<AstNode>,
+        operand: Box<AstNode>,
         argument: Box<AstNode>
     },
     DefaultAccess {
@@ -164,12 +167,12 @@ pub enum AstNode {
         operand: Box<AstNode>,
         target: String,
     },
+    Expression(),
     DyadicExpression {
         lhs: Box<AstNode>,
         operator: String,
         rhs: Box<AstNode>
     },
-
     Unhandled
 }
 
@@ -305,10 +308,10 @@ impl std::fmt::Debug for AstNode {
                     .finish()
             }
             AstNode::NameLiteral(name) => {
-                return f.write_str(name)
+                return f.write_fmt(format_args!("'{}'", name))
             }
             AstNode::StringLiteral(string) => {
-                return f.write_str(string)
+                return f.write_fmt(format_args!("\"{}\"", string))
             }
             AstNode::UnqualifiedIdentifier(value) => {
                 return f.write_str(value.as_str())
@@ -400,6 +403,38 @@ impl std::fmt::Debug for AstNode {
                     d.field("body", body);
                 }
                 d.finish()
+            }
+            AstNode::Call {operand, arguments } => {
+                let mut d = f.debug_struct("Call");
+                d.field("operand", operand);
+                if !arguments.is_empty() {
+                    d.field("arguments", arguments);
+                }
+                d.finish()
+            }
+            AstNode::MemberAccess { operand, target } => {
+                f.debug_struct("MemberAccess")
+                    .field("operand", operand)
+                    .field("target", target)
+                    .finish()
+            }
+            AstNode::ArrayAccess { operand, argument } => {
+                f.debug_struct("ArrayAccess")
+                    .field("operand", operand)
+                    .field("argument", argument)
+                    .finish()
+            }
+            AstNode::ParentheticalExpression { expression } => {
+                f.debug_struct("ParentheticalExpression")
+                    .field("expression", expression)
+                    .finish()
+            }
+            AstNode::DyadicExpression { lhs, operator, rhs } => {
+                f.debug_struct("DyadicExpression")
+                    .field("lhs", lhs)
+                    .field("operator", operator)
+                    .field("rhs", rhs)
+                    .finish()
             }
             _ => { f.debug_struct("Unknown").finish() }
         }

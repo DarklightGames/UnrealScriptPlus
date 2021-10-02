@@ -192,7 +192,7 @@ local_declaration = { ^"local" ~ WS+ ~ type_ ~ WS+ ~ var_names ~ WS* ~ ";" }
 
 // LOGIC
 // build a straight LIST of what we see in front of us, we will shuffle the AST around in a separate pass!
-array_access = { "[" ~ WS* ~ expression ~ WS* ~ "]" }
+array_access = { "[" ~ WS* ~ expression_outer ~ WS* ~ "]" }
 member_access = { "." ~ WS* ~ unqualified_identifier }
 default_access = { ^"default" ~ WS* ~ "." ~ WS* ~ unqualified_identifier }
 default_call = { ^"default" ~ WS* ~ "." ~ WS* ~ unqualified_identifier ~ WS* ~ "(" ~ WS* ~ expression_list ~ WS* ~ ")" }
@@ -220,16 +220,16 @@ monadic_expression = _{ monadic_pre_expression | monadic_post_expression }
 
 primary = _{ cast | literal | parenthetical_expression | default_access | static_acesss | global_call | unqualified_identifier }   // primaries are the START of a TARGET
 target = _{ new | (primary ~ (WS* ~ atom)*) }
-parenthetical_expression = { "(" ~ WS* ~ expression ~ WS* ~ ")" }
+parenthetical_expression = { "(" ~ WS* ~ expression_outer ~ WS* ~ ")" }
 expression = _{ monadic_expression | target | unqualified_identifier }   // TODO: monadic expression should be a target???
 
 // new is a kind of "terminal", nothing can come after it in an expression
 new = { ^"new" ~ (WS* ~ "(" ~ expression_list ~ ")")? ~ WS+ ~ expression } /// fuck this syntax
 
 call = { "(" ~ WS* ~ expression_list ~ WS* ~ ")" }
-empty_expression = { "," }
-expression_list = _{ (expression ~ WS* ~ "," ~ WS* | (empty_expression ~ WS*))* ~ expression? }
-constant_list = _{ (constant ~ "," | empty_expression)* ~ constant? }
+expression_empty = { "," }
+expression_list = _{ (expression_outer ~ WS* ~ "," ~ WS* | (expression_empty ~ WS*))* ~ expression_outer? }
+constant_list = _{ (constant ~ "," | expression_empty)* ~ constant? }
 cast = { class_type ~ WS* ~ parenthetical_expression }
 // TODO: certain casts (int, string) don't follow the cast grammar
 

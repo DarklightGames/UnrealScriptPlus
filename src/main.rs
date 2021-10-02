@@ -11,7 +11,7 @@ use pest::Parser;
 struct UnrealScriptParser;
 
 use std::fs::File;
-use std::io::Read;
+use std::io::{Read, stdin};
 use crate::ast::{AstNode};
 use std::ops::AddAssign;
 use pest::iterators::Pair;
@@ -19,13 +19,156 @@ use pest::iterators::Pair;
 mod ast;
 
 use std::convert::Into;
+use std::collections::HashMap;
 
+#[macro_use]
+extern crate lazy_static;
 
+enum Associativity {
+    LeftToRight,
+    RightToLeft
+}
+
+lazy_static! {
+    static ref OPERATOR_PRECEDENCES: HashMap<&'static str, u8> = {
+        let mut map = HashMap::new();
+        map.insert("==", 24);
+        map.insert("!=", 26);
+        map.insert("&&", 30);
+        map.insert("^^", 30);
+        map.insert("||", 32);
+        map.insert("*=", 34);
+        map.insert("/=", 34);
+        map.insert("+=", 34);
+        map.insert("-=", 34);
+        map.insert("*", 16);
+        map.insert("/", 16);
+        map.insert("+", 20);
+        map.insert("-", 20);
+        map.insert("<<", 22);
+        map.insert(">>", 22);
+        map.insert(">>>", 22);
+        map.insert("<", 24);
+        map.insert(">", 24);
+        map.insert("<=", 24);
+        map.insert(">=", 24);
+        map.insert("==", 24);
+        map.insert("~=", 24);
+        map.insert("!=", 26);
+        map.insert("&", 28);
+        map.insert("^", 28);
+        map.insert("|", 28);
+        map.insert("!=", 28);
+        map.insert("**", 12);
+        map.insert("^", 28);
+        map.insert("|", 28);
+        map.insert("!=", 28);
+        map.insert("$", 40);
+        map.insert("@", 40);
+        map.insert("$=", 44);
+        map.insert("@=", 44);
+        map.insert("-=", 45);
+        map.insert("=", 46);    // TODO: just a guess
+        // TODO: precedence relies on the TYPE also!
+        map
+    };
+}
+
+// Recursively parse the target.
+fn parse_target(pairs: &[Pair<Rule>]) -> Option<Box<AstNode>> {
+    let (pair, remaining) = pairs.split_last().unwrap();
+    return match pair.as_rule() {
+        Rule::parenthetical_expression => {
+            Some(pair.clone().into())
+        }
+        Rule::call => {
+            let mut arguments = vec![];
+            let argument_pairs = pair.clone().into_inner().into_iter();
+            for argument_pair in argument_pairs {
+                match argument_pair.as_rule() {
+                    Rule::expression_outer => {
+                        arguments.push(Some(argument_pair.into()))
+                    }
+                    Rule::expression_empty => {
+                        arguments.push(None)
+                    }
+                    _ => { panic!("unhandled pair"); }
+                }
+            }
+            Some(Box::new(AstNode::Call {
+                arguments,
+                operand: parse_target(remaining).expect("call must have an operand")
+            }))
+        },
+        Rule::member_access => {
+            Some(Box::new(AstNode::MemberAccess {
+                target: pair.clone().into_inner().next().unwrap().as_str().to_string(),
+                operand: parse_target(remaining).expect("member access must have an operand")
+            }))
+        },
+        Rule::array_access => {
+            Some(Box::new(AstNode::ArrayAccess {
+                argument: pair.clone().into_inner().next().unwrap().into(),
+                operand: parse_target(remaining).expect("member access must have an operand"),
+            }))
+        }
+        _ => { Some(pair.clone().into()) }
+    }
+}
+
+// TODO: maybe have this function take an iterator/slice
+fn parse_expression(pairs: &[Pair<Rule>]) -> Result<Box<AstNode>, String> {
+    // First, search for dyadic verbs
+    let mut dyadic_verbs = vec![];
+    for (index, pair) in pairs.into_iter().enumerate() {
+        match pair.as_rule() {
+            Rule::dyadic_verb => {
+                let operator_precedence = OPERATOR_PRECEDENCES.get(pair.as_str());
+                if let Some(operator_precedence) = operator_precedence {
+                    dyadic_verbs.push((operator_precedence, index, pair.as_str()))
+                } else {
+                    return Err("Unrecognized dyadic verb".to_string());
+                }
+            },
+            _ => {}
+        }
+    }
+    if !dyadic_verbs.is_empty() {
+        // Sort dyadic verbs by precedence
+        // TODO: secondarily, sort by order!
+        dyadic_verbs.sort_by(|a, b| b.0.cmp(a.0));
+        // Split expression on either side of the verb and return a dyadic expression node
+        match dyadic_verbs.first() {
+            Some((_, index, operator)) => {
+                return Ok(Box::new(AstNode::DyadicExpression {
+                    lhs: parse_expression(&pairs[..index - 0]).unwrap(),
+                    operator: operator.to_string(),
+                    rhs: parse_expression(&pairs[index + 1..]).unwrap()
+                }));
+            },
+            _ => {}
+        }
+    }
+    // monadic pre-expression verbs should be THROWN to the front (back, actually)
+
+    // There are no dyadic verbs in the expression. What about MONADIC verbs?
+    // simply accumulate the expression from right-to-left!
+    // TODO: get the rightmost
+    return Ok(parse_target(pairs).expect("must have a target in an expression"))
+}
 
 impl Into<Box<AstNode>> for Pair<'_, Rule> {
 
     fn into(self) -> Box<AstNode> {
         match self.as_rule() {
+            Rule::expression_outer => {
+                let inner_pairs: Vec<Self> = self.into_inner().collect();
+                let expression = parse_expression(&inner_pairs[..]);
+                if let Ok(expression) = expression {
+                    return expression;
+                }
+                Box::new(AstNode::Expression())
+            }
             Rule::program => {
                 let mut inner_iter = self.into_inner().into_iter();
                 Box::new(AstNode::Program {
@@ -385,24 +528,9 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
             Rule::var_size => {
                 self.into_inner().next().unwrap().into()
             }
-            // Rule::call => {
-            //     let mut arguments: Vec<Option<Box<AstNode>>> = Vec::new();
-            //     self.into_inner().into_iter().for_each(|pair| {
-            //         match pair.as_rule() {
-            //             Rule::expression => {
-            //                 arguments.push(Some(pair.into()))
-            //             },
-            //             Rule::empty_expression => {
-            //                 arguments.push(None)
-            //             },
-            //             _ => { panic!("unhandled rule") }
-            //         }
-            //     });
-            //     Box::new(AstNode::Call { arguments })
-            // },
-            // Rule::expression => {
-            //     Box::new(AstNode::Expression)
-            // }
+            Rule::parenthetical_expression => {
+                Box::new(AstNode::ParentheticalExpression { expression: self.into_inner().next().unwrap().into() })
+            }
             Rule::struct_declaration => {
                 let rules_itr = self.into_inner().into_iter();
                 let mut modifiers: Vec<String> = Vec::new();
@@ -472,15 +600,22 @@ fn read_file_to_string(path: &str) -> Result<String, std::io::Error> {
 }
 
 fn main() {
-    let program = read_file_to_string("C:\\UnrealScriptPlus\\src\\TestClass.uc")
-        .unwrap_or_else(|e| panic!("{}", e));
-    let root = UnrealScriptParser::parse(Rule::program, &program)
-        .expect("failed to parse")
-        .next()
-        .unwrap();
-    let program: Box<AstNode> = root.into();
-    println!("{:?}", program);
-    // TODO: now we've got the AST, what do we do with it!
+    // let program = read_file_to_string("C:\\UnrealScriptPlus\\src\\TestClass.uc")
+    //     .unwrap_or_else(|e| panic!("{}", e));
+    // let root = UnrealScriptParser::parse(Rule::program, &program)
+    //     .expect("failed to parse")
+    //     .next()
+    //     .unwrap();
+    // let program: Box<AstNode> = root.into();
+    // println!("{:?}", program);
+
+    loop {
+        let mut input = String::new();
+        stdin().read_line(&mut input).expect("Did not enter a string");
+        let root = UnrealScriptParser::parse(Rule::expression_outer, input.as_str()).expect("failed to parse").next().unwrap();
+        let statement: Box<AstNode> = root.into();
+        println!("{:?}", statement);
+    }
 }
 
 #[cfg(test)]
