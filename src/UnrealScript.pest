@@ -180,7 +180,7 @@ replication_statements = _{ replication_statement ~ (WS+ ~ replication_statement
 replication_block = { ^"replication" ~ WS* ~ "{" ~ WS* ~ replication_statements? ~ WS* ~ "}" }
 
 type_declaration_statement = _{ (enum_declaration | struct_declaration) ~ ";" }
-class_statement = _{ compiler_directive | const_declaration | var_declaration  | type_declaration_statement | function_declaration | operator_declaration | replication_block | state_declaration }
+class_statement = _{ compiler_directive | const_declaration | var_declaration  | type_declaration_statement | function_declaration | operator_declaration | replication_block | state_declaration | defaultproperties }
 class_statements = _{ class_statement ~ (WS* ~ class_statement)* }
 eoi = _{ EOI }
 program = { SOI ~ class_declaration ~ WS* ~ class_statements? ~ eoi }
@@ -274,11 +274,15 @@ break_statement = { ^"break" ~ WS* ~ ";" }
 goto_statement = { ^"goto" ~ WS+ ~ unqualified_identifier ~ WS* ~ ";" }
 
 // STATES
-state_modifier = { ^"auto" }
+state_modifier = { ^"auto" | ^"simulated" }
+state_modifiers = _{ state_modifier ~ (WS+ ~ state_modifier)* }
 state_statement = { const_declaration | function_declaration }
-state_declaration = { (state_modifier ~ WS+)? ~ ^"state" ~ unqualified_identifier ~ extends? ~ "{" ~ state_ignores? ~ state_statement* ~ state_label* ~ "}" }
-state_label = { unqualified_identifier ~ ":" ~ code_statement+ }
-state_ignores = { ^"ignores" ~ unqualified_identifier_list ~ ";" }
+state_statements = _{ state_statement ~ (WS* ~ state_statement)* }
+state_declaration_body = _{ state_ignores? ~ WS* ~ state_statements? ~ WS* ~ state_labels? }
+state_declaration = { (state_modifiers ~ WS+)? ~ ^"state" ~ WS+ ~ unqualified_identifier ~ (WS+ ~ extends)? ~ WS* ~ "{" ~ WS* ~ state_declaration_body ~  WS* ~ "}" }
+state_labels = _{ state_label ~ (WS* ~ state_label)* }
+state_label = { unqualified_identifier ~ WS* ~ ":" ~ WS* ~ code_statements? }
+state_ignores = { ^"ignores" ~ WS+ ~ unqualified_identifier_list ~ WS* ~ ";" }
 
 // STATES
 code_statement = _{ conditional_statement | for_statement | while_statement | do_until_statement | foreach_statement | return_statement | break_statement | continue_statement | goto_statement | compiler_directive | switch_statement | (expression_outer ~ WS* ~ ";") | statement_empty }
@@ -302,5 +306,13 @@ native_verb = {
 }
 dyadic_verb = { unqualified_identifier | native_verb }
 
-// USP rules
-pass_statement = _{ ^"pass" ~ ";" } // Identical to Python's `pass`, just a statement that does nothing.
+// DEFAULTPROPERTIES
+DPWS = _{ " " | "\t" }
+defaultproperties_value = { literal | unqualified_identifier | defaultproperties_struct }
+defaulproperties_assignment = { defaultproperties_target ~ DPWS* ~ "=" ~ DPWS* ~ defaultproperties_value }
+defaultproperties_struct = { "(" ~ DPWS* ~ (defaulproperties_assignment ~ DPWS* ~ ("," ~ DPWS* ~ defaulproperties_assignment)*)? ~ DPWS* ~ ")" }
+defaultproperties_object = { ^"begin" ~ DPWS+ ~ ^"object" ~ DPWS+ ~ ^"class" ~ "=" ~ identifier ~ (WS+ ~ defaulproperties_assignment)* ~ WS+ ~ ^"end" ~ DPWS+ ~ ^"object" }
+defaultproperties_line = _{ defaulproperties_assignment | defaultproperties_object }
+defaultproperties_lines = _{ defaultproperties_line ~ (WS* ~ defaultproperties_line)* }
+defaultproperties_target = { unqualified_identifier ~ DPWS* ~ ("(" ~ DPWS* ~ integer_literal_decimal ~ DPWS* ~ ")")? }
+defaultproperties = { ^"defaultproperties" ~ WS* ~ "{" ~ WS* ~ defaultproperties_lines? ~ WS* ~ "}"}

@@ -436,6 +436,7 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                 Box::new(AstNode::ClassType(self.into_inner().next().unwrap().into()))
             }
             Rule::state_label => {
+                // TODO:
                 Box::new(AstNode::StateLabel)
             }
             Rule::state_declaration => {
@@ -799,7 +800,7 @@ fn read_file_to_string(path: &str) -> Result<String, std::io::Error> {
 
 fn main() {
     if let Ok(contents) = read_file_to_string("src\\tests\\ExpressionSandbox.uc") {
-        match UnrealScriptParser::parse(Rule::program, contents.as_str()) {
+        match UnrealScriptParser::parse(Rule::state_declaration, contents.as_str()) {
             Ok(mut root) => {
                 let statement: Box<AstNode> = root.next().unwrap().into();
                 println!("{:?}", statement);
@@ -813,12 +814,15 @@ fn main() {
     loop {
         let mut input = String::new();
         stdin().read_line(&mut input).expect("Did not enter a string");
-        let root = UnrealScriptParser::parse(Rule::code_statement, input.as_str());
-        if let Ok(mut root) = root {
-            let statement: Box<AstNode> = root.next().unwrap().into();
-            println!("{:?}", statement);
-        } else {
-            println!("invalid expression! try again");
+        match UnrealScriptParser::parse(Rule::code_statement, input.as_str()) {
+            Ok(mut root) => {
+                let statement: Box<AstNode> = root.next().unwrap().into();
+                println!("{:?}", statement);
+            }
+            Err(error) => {
+                println!("invalid expression! try again");
+                println!("{}", error)
+            }
         }
     }
 }
