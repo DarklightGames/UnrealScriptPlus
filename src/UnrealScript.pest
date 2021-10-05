@@ -163,7 +163,7 @@ function_argument = { (function_argument_modifiers ~ WS+)? ~ type_ ~ WS+ ~ var_n
 function_arguments = _{ function_argument ~ (WS* ~ "," ~ WS* ~ function_argument)* }
 function_type = { ^"function" | ^"event" | ^"delegate" }
 function_type_outer = _{ function_type ~ WS+ }
-function_declaration = { (function_modifier+)? ~ function_type_outer+ ~ (function_modifier+)? ~ ((type_ ~ WS+ ~ unqualified_identifier) | unqualified_identifier) ~ WS* ~ "(" ~ WS* ~ function_arguments? ~ WS* ~ ")" ~ WS* ~ body_or_semicolon }
+function_declaration = { (function_modifier+)? ~ function_type_outer+ ~ (function_modifier+)? ~ ((type_ ~ WS+ ~ unqualified_identifier) | unqualified_identifier) ~ WS* ~ "(" ~ WS* ~ function_arguments? ~ WS* ~ ")" ~ WS* ~ function_body_or_semicolon }
 
 operator = { ^"operator" ~  WS* ~ "(" ~ WS* ~ integer_literal ~ WS* ~ ")" }
 preoperator = { ^"preoperator" }
@@ -172,9 +172,7 @@ operator_type = { operator | preoperator | postoperator }
 
 // TODO: fix the VERBS
 any_verb = { symbolic_verb | unqualified_identifier }
-operator_declaration = { (function_modifier* ~ WS+)? ~ operator_type ~ WS+ ~ type_ ~ WS+ ~ any_verb ~ WS* ~ "(" ~ WS* ~ function_arguments? ~ WS* ~ ")" ~ WS* ~ body_or_semicolon }
-
-body_or_semicolon = _{ (";" | "{" ~ WS* ~ code_body ~ WS* ~ "}") }
+operator_declaration = { (function_modifier* ~ WS+)? ~ operator_type ~ WS+ ~ type_ ~ WS+ ~ any_verb ~ WS* ~ "(" ~ WS* ~ function_arguments? ~ WS* ~ ")" ~ WS* ~ function_body_or_semicolon }
 
 reliability = { ^"reliable" | ^"unreliable" }
 replication_statement = { reliability ~ WS+ ~ ^"if" ~ WS+ ~ parenthetical_expression ~ WS* ~ (unqualified_identifier ~ (WS* ~ "," ~ WS* ~ unqualified_identifier)*) ~ WS* ~ ";" }
@@ -196,15 +194,15 @@ array_access = { "[" ~ WS* ~ expression_outer ~ WS* ~ "]" }
 member_access = { "." ~ WS* ~ unqualified_identifier }
 default_access = { ^"default" ~ WS* ~ "." ~ WS* ~ unqualified_identifier }
 default_call = { ^"default" ~ WS* ~ "." ~ WS* ~ unqualified_identifier ~ WS* ~ "(" ~ WS* ~ expression_list ~ WS* ~ ")" }
-static_acesss = { ^"static" ~ WS* ~ "." ~ WS* ~ unqualified_identifier }
+static_access = { ^"static" ~ WS* ~ "." ~ WS* ~ unqualified_identifier }
 global_call = { ^"global" ~ WS* ~ "." ~ WS* ~ unqualified_identifier ~ WS* ~ "(" ~ WS* ~ expression_list ~ WS* ~ ")" }
 super_call = { ^"super" ~ WS* ~ ("(" ~ WS* ~ unqualified_identifier ~ WS* ~ ")")? ~ WS* ~ "." ~ WS* ~ unqualified_identifier ~ WS* ~ "(" ~ WS* ~ expression_list ~ WS* ~ ")" }
-atom = _{ call | array_access | ("." ~ default_access) | ("." ~ static_acesss) | member_access | dyadic_expression }
+atom = _{ call | array_access | ("." ~ default_access) | ("." ~ static_access) | member_access | dyadic_expression }
 
 dyadic_expression = _{ dyadic_verb ~ WS* ~ expression }
 
 // TODO: chaining unary operators don't work very well (eg. ~--A) [valid uc, invalid ucp]
-monadic_verb = { monadic_prefix_verb | monadic_post_verb }
+monadic_verb = { monadic_pre_verb | monadic_post_verb }
 
 symbolic_verb = {
     "++" | "--" | "**" | "+=" | "-=" | "*=" | "/=" | "&&" | "^^" |
@@ -212,13 +210,13 @@ symbolic_verb = {
     "$=" | "@=" | "$" | "@" | "+" | "-" | "=" | "&" | "|" | "^" | "%" | "*" | "/" | "!" | "~"
 }
 
-monadic_prefix_verb = { "++" | "--" | "~" | "-" | "!" }
+monadic_pre_verb = { "++" | "--" | "~" | "-" | "!" }
 monadic_post_verb = { "++" | "--" }
-monadic_pre_expression = _{ monadic_prefix_verb ~ WS* ~ target }
+monadic_pre_expression = _{ monadic_pre_verb ~ WS* ~ target }
 monadic_post_expression = _{ target ~ WS* ~ monadic_post_verb }
 monadic_expression = _{ monadic_pre_expression | monadic_post_expression }
 
-primary = _{ cast | literal | parenthetical_expression | default_access | static_acesss | global_call | unqualified_identifier }   // primaries are the START of a TARGET
+primary = _{ cast | literal | parenthetical_expression | default_access | static_access | global_call | unqualified_identifier }   // primaries are the START of a TARGET
 target = _{ new | (primary ~ (WS* ~ atom)*) }
 parenthetical_expression = { "(" ~ WS* ~ expression_outer ~ WS* ~ ")" }
 expression = _{ monadic_expression | target | unqualified_identifier }   // TODO: monadic expression should be a target???
@@ -234,34 +232,46 @@ cast = { class_type ~ WS* ~ parenthetical_expression }
 // TODO: certain casts (int, string) don't follow the cast grammar
 
 code_scope = { "{" ~ WS* ~ code_statements? ~ WS* ~ "}" }
-code_block = { "{" ~ WS* ~ code_body ~ WS* ~ "}" }
+function_body_or_semicolon = _{ ";" | ("{" ~ WS* ~ function_body ~ WS* ~ "}") }
+function_body = { local_declarations? ~ WS* ~ code_statements? }
 local_declarations = _{ local_declaration ~ (WS* ~ local_declaration)* }
 code_statements = _{ code_statement ~ (WS* ~ code_statement)* }
-code_body = { local_declarations? ~ WS* ~ code_statements? }
-statement_or_block = _{ code_statement | code_scope }
-// TODO: doesn't handle
+code_statement_outer = { code_statement }
+statement_or_block = _{ code_statement_outer | code_scope }
 
-while_statement = { ^"while" ~ WS* ~ parenthetical_expression ~ WS* ~ statement_or_block }
-return_statement = { ^"return" ~ (WS+ ~ expression?) ~ WS* ~ ";" }
+while_statement = { ^"while" ~ WS* ~ "(" ~ WS* ~ expression_outer ~ WS* ~ ")" ~ WS* ~ statement_or_block }
+return_statement = { ^"return" ~ (WS+ ~ expression_outer)? ~ WS* ~ ";" }
 constant = _{ literal | unqualified_identifier }
 // For some reason unbeknownst to mere mortals, UnrealScript allows two default cases in switch statements.
 
 // CONTROL FLOW
-elif_statement = { ^"else" ~ WS+ ~ ^"if" ~ WS* ~ parenthetical_expression ~ WS* ~ statement_or_block }
+if_statement = { ^"if" ~ WS* ~ "(" ~ WS* ~ expression_outer ~ WS* ~ ")" ~ WS* ~ statement_or_block }
+elif_statement = { ^"else" ~ WS+ ~ ^"if" ~ WS* ~ "(" ~ WS* ~ expression_outer ~ WS* ~ ")" ~ WS* ~ statement_or_block }
+elif_statements = _{ elif_statement ~ (WS* ~ elif_statement)* }
 else_statement = { ^"else" ~ WS* ~ statement_or_block }
-if_statement = { ^"if" ~ WS* ~ parenthetical_expression ~ WS* ~ statement_or_block ~ WS* ~ elif_statement* ~ else_statement? }
+conditional_statement = { if_statement ~ WS* ~ elif_statements? ~ WS* ~ else_statement? }
 expression_outer = { expression }
-for_statement_inner = { expression_outer? ~ (";" ~ WS* ~ expression_outer?){2} }
+
+statement_empty = _{ ";" }
+statement_empty_outer = { statement_empty }
+for_init = { expression_outer }
+for_predicate = { expression_outer }
+for_post = { expression_outer }
+for_statement_inner = { for_init? ~ WS* ~ ";" ~ WS* ~ for_predicate? ~ WS* ~ ";" ~ WS* ~ for_post? }
 for_statement = { ^"for" ~ WS* ~ "(" ~ WS* ~ for_statement_inner ~ WS* ~ ")" ~ WS* ~ statement_or_block }
+
+do_until_statement = { ^"do" ~ WS* ~ code_scope ~ WS* ~ ^"until" ~ WS* ~ "(" ~ expression_outer ~ ")" }
+
 // foreach_expression = { expression ~ WS+ ~ unqualified_identifier ~ WS* ~ call }
 foreach_statement = { ^"foreach" ~ WS+ ~ expression_outer ~ WS* ~statement_or_block }
-switch_statement = { ^"switch" ~ WS* ~ parenthetical_expression ~ WS* ~ "{" ~ switch_case* ~ default_case{0,2} ~ "}" }
-switch_case_label = { ^"case" ~ WS+ ~ target ~ WS* ~ ":" }
-switch_default_label = { ^"default" ~ WS* ~ ":" }
-switch_case = { switch_case_label ~ code_statement* }
-default_case = { switch_default_label ~ code_statement* }
+switch_statement = { ^"switch" ~ WS* ~ "(" ~ WS* ~ expression_outer ~ WS* ~ ")" ~ WS* ~ "{" ~ (WS* ~ switch_case)* ~ WS* ~ switch_default_case? ~ WS* ~ "}" }
+switch_case_label = _{ ^"case" ~ WS+ ~ target ~ WS* ~ ":" }
+switch_default_label = _{ ^"default" ~ WS* ~ ":" }
+switch_case = { switch_case_label ~ WS* ~ code_statements? }
+switch_default_case = { switch_default_label ~ WS* ~ code_statements? }
 continue_statement = { ^"continue" ~ WS* ~ ";" }
 break_statement = { ^"break" ~ WS* ~ ";" }
+goto_statement = { ^"goto" ~ WS+ ~ unqualified_identifier ~ WS* ~ ";" }
 
 // STATES
 state_modifier = { ^"auto" }
@@ -271,8 +281,7 @@ state_label = { unqualified_identifier ~ ":" ~ code_statement+ }
 state_ignores = { ^"ignores" ~ unqualified_identifier_list ~ ";" }
 
 // STATES
-code_statement = { if_statement | for_statement | while_statement | foreach_statement | return_statement | break_statement | continue_statement | compiler_directive | switch_statement | (expression ~ WS* ~ ";") }
-
+code_statement = _{ conditional_statement | for_statement | while_statement | do_until_statement | foreach_statement | return_statement | break_statement | continue_statement | goto_statement | compiler_directive | switch_statement | (expression_outer ~ WS* ~ ";") | statement_empty }
 // TODO: operator precedence is handled at the parser level
 native_verb = {
     "**" |  // 12

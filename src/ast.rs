@@ -118,29 +118,72 @@ pub enum AstNode {
     Identifier(String),
 
     // FLOW
-    ForLoop {
+    ForStatement {
+        init: Option<Box<AstNode>>,
+        predicate: Option<Box<AstNode>>,
+        post: Option<Box<AstNode>>,
+        body: Box<AstNode>
+    },
+    DoUntilStatement {
+        body: Box<AstNode>,
+        predicate: Box<AstNode>
+    },
+    WhileStatement {
+        predicate: Box<AstNode>,
         body: Box<AstNode>
     },
     SwitchCase {
         predicate: Box<AstNode>,
-        body: Option<Box<AstNode>>
+        statements: Vec<Box<AstNode>>
+    },
+    SwitchDefaultCase {
+        statements: Vec<Box<AstNode>>
     },
     SwitchStatement {
+        predicate: Box<AstNode>,
         cases: Vec<Box<AstNode>>
+    },
+    FunctionBody {
+        locals: Vec<Box<AstNode>>,
+        statements: Vec<Box<AstNode>>
     },
     CodeBlock {
         statements: Vec<Box<AstNode>>
     },
+    CodeScope {
+        statements: Vec<Box<AstNode>>
+    },
+    ConditionalStatement {
+        if_statement: Box<AstNode>,
+        elif_statements: Vec<Box<AstNode>>,
+        else_statement: Option<Box<AstNode>>
+    },
     IfStatement {
-        conditional_expression: Box<AstNode>,
-        body: Box<AstNode>
+        predicate: Box<AstNode>,
+        statements: Vec<Box<AstNode>>
     },
     ElifStatement {
-        conditional_expression: Box<AstNode>,
-        body: Box<AstNode>
+        predicate: Box<AstNode>,
+        statements: Vec<Box<AstNode>>
     },
     ElseStatement {
-        body: Box<AstNode>
+        statements: Vec<Box<AstNode>>
+    },
+
+    LocalDeclaration {
+        type_: Box<AstNode>,
+        names: Vec<Box<AstNode>>
+    },
+
+    // todo: do/while loop
+
+    BreakStatement,
+    ContinueStatement,
+    GotoStatement {
+        label: String
+    },
+    ReturnStatement {
+        expression: Option<Box<AstNode>>
     },
 
     // LOGIC
@@ -151,16 +194,20 @@ pub enum AstNode {
         operand: Box<AstNode>,
         arguments: Vec<Option<Box<AstNode>>>
     },
+    GlobalCall {
+        name: String,
+        arguments: Vec<Option<Box<AstNode>>>
+    },
     ArrayAccess {
         operand: Box<AstNode>,
         argument: Box<AstNode>
     },
     DefaultAccess {
-        operand: Box<AstNode>,
+        operand: Option<Box<AstNode>>,
         target: String
     },
     StaticAccess {
-        operand: Box<AstNode>,
+        operand: Option<Box<AstNode>>,
         target: String
     },
     MemberAccess {
@@ -168,6 +215,14 @@ pub enum AstNode {
         target: String,
     },
     Expression(),
+    MonadicPostExpression {
+        operator: String,
+        target: Box<AstNode>
+    },
+    MonadicPreExpression {
+        operator: String,
+        target: Box<AstNode>
+    },
     DyadicExpression {
         lhs: Box<AstNode>,
         operator: String,
@@ -179,7 +234,7 @@ pub enum AstNode {
 impl std::fmt::Debug for AstNode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         return match self {
-            AstNode::Program { class_declaration, statements} => {
+            AstNode::Program { class_declaration, statements } => {
                 f.debug_struct("Program")
                     .field("class_declaration", class_declaration)
                     .field("statements", statements)
@@ -208,7 +263,7 @@ impl std::fmt::Debug for AstNode {
                     .field("values", values)
                     .finish()
             }
-            AstNode::VarName {name, size} => {
+            AstNode::VarName { name, size } => {
                 if let Some(size) = size {
                     f.debug_struct("VarName")
                         .field("name", name)
@@ -218,7 +273,7 @@ impl std::fmt::Debug for AstNode {
                     f.write_str(name)
                 }
             }
-            AstNode::ClassModifier {type_, arguments} => {
+            AstNode::ClassModifier { type_, arguments } => {
                 if arguments.is_empty() {
                     f.write_str(type_)
                 } else {
@@ -238,7 +293,7 @@ impl std::fmt::Debug for AstNode {
                     .field("type", type_)
                     .finish()
             }
-            AstNode::VarDeclaration { names, type_,modifiers, category } => {
+            AstNode::VarDeclaration { names, type_, modifiers, category } => {
                 let mut d = f.debug_struct("VarDeclaration");
                 d.field("names", names);
                 d.field("type", type_);
@@ -299,7 +354,7 @@ impl std::fmt::Debug for AstNode {
             AstNode::FloatLiteral(value) => {
                 return f.write_str(value.to_string().as_str())
             }
-            AstNode::ObjectLiteral {type_, reference} => {
+            AstNode::ObjectLiteral { type_, reference } => {
                 return f.write_fmt(format_args!("{}'{}'", type_, reference));
             }
             AstNode::CompilerDirective { contents } => {
@@ -349,7 +404,7 @@ impl std::fmt::Debug for AstNode {
                     d.finish()
                 }
             }
-            AstNode::FunctionArgument {modifiers, type_, name } => {
+            AstNode::FunctionArgument { modifiers, type_, name } => {
                 let mut d = f.debug_struct("FunctionArgument");
                 if !modifiers.is_empty() {
                     d.field("modifiers", modifiers);
@@ -404,7 +459,7 @@ impl std::fmt::Debug for AstNode {
                 }
                 d.finish()
             }
-            AstNode::Call {operand, arguments } => {
+            AstNode::Call { operand, arguments } => {
                 let mut d = f.debug_struct("Call");
                 d.field("operand", operand);
                 if !arguments.is_empty() {
@@ -418,15 +473,40 @@ impl std::fmt::Debug for AstNode {
                     .field("target", target)
                     .finish()
             }
+            AstNode::DefaultAccess { operand, target } => {
+                f.debug_struct("DefaultAccess")
+                    .field("operand", operand)
+                    .field("target", target)
+                    .finish()
+            }
+            AstNode::StaticAccess { operand, target } => {
+                f.debug_struct("StaticAccess")
+                    .field("operand", operand)
+                    .field("target", target)
+                    .finish()
+            }
+            AstNode::GlobalCall { name, arguments } => {
+                f.debug_struct("GlobalCall")
+                    .field("name", name)
+                    .field("arguments", arguments)
+                    .finish()
+            }
             AstNode::ArrayAccess { operand, argument } => {
                 f.debug_struct("ArrayAccess")
                     .field("operand", operand)
                     .field("argument", argument)
                     .finish()
             }
-            AstNode::ParentheticalExpression { expression } => {
-                f.debug_struct("ParentheticalExpression")
-                    .field("expression", expression)
+            AstNode::MonadicPreExpression { operator, target } => {
+                f.debug_struct("MonadicPreExpression")
+                    .field("operator", operator)
+                    .field("target", target)
+                    .finish()
+            }
+            AstNode::MonadicPostExpression { operator, target } => {
+                f.debug_struct("MonadicPostExpression")
+                    .field("operator", operator)
+                    .field("target", target)
                     .finish()
             }
             AstNode::DyadicExpression { lhs, operator, rhs } => {
@@ -435,6 +515,112 @@ impl std::fmt::Debug for AstNode {
                     .field("operator", operator)
                     .field("rhs", rhs)
                     .finish()
+            }
+            AstNode::ParentheticalExpression { expression } => {
+                f.debug_struct("ParentheticalExpression")
+                    .field("expression", expression)
+                    .finish()
+            }
+            AstNode::ConditionalStatement { if_statement, elif_statements, else_statement } => {
+                let mut d = f.debug_struct("ConditionalStatement");
+                d.field("if_statement", if_statement);
+                if !elif_statements.is_empty() {
+                    d.field("elif_statements", elif_statements);
+                }
+                if let Some(else_statement) = else_statement {
+                    d.field("else_statement", else_statement);
+                }
+                d.finish()
+            }
+            AstNode::CodeScope { statements } => {
+                let mut d = f.debug_struct("CodeScope");
+                if !statements.is_empty() {
+                    d.field("statements", statements);
+                }
+                d.finish()
+            }
+            AstNode::IfStatement { predicate, statements } => {
+                f.debug_struct("IfStatement")
+                    .field("predicate", predicate)
+                    .field("statements", statements)
+                    .finish()
+            }
+            AstNode::ElifStatement { predicate, statements } => {
+                f.debug_struct("ElifStatement")
+                    .field("predicate", predicate)
+                    .field("statements", statements)
+                    .finish()
+            }
+            AstNode::ForStatement { init, predicate, post, body } => {
+                f.debug_struct("ForStatement")
+                    .field("init", init)
+                    .field("predicate", predicate)
+                    .field("post", post)
+                    .field("body", body)
+                    .finish()
+            }
+            AstNode::WhileStatement { predicate, body } => {
+                f.debug_struct("WhileStatement")
+                    .field("predicate", predicate)
+                    .field("body", body)
+                    .finish()
+            }
+            AstNode::DoUntilStatement { body, predicate } => {
+                f.debug_struct("DoUntilStatement")
+                    .field("body", body)
+                    .field("predicate", predicate)
+                    .finish()
+            }
+            AstNode::BreakStatement => {
+                f.debug_struct("BreakStatement").finish()
+            }
+            AstNode::ContinueStatement => {
+                f.debug_struct("ContinueStatement").finish()
+            }
+            AstNode::GotoStatement { label } => {
+                f.debug_struct("GotoStatement")
+                    .field("label", label)
+                    .finish()
+            }
+            AstNode::ReturnStatement { expression } => {
+                let mut d = f.debug_struct("ReturnStatement");
+                if let Some(expression) = expression {
+                    d.field("expression", expression);
+                }
+                d.finish()
+            }
+            AstNode::SwitchDefaultCase { statements } => {
+                f.debug_struct("SwitchDefaultCase")
+                    .field("statements", statements)
+                    .finish()
+            }
+            AstNode::SwitchCase { predicate, statements } => {
+                f.debug_struct("SwitchCase")
+                    .field("predicate", predicate)
+                    .field("statements", statements)
+                    .finish()
+            }
+            AstNode::SwitchStatement { predicate, cases } => {
+                f.debug_struct("SwitchStatement")
+                    .field("predicate", predicate)
+                    .field("cases", cases)
+                    .finish()
+            }
+            AstNode::LocalDeclaration { type_, names } => {
+                f.debug_struct("LocalDeclaration")
+                    .field("type", type_)
+                    .field("names", names)
+                    .finish()
+            }
+            AstNode::FunctionBody { locals, statements } => {
+                let mut d = f.debug_struct("FunctionBody");
+                if !locals.is_empty() {
+                    d.field("locals", locals);
+                }
+                if !statements.is_empty() {
+                    d.field("statements", statements);
+                }
+                d.finish()
             }
             _ => { f.debug_struct("Unknown").finish() }
         }
