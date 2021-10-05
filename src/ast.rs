@@ -126,9 +126,17 @@ pub enum AstNode {
     },
     DoUntilStatement {
         body: Box<AstNode>,
-        predicate: Box<AstNode>
+        predicate: Option<Box<AstNode>>
+    },
+    New {
+        arguments: Vec<Option<Box<AstNode>>>,
+        type_: Box<AstNode>
     },
     WhileStatement {
+        predicate: Box<AstNode>,
+        body: Box<AstNode>
+    },
+    ForEachStatement {
         predicate: Box<AstNode>,
         body: Box<AstNode>
     },
@@ -227,6 +235,13 @@ pub enum AstNode {
         lhs: Box<AstNode>,
         operator: String,
         rhs: Box<AstNode>
+    },
+    DefaultProperties {
+        lines: Vec<Box<AstNode>>
+    },
+    Cast {
+        type_: Box<AstNode>,
+        operand: Box<AstNode>
     },
     Unhandled
 }
@@ -571,6 +586,12 @@ impl std::fmt::Debug for AstNode {
                     .field("predicate", predicate)
                     .finish()
             }
+            AstNode::ForEachStatement { predicate, body } => {
+                f.debug_struct("ForEachStatement")
+                    .field("predicate", predicate)
+                    .field("body", body)
+                    .finish()
+            }
             AstNode::BreakStatement => {
                 f.debug_struct("BreakStatement").finish()
             }
@@ -621,6 +642,39 @@ impl std::fmt::Debug for AstNode {
                     d.field("statements", statements);
                 }
                 d.finish()
+            }
+            AstNode::New { arguments, type_ } => {
+                let mut d = f.debug_struct("New");
+                d.field("type", type_);
+                if !arguments.is_empty() {
+                    d.field("arguments", arguments);
+                }
+                d.finish()
+            }
+            AstNode::VectorLiteral { x, y, z } => {
+                f.debug_struct("VectorLiteral")
+                    .field("x", x)
+                    .field("y", y)
+                    .field("z", z)
+                    .finish()
+            }
+            AstNode::RotatorLiteral { pitch, yaw, roll } => {
+                f.debug_struct("RotatorLiteral")
+                    .field("pitch", pitch)
+                    .field("yaw", yaw)
+                    .field("roll", roll)
+                    .finish()
+            }
+            AstNode::DefaultProperties { lines } => {
+                f.debug_struct("DefaultProperties")
+                    .field("lines", lines)
+                    .finish()
+            }
+            AstNode::Cast { type_, operand } => {
+                f.debug_struct("Cast")
+                    .field("type", type_)
+                    .field("operand", operand)
+                    .finish()
             }
             _ => { f.debug_struct("Unknown").finish() }
         }

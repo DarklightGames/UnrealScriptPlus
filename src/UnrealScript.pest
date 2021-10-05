@@ -24,8 +24,8 @@ integer_literal_hexadecimal = { ^"0x" ~ hex_digits }
 positive_or_negative = { "-" | "+" }
 integer_literal = { positive_or_negative? ~ (integer_literal_hexadecimal | integer_literal_decimal) }
 
-float_literal_decimal = @{ digit+ ~ "." ~ digit* }
-float_literal_scientific = @{ digit+ ~ ("." ~ digit*)? ~ "e" ~ digit+ }
+float_literal_decimal = @{ digit+ ~ "." ~ digit* ~ ^"f"? }
+float_literal_scientific = @{ digit+ ~ ("." ~ digit*)? ~ ^"e" ~ ("+" | "-")? ~ digit+ ~ ^"f"? }
 
 // has to have *either* the decimal or the E in order to be a float literal!
 float_literal = @{ ("-" | "+")? ~ (float_literal_scientific | float_literal_decimal) }
@@ -151,7 +151,8 @@ function_modifier_type = {
     ^"iterator" |
     ^"latent"
 }
-function_modifier = { function_modifier_type ~ (WS* ~ "(" ~ WS* ~ integer_literal ~ WS* ~ ")")? ~ WS+ }
+function_modifier = { function_modifier_type ~ (WS* ~ "(" ~ WS* ~ integer_literal ~ WS* ~ ")")? }
+function_modifiers = _{ function_modifier ~ (WS+ ~ function_modifier)* }
 function_argument_modifier = {
     ^"coerce" |
     ^"optional" |
@@ -163,7 +164,8 @@ function_argument = { (function_argument_modifiers ~ WS+)? ~ type_ ~ WS+ ~ var_n
 function_arguments = _{ function_argument ~ (WS* ~ "," ~ WS* ~ function_argument)* }
 function_type = { ^"function" | ^"event" | ^"delegate" }
 function_type_outer = _{ function_type ~ WS+ }
-function_declaration = { (function_modifier+)? ~ function_type_outer+ ~ (function_modifier+)? ~ ((type_ ~ WS+ ~ unqualified_identifier) | unqualified_identifier) ~ WS* ~ "(" ~ WS* ~ function_arguments? ~ WS* ~ ")" ~ WS* ~ function_body_or_semicolon }
+function_types = _{ function_type ~ (WS+ ~ function_type)* }
+function_declaration = { function_modifiers? ~ WS+ ~ function_types ~ (WS+ ~ function_modifiers?) ~ WS* ~ ((type_ ~ WS+ ~ unqualified_identifier) | unqualified_identifier) ~ WS* ~ "(" ~ WS* ~ function_arguments? ~ WS* ~ ")" ~ WS* ~ function_body_or_semicolon }
 
 operator = { ^"operator" ~  WS* ~ "(" ~ WS* ~ integer_literal ~ WS* ~ ")" }
 preoperator = { ^"preoperator" }
@@ -183,7 +185,7 @@ type_declaration_statement = _{ (enum_declaration | struct_declaration) ~ ";" }
 class_statement = _{ compiler_directive | const_declaration | var_declaration  | type_declaration_statement | function_declaration | operator_declaration | replication_block | state_declaration | defaultproperties }
 class_statements = _{ class_statement ~ (WS* ~ class_statement)* }
 eoi = _{ EOI }
-program = { SOI ~ class_declaration ~ WS* ~ class_statements? ~ eoi }
+program = { SOI ~ WS* ~ class_declaration ~ WS* ~ class_statements? ~ WS* ~ eoi }
 
 var_names = _{ var_name ~ (WS* ~ "," ~ WS* ~ var_name)* }
 local_declaration = { ^"local" ~ WS+ ~ type_ ~ WS+ ~ var_names ~ WS* ~ ";" }
@@ -228,7 +230,7 @@ call = { "(" ~ WS* ~ expression_list ~ WS* ~ ")" }
 expression_empty = { "," }
 expression_list = _{ (expression_outer ~ WS* ~ "," ~ WS* | (expression_empty ~ WS*))* ~ expression_outer? }
 constant_list = _{ (constant ~ "," | expression_empty)* ~ constant? }
-cast = { class_type ~ WS* ~ parenthetical_expression }
+cast = { class_type ~ WS* ~ "(" ~ WS* ~ expression_outer ~ WS* ~ ")" }
 // TODO: certain casts (int, string) don't follow the cast grammar
 
 code_scope = { "{" ~ WS* ~ code_statements? ~ WS* ~ "}" }
@@ -260,10 +262,10 @@ for_post = { expression_outer }
 for_statement_inner = { for_init? ~ WS* ~ ";" ~ WS* ~ for_predicate? ~ WS* ~ ";" ~ WS* ~ for_post? }
 for_statement = { ^"for" ~ WS* ~ "(" ~ WS* ~ for_statement_inner ~ WS* ~ ")" ~ WS* ~ statement_or_block }
 
-do_until_statement = { ^"do" ~ WS* ~ code_scope ~ WS* ~ ^"until" ~ WS* ~ "(" ~ expression_outer ~ ")" }
+do_until_statement = { ^"do" ~ WS* ~ code_scope ~ (WS* ~ ^"until" ~ WS* ~ "(" ~ expression_outer ~ ")")? }
 
 // foreach_expression = { expression ~ WS+ ~ unqualified_identifier ~ WS* ~ call }
-foreach_statement = { ^"foreach" ~ WS+ ~ expression_outer ~ WS* ~statement_or_block }
+foreach_statement = { ^"foreach" ~ WS+ ~ expression_outer ~ WS* ~ statement_or_block }
 switch_statement = { ^"switch" ~ WS* ~ "(" ~ WS* ~ expression_outer ~ WS* ~ ")" ~ WS* ~ "{" ~ (WS* ~ switch_case)* ~ WS* ~ switch_default_case? ~ WS* ~ "}" }
 switch_case_label = _{ ^"case" ~ WS+ ~ target ~ WS* ~ ":" }
 switch_default_label = _{ ^"default" ~ WS* ~ ":" }

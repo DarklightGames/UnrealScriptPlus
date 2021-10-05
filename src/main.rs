@@ -38,6 +38,7 @@ lazy_static! {
         map.insert("-=", 34);
         map.insert("*", 16);
         map.insert("/", 16);
+        map.insert("%", 18);
         map.insert("+", 20);
         map.insert("-", 20);
         map.insert("<<", 22);
@@ -64,7 +65,14 @@ lazy_static! {
         map.insert("@=", 44);
         map.insert("-=", 45);
         map.insert("=", 46);    // TODO: just a guess
+
         // TODO: precedence relies on the TYPE also!
+        // TODO: all of these should be read from Object.uc before proper parsing, so that we don't
+        // need to have this table at all.
+        map.insert("clockwisefrom", 24);
+        map.insert("dot", 16);
+        map.insert("cross", 16);
+
         map
     };
 }
@@ -156,6 +164,7 @@ fn parse_expression(pairs: &[Pair<Rule>]) -> Result<Box<AstNode>, String> {
                 if let Some(operator_precedence) = operator_precedence {
                     dyadic_verbs.push((operator_precedence, index, pair.as_str()))
                 } else {
+                    println!("unprecedented dyadic verb: {:?}", pair.as_str());
                     return Err("Unrecognized dyadic verb".to_string());
                 }
             },
@@ -291,7 +300,17 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                 let mut inner_pairs = self.into_inner().into_iter();
                 Box::new(AstNode::DoUntilStatement {
                     body: inner_pairs.next().unwrap().into(),
-                    predicate: inner_pairs.next().unwrap().into()
+                    predicate: match inner_pairs.next() {
+                        Some(pair) => { Some(pair.into()) },
+                        None => { None }
+                    }
+                })
+            }
+            Rule::foreach_statement => {
+                let mut inner_pairs = self.into_inner().into_iter();
+                Box::new(AstNode::ForEachStatement {
+                    predicate: inner_pairs.next().unwrap().into(),
+                    body: inner_pairs.next().unwrap().into()
                 })
             }
             Rule::goto_statement => {
@@ -502,13 +521,34 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                 Box::new(AstNode::IntegerLiteral(integer * sign))
             }
             Rule::float_literal => {
-                Box::new(AstNode::FloatLiteral(self.as_str().parse::<f32>().unwrap()))
+                let string = self.as_str().to_lowercase().trim_end_matches("f").to_string();
+                Box::new(AstNode::FloatLiteral(string.as_str().parse::<f32>().unwrap()))
             }
             Rule::object_literal => {
                 let mut inner_iter = self.into_inner().into_iter();
                 Box::new(AstNode::ObjectLiteral {
                     type_: inner_iter.next().unwrap().as_str().to_string(),
                     reference: inner_iter.next().unwrap().into_inner().next().unwrap().as_str().to_string()
+                })
+            }
+            Rule::new => {
+                let inner_pairs: Vec<Pair<Rule>> = self.into_inner().into_iter().collect();
+                let (type_, arguments) = inner_pairs.split_last().unwrap();
+                Box::new(AstNode::New {
+                    type_: type_.clone().into(),
+                    arguments: parse_arguments(arguments)
+                })
+            }
+            Rule::cast => {
+                let mut inner_iter = self.into_inner().into_iter();
+                Box::new(AstNode::Cast {
+                    type_: inner_iter.next().unwrap().into(),
+                    operand: inner_iter.next().unwrap().into(),
+                })
+            }
+            Rule::defaultproperties => {
+                Box::new(AstNode::DefaultProperties {
+                    lines: self.into_inner().into_iter().map(|pair| pair.into()).collect()
                 })
             }
             Rule::name_literal => {
@@ -800,7 +840,7 @@ fn read_file_to_string(path: &str) -> Result<String, std::io::Error> {
 
 fn main() {
     if let Ok(contents) = read_file_to_string("src\\tests\\ExpressionSandbox.uc") {
-        match UnrealScriptParser::parse(Rule::state_declaration, contents.as_str()) {
+        match UnrealScriptParser::parse(Rule::program, contents.as_str()) {
             Ok(mut root) => {
                 let statement: Box<AstNode> = root.next().unwrap().into();
                 println!("{:?}", statement);
@@ -1023,6 +1063,39 @@ mod tests {
             input: "123.e4",
             rule: Rule::float_literal,
             tokens: [ float_literal(0, 6) ]
+        )
+    }
+
+    #[test]
+    fn float_literal_decimal_trailing_specifier() {
+        parses_to!(
+            parser: UnrealScriptParser,
+            input: "123.456f",
+            rule: Rule::float_literal,
+            tokens: [ float_literal(0, 8) ]
+        );
+        // TODO: this is good but WAY too verbose, figure out a more compact way to run this test
+        match UnrealScriptParser::parse(Rule::float_literal, "123.456f") {
+            Ok(mut node) => {
+                let bigbox: Box<AstNode> = node.next().unwrap().into();
+                match bigbox.as_ref() {
+                    AstNode::FloatLiteral(value) => {
+                        assert_eq!(*value, 123.456);
+                    },
+                    _ => panic!("incorrect parse result")
+                }
+            },
+            Err(error) => panic!("{:?}", error)
+        }
+    }
+
+    #[test]
+    fn float_literal_scientific_trailing_specifier() {
+        parses_to!(
+            parser: UnrealScriptParser,
+            input: "123.456e+4f",
+            rule: Rule::float_literal,
+            tokens: [ float_literal(0, 11) ]
         )
     }
 
