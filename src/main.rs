@@ -164,7 +164,7 @@ fn parse_expression(pairs: &[Pair<Rule>]) -> Result<Box<AstNode>, String> {
                 if let Some(operator_precedence) = operator_precedence {
                     dyadic_verbs.push((operator_precedence, index, pair.as_str()))
                 } else {
-                    println!("unprecedented dyadic verb: {:?}", pair.as_str());
+                    println!("unrecognized dyadic verb: {:?} at {:?}", pair.as_str(), pair.as_span());
                     return Err("Unrecognized dyadic verb".to_string());
                 }
             },
@@ -381,7 +381,7 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                         _ => { panic!("unrecognized reliability type") }
                     },
                     condition: inner_iter.next().unwrap().into(),
-                    variables: inner_iter.map(|pair| { pair.as_str().to_string() }).collect()
+                    variables: inner_iter.next().unwrap().into_inner().into_iter().map(|pair| { pair.as_str().to_string() }).collect()
                 })
             }
             Rule::replication_block => {
@@ -660,7 +660,7 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
             }
             Rule::function_declaration => {
                 let mut modifiers: Vec<Box<AstNode>> = Vec::new();
-                let mut type_: String = String::new();
+                let mut type_: Option<Box<AstNode>> = None;
                 let mut return_type: Option<Box<AstNode>> = None;
                 let mut arguments: Vec<Box<AstNode>> = Vec::new();
                 let mut name: String = String::new();
@@ -668,7 +668,22 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                 self.into_inner().into_iter().for_each(|pair| {
                     match pair.as_rule() {
                         Rule::function_type => {
-                            type_ = pair.as_str().to_string()
+                            let inner_pair = pair.into_inner().into_iter().next().unwrap();
+                            match inner_pair.as_rule() {
+                                Rule::function_type_without_argument => {
+                                    type_ = Some(Box::new(AstNode::FunctionType {
+                                        type_: inner_pair.as_str().to_string(),
+                                        arguments: None
+                                    }))
+                                }
+                                Rule::operator => {
+                                    type_ = Some(Box::new(AstNode::FunctionType {
+                                        type_: "operator".to_string(),  // TODO: kinda sloppy
+                                        arguments: Some(inner_pair.into_inner().into_iter().map(|pair| pair.into()).collect())
+                                    }))
+                                }
+                                _ => panic!("unhandled rule")
+                            }
                         }
                         Rule::function_modifier => {
                             modifiers.push(pair.into())
@@ -676,7 +691,7 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                         Rule::type_ => {
                             return_type = Some(pair.into())
                         }
-                        Rule::unqualified_identifier => {
+                        Rule::function_name => {
                             name = pair.as_str().to_string()
                         }
                         Rule::function_argument => {
@@ -689,7 +704,7 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                     }
                 });
                 Box::new(AstNode::FunctionDelaration {
-                    type_,
+                    type_: type_.unwrap(),
                     modifiers,
                     return_type,
                     name,
@@ -718,52 +733,52 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                     statements
                 })
             }
-            Rule::operator_type => {
-                let mut inner_iter = self.into_inner().into_iter();
-                Box::new(AstNode::OperatorType {
-                    type_: inner_iter.next().unwrap().as_str().to_string(),
-                    arguments: inner_iter.map(|pair| { pair.into() }).collect()
-                })
-            }
-            Rule::operator_declaration => {
-                let mut modifiers: Vec<Box<AstNode>> = Vec::new();
-                let mut type_: Option<Box<AstNode>> = None;
-                let mut return_type: Option<Box<AstNode>> = None;
-                let mut name: String = String::new();
-                let mut arguments: Vec<Box<AstNode>> = Vec::new();
-                let mut body: Option<Box<AstNode>> = None;
-                self.into_inner().into_iter().for_each(|pair| {
-                    match pair.as_rule() {
-                        Rule::operator_type => {
-                            type_ = Some(pair.into())
-                        }
-                        Rule::function_modifier => {
-                            modifiers.push(pair.into())
-                        }
-                        Rule::type_ => {
-                            return_type = Some(pair.into())
-                        }
-                        Rule::any_verb => {
-                            name = pair.as_str().to_string()
-                        }
-                        Rule::function_argument => {
-                            arguments.push(pair.into())
-                        }
-                        Rule::function_body => {
-                            body = Some(pair.into());
-                        }
-                        _ => { panic!("unhandled pair") }
-                    }
-                });
-                Box::new(AstNode::OperatorDeclaration {
-                    type_: type_.unwrap(),
-                    modifiers,
-                    return_type,
-                    arguments,
-                    name,
-                    body
-                })
-            }
+            // Rule::operator_type => {
+            //     let mut inner_iter = self.into_inner().into_iter();
+            //     Box::new(AstNode::OperatorType {
+            //         type_: inner_iter.next().unwrap().as_str().to_string(),
+            //         arguments: inner_iter.map(|pair| { pair.into() }).collect()
+            //     })
+            // }
+            // Rule::operator_declaration => {
+            //     let mut modifiers: Vec<Box<AstNode>> = Vec::new();
+            //     let mut type_: Option<Box<AstNode>> = None;
+            //     let mut return_type: Option<Box<AstNode>> = None;
+            //     let mut name: String = String::new();
+            //     let mut arguments: Vec<Box<AstNode>> = Vec::new();
+            //     let mut body: Option<Box<AstNode>> = None;
+            //     self.into_inner().into_iter().for_each(|pair| {
+            //         match pair.as_rule() {
+            //             Rule::operator_type => {
+            //                 type_ = Some(pair.into())
+            //             }
+            //             Rule::function_modifier => {
+            //                 modifiers.push(pair.into())
+            //             }
+            //             Rule::type_ => {
+            //                 return_type = Some(pair.into())
+            //             }
+            //             Rule::any_verb => {
+            //                 name = pair.as_str().to_string()
+            //             }
+            //             Rule::function_argument => {
+            //                 arguments.push(pair.into())
+            //             }
+            //             Rule::function_body => {
+            //                 body = Some(pair.into());
+            //             }
+            //             _ => { panic!("unhandled pair") }
+            //         }
+            //     });
+            //     Box::new(AstNode::OperatorDeclaration {
+            //         type_: type_.unwrap(),
+            //         modifiers,
+            //         return_type,
+            //         arguments,
+            //         name,
+            //         body
+            //     })
+            // }
             Rule::var_size => {
                 self.into_inner().next().unwrap().into()
             }
@@ -840,10 +855,15 @@ fn read_file_to_string(path: &str) -> Result<String, std::io::Error> {
 
 fn main() {
     if let Ok(contents) = read_file_to_string("src\\tests\\ExpressionSandbox.uc") {
-        match UnrealScriptParser::parse(Rule::program, contents.as_str()) {
+        let mut before = std::time::Instant::now();
+        let root = UnrealScriptParser::parse(Rule::program, contents.as_str());
+        println!("parsed file in {:.2?}", before.elapsed());
+        match root {
             Ok(mut root) => {
-                let statement: Box<AstNode> = root.next().unwrap().into();
-                println!("{:?}", statement);
+                before = std::time::Instant::now();
+                let _statement: Box<AstNode> = root.next().unwrap().into();
+                println!("built ast in {:?}", before.elapsed());
+                // println!("{:?}", statement);
             }
             Err(error) => {
                 println!("invalid expression! try again");

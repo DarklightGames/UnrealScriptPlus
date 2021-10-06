@@ -45,7 +45,7 @@ name_literal = { "'" ~ name_inner ~ "'"}
 single_quoted_string_character = @{ ASCII_ALPHANUMERIC | "." | " " | "_" }
 single_quoted_string_inner = @{ single_quoted_string_character* }
 single_quoted_string = { "'" ~ single_quoted_string_inner  ~ "'"}
-object_literal = { unqualified_identifier ~ single_quoted_string }
+object_literal = { unqualified_identifier ~ WS* ~ single_quoted_string }
 vector_literal = { ^"vect" ~ WS* ~ "(" ~ WS* ~ numeric_literal ~ WS* ~ "," ~ WS* ~ numeric_literal ~ WS* ~ "," ~ WS* ~ numeric_literal ~ WS* ~ ")" }
 rotator_literal = { ^"rot" ~ WS* ~ "(" ~ WS* ~ numeric_literal ~ WS* ~ "," ~ WS* ~ numeric_literal ~ WS* ~ "," ~ WS* ~ numeric_literal ~ WS* ~ ")" }
 literal = {
@@ -137,6 +137,7 @@ struct_modifiers = { struct_modifier* }
 extends = { ^"extends" ~ WS+ ~ identifier }
 struct_declaration = { ^"struct" ~ (WS+ ~ struct_modifier)* ~ WS+ ~ unqualified_identifier ~ WS+ ~ extends? ~ WS* ~ "{" ~ WS* ~ struct_var_declarations? ~ WS* ~ "}" }
 
+// TODO: syntactically enforce argument rules (only native takes an argument)
 function_modifier_type = {
     ^"native" |
     ^"private" |
@@ -162,27 +163,20 @@ function_argument_modifier = {
 function_argument_modifiers = _{ function_argument_modifier ~ (WS+ ~ function_argument_modifier)* }
 function_argument = { (function_argument_modifiers ~ WS+)? ~ type_ ~ WS+ ~ var_name}
 function_arguments = _{ function_argument ~ (WS* ~ "," ~ WS* ~ function_argument)* }
-function_type = { ^"function" | ^"event" | ^"delegate" }
-function_type_outer = _{ function_type ~ WS+ }
-function_types = _{ function_type ~ (WS+ ~ function_type)* }
-function_declaration = { function_modifiers? ~ WS+ ~ function_types ~ (WS+ ~ function_modifiers?) ~ WS* ~ ((type_ ~ WS+ ~ unqualified_identifier) | unqualified_identifier) ~ WS* ~ "(" ~ WS* ~ function_arguments? ~ WS* ~ ")" ~ WS* ~ function_body_or_semicolon }
-
 operator = { ^"operator" ~  WS* ~ "(" ~ WS* ~ integer_literal ~ WS* ~ ")" }
-preoperator = { ^"preoperator" }
-postoperator = { ^"postoperator" }
-operator_type = { operator | preoperator | postoperator }
-
-// TODO: fix the VERBS
-any_verb = { symbolic_verb | unqualified_identifier }
-operator_declaration = { (function_modifier* ~ WS+)? ~ operator_type ~ WS+ ~ type_ ~ WS+ ~ any_verb ~ WS* ~ "(" ~ WS* ~ function_arguments? ~ WS* ~ ")" ~ WS* ~ function_body_or_semicolon }
+function_type_without_argument = { ^"function" | ^"event" | ^"delegate" | ^"preoperator" | ^"postoperator" }
+function_type = { function_type_without_argument | operator }
+function_types = _{ function_type ~ (WS+ ~ function_type)* }
+function_name = { unqualified_identifier | symbolic_verb }
+function_declaration = { (function_modifiers ~ WS+)? ~ function_types ~ WS+ ~ (function_modifiers ~ WS+)? ~ ((type_ ~ WS+ ~ function_name) | function_name) ~ WS* ~ "(" ~ WS* ~ function_arguments? ~ WS* ~ ")" ~ WS* ~ function_body_or_semicolon }
 
 reliability = { ^"reliable" | ^"unreliable" }
-replication_statement = { reliability ~ WS+ ~ ^"if" ~ WS+ ~ parenthetical_expression ~ WS* ~ (unqualified_identifier ~ (WS* ~ "," ~ WS* ~ unqualified_identifier)*) ~ WS* ~ ";" }
-replication_statements = _{ replication_statement ~ (WS+ ~ replication_statement) }
+replication_statement = { reliability ~ WS+ ~ ^"if" ~ WS+ ~ "(" ~ WS* ~ expression_outer ~ WS* ~ ")" ~ WS* ~ unqualified_identifier_list? ~ WS* ~ ";" }
+replication_statements = _{ replication_statement ~ (WS* ~ replication_statement)* }
 replication_block = { ^"replication" ~ WS* ~ "{" ~ WS* ~ replication_statements? ~ WS* ~ "}" }
 
 type_declaration_statement = _{ (enum_declaration | struct_declaration) ~ ";" }
-class_statement = _{ compiler_directive | const_declaration | var_declaration  | type_declaration_statement | function_declaration | operator_declaration | replication_block | state_declaration | defaultproperties }
+class_statement = _{ compiler_directive | const_declaration | var_declaration  | type_declaration_statement | function_declaration | replication_block | state_declaration | defaultproperties }
 class_statements = _{ class_statement ~ (WS* ~ class_statement)* }
 eoi = _{ EOI }
 program = { SOI ~ WS* ~ class_declaration ~ WS* ~ class_statements? ~ WS* ~ eoi }
@@ -212,16 +206,18 @@ symbolic_verb = {
     "$=" | "@=" | "$" | "@" | "+" | "-" | "=" | "&" | "|" | "^" | "%" | "*" | "/" | "!" | "~"
 }
 
+// TODO: this could be slowing the whole show down!
 monadic_pre_verb = { "++" | "--" | "~" | "-" | "!" }
 monadic_post_verb = { "++" | "--" }
-monadic_pre_expression = _{ monadic_pre_verb ~ WS* ~ target }
-monadic_post_expression = _{ target ~ WS* ~ monadic_post_verb }
-monadic_expression = _{ monadic_pre_expression | monadic_post_expression }
+// monadic_pre_expression = _{ monadic_pre_verb ~ WS* ~ target }
+// monadic_post_expression = _{ target ~ WS* ~ monadic_post_verb }
+// monadic_expression = _{ monadic_pre_expression | monadic_post_expression }
+// TODO: the problem is that this monadic_expression is evaluated for every expression, then discarded
 
-primary = _{ cast | literal | parenthetical_expression | default_access | static_access | global_call | unqualified_identifier }   // primaries are the START of a TARGET
-target = _{ new | (primary ~ (WS* ~ atom)*) }
+primary = _{ cast | literal | default_access | static_access | global_call | unqualified_identifier | parenthetical_expression }   // primaries are the START of a TARGET
+target = _{ monadic_pre_verb? ~ WS* ~ (new | primary ~ (WS* ~ atom)*) ~ WS* ~ monadic_post_verb? }
 parenthetical_expression = { "(" ~ WS* ~ expression_outer ~ WS* ~ ")" }
-expression = _{ monadic_expression | target | unqualified_identifier }   // TODO: monadic expression should be a target???
+expression = _{ target | unqualified_identifier }   // TODO: monadic expression should be a target???
 
 // new is a kind of "terminal", nothing can come after it in an expression
 new = { ^"new" ~ (WS* ~ "(" ~ expression_list ~ ")")? ~ WS+ ~ expression } /// fuck this syntax
@@ -235,7 +231,8 @@ cast = { class_type ~ WS* ~ "(" ~ WS* ~ expression_outer ~ WS* ~ ")" }
 
 code_scope = { "{" ~ WS* ~ code_statements? ~ WS* ~ "}" }
 function_body_or_semicolon = _{ ";" | ("{" ~ WS* ~ function_body ~ WS* ~ "}") }
-function_body = { local_declarations? ~ WS* ~ code_statements? }
+const_declarations = _{ const_declaration ~ (WS* ~ const_declaration)* }
+function_body = { const_declarations? ~ WS* ~ local_declarations? ~ WS* ~ code_statements? }
 local_declarations = _{ local_declaration ~ (WS* ~ local_declaration)* }
 code_statements = _{ code_statement ~ (WS* ~ code_statement)* }
 code_statement_outer = { code_statement }
@@ -287,32 +284,33 @@ state_label = { unqualified_identifier ~ WS* ~ ":" ~ WS* ~ code_statements? }
 state_ignores = { ^"ignores" ~ WS+ ~ unqualified_identifier_list ~ WS* ~ ";" }
 
 // STATES
-code_statement = _{ conditional_statement | for_statement | while_statement | do_until_statement | foreach_statement | return_statement | break_statement | continue_statement | goto_statement | compiler_directive | switch_statement | (expression_outer ~ WS* ~ ";") | statement_empty }
+code_statement = _{ conditional_statement | for_statement | while_statement | do_until_statement | foreach_statement | return_statement | break_statement | continue_statement | goto_statement | compiler_directive | switch_statement | const_declaration | (expression_outer ~ WS* ~ ";") | statement_empty }
 // TODO: operator precedence is handled at the parser level
-native_verb = {
-    "**" |  // 12
-    "+=" | "-=" | "*=" | "/=" | // 34
-    "&&" | "^^" | // 30
-    "*" | "/" /*| ^"dot" | ^"cross"*/ | // 16
-    "||" | // 32
-    "%" | //18
-    "-=" | // 45
-    "<<" | ">>" | ">>>" | // 22
-    "<=" | ">=" | "==" | "~=" | "<" | ">" /*| ^"clockwisefrom"*/ | // 24
-    "!=" | // 26
-    "&" | "|" | "^" | // 28
-    "$=" | "@=" | //44
-    "$" | "@" | // 40
-    "+" | "-" | // 20
+dyadic_verb_native = {
+    "&&" | "^^" |
+    "**" |
+    "+=" | "-=" | "*=" | "/=" |
+    "*" | "/" |
+    "||" |
+    "%" |
+    "-=" |
+    "<<" | ">>" | ">>>" |
+    "<=" | ">=" | "==" | "~=" | "<" | ">" |
+    "!=" |
+    "&" | "|" | "^" |
+    "$=" | "@=" |
+    "$" | "@" |
+    "+" | "-" |
     "="
 }
-dyadic_verb = { unqualified_identifier | native_verb }
+dyadic_verb = { dyadic_verb_native | unqualified_identifier }
 
 // DEFAULTPROPERTIES
 DPWS = _{ " " | "\t" }
-defaultproperties_value = { literal | unqualified_identifier | defaultproperties_struct }
+defaultproperties_value = { literal | unqualified_identifier | defaultproperties_struct | defaultproperties_array }
 defaulproperties_assignment = { defaultproperties_target ~ DPWS* ~ "=" ~ DPWS* ~ defaultproperties_value }
 defaultproperties_struct = { "(" ~ DPWS* ~ (defaulproperties_assignment ~ DPWS* ~ ("," ~ DPWS* ~ defaulproperties_assignment)*)? ~ DPWS* ~ ")" }
+defaultproperties_array = { "(" ~ DPWS* ~ defaultproperties_value ~ DPWS * ~ ("," ~ DPWS* ~ defaultproperties_value)* ~ DPWS* ~ ")" }
 defaultproperties_object = { ^"begin" ~ DPWS+ ~ ^"object" ~ DPWS+ ~ ^"class" ~ "=" ~ identifier ~ (WS+ ~ defaulproperties_assignment)* ~ WS+ ~ ^"end" ~ DPWS+ ~ ^"object" }
 defaultproperties_line = _{ defaulproperties_assignment | defaultproperties_object }
 defaultproperties_lines = _{ defaultproperties_line ~ (WS* ~ defaultproperties_line)* }

@@ -27,7 +27,7 @@ pub enum AstNode {
         name: Box<AstNode>
     },
     FunctionDelaration {
-        type_: String,  // TODO: enum?
+        type_: Box<AstNode>,
         modifiers: Vec<Box<AstNode>>,
         return_type: Option<Box<AstNode>>,
         arguments: Vec<Box<AstNode>>,
@@ -150,6 +150,10 @@ pub enum AstNode {
     SwitchStatement {
         predicate: Box<AstNode>,
         cases: Vec<Box<AstNode>>
+    },
+    FunctionType {
+        type_: String,
+        arguments: Option<Vec<Box<AstNode>>>
     },
     FunctionBody {
         locals: Vec<Box<AstNode>>,
@@ -426,6 +430,17 @@ impl std::fmt::Debug for AstNode {
                 }
                 d.field("type", type_);
                 d.field("name", name);
+                d.finish()
+            }
+            AstNode::FunctionType { type_, arguments } => {
+                let mut d = f.debug_struct("FunctionType");
+                d.field("type", type_);
+                match arguments {
+                    Some(_) => {
+                        d.field("arguments", arguments);
+                    }
+                    None => {}
+                }
                 d.finish()
             }
             AstNode::FunctionDelaration { type_, modifiers, return_type, name, arguments, body } => {
