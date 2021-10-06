@@ -71,6 +71,7 @@ pub enum AstNode {
         name: String,
         parent_class: Option<String>,
         modifiers: Vec<Box<AstNode>>,
+        within: Option<String>
     },
     ConstDeclaration {
         name: String,
@@ -103,7 +104,10 @@ pub enum AstNode {
         type_: Box<AstNode>,
         names: Vec<Box<AstNode>>
     },
-    StateLabel, // TODO
+    StateLabel {
+        label: String,
+        statements: Vec<Box<AstNode>>
+    },
     StateDeclaration {
         modifiers: Vec<String>,
         name: String,
@@ -247,6 +251,7 @@ pub enum AstNode {
         type_: Box<AstNode>,
         operand: Box<AstNode>
     },
+    CppText(String),
     Unhandled
 }
 
@@ -259,7 +264,7 @@ impl std::fmt::Debug for AstNode {
                     .field("statements", statements)
                     .finish()
             }
-            AstNode::ClassDeclaration { name, parent_class, modifiers } => {
+            AstNode::ClassDeclaration { name, parent_class, modifiers, within } => {
                 let mut d = f.debug_struct("ClassDeclaration");
                 d.field("name", name);
                 if let Some(parent_class) = parent_class {
@@ -267,6 +272,9 @@ impl std::fmt::Debug for AstNode {
                 }
                 if !modifiers.is_empty() {
                     d.field("modifiers", modifiers);
+                }
+                if let Some(wihin) = within {
+                    d.field("within", within);
                 }
                 d.finish()
             }
@@ -392,6 +400,14 @@ impl std::fmt::Debug for AstNode {
             }
             AstNode::Identifier(value) => {
                 return f.write_str(value.as_str())
+            }
+            AstNode::StateLabel { label, statements } => {
+                let mut d = f.debug_struct("StateLabel");
+                d.field("label", label);
+                if !statements.is_empty() {
+                    d.field("statements", statements);
+                }
+                d.finish()
             }
             AstNode::StateDeclaration { modifiers, name, parent, ignores, statements, labels } => {
                 let mut d = f.debug_struct("StateDeclaration");
@@ -689,6 +705,11 @@ impl std::fmt::Debug for AstNode {
                 f.debug_struct("Cast")
                     .field("type", type_)
                     .field("operand", operand)
+                    .finish()
+            }
+            AstNode::CppText(body) => {
+                f.debug_struct("CppText")
+                    .field("body", body)
                     .finish()
             }
             _ => { f.debug_struct("Unknown").finish() }

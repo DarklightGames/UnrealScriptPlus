@@ -39,7 +39,7 @@ string_character = @{
 string_literal_inner = @{ string_character* }
 string_literal = { "\"" ~ string_literal_inner ~ "\"" }
 
-name_character = @{ ASCII_ALPHANUMERIC | "_" }
+name_character = @{ ASCII_ALPHANUMERIC | "_" | " " }
 name_inner = @{ name_character* }
 name_literal = { "'" ~ name_inner ~ "'"}
 single_quoted_string_character = @{ ASCII_ALPHANUMERIC | "." | " " | "_" }
@@ -83,8 +83,10 @@ class_modifier_type = @{
     ^"native" |
     ^"noexport"
 }
+// TODO: WITHIN rule!
 class_modifier = { class_modifier_type ~ (WS* ~ "(" ~ WS* ~ expression_list ~ WS* ~ ")")? }
-class_declaration = { ^"class" ~ WS+ ~ unqualified_identifier ~ (WS+ ~ extends)? ~ (WS+ ~ class_modifier)* ~ WS* ~ ";" }
+class_within = { ^"within" ~ WS+ ~ identifier }
+class_declaration = { ^"class" ~ WS+ ~ unqualified_identifier ~ (WS+ ~ extends)? ~ (WS+ ~ class_within)? ~ (WS+ ~ class_modifier)* ~ WS* ~ ";" }
 
 var_modifier = {
     ^"const" |
@@ -102,10 +104,10 @@ var_modifier = {
     ^"edfindable" |
     ^"editconst" |
     ^"editconstarray" |
-    ^"editinline" |
-    ^"editinlineuse" |
-    ^"cache" |
     ^"editinlinenotify" |
+    ^"editinlineuse" |
+    ^"editinline" |
+    ^"cache" |
     ^"export" |
     ^"native" |
     ^"noexport"
@@ -171,12 +173,12 @@ function_name = { unqualified_identifier | symbolic_verb }
 function_declaration = { (function_modifiers ~ WS+)? ~ function_types ~ WS+ ~ (function_modifiers ~ WS+)? ~ ((type_ ~ WS+ ~ function_name) | function_name) ~ WS* ~ "(" ~ WS* ~ function_arguments? ~ WS* ~ ")" ~ WS* ~ function_body_or_semicolon }
 
 reliability = { ^"reliable" | ^"unreliable" }
-replication_statement = { reliability ~ WS+ ~ ^"if" ~ WS+ ~ "(" ~ WS* ~ expression_outer ~ WS* ~ ")" ~ WS* ~ unqualified_identifier_list? ~ WS* ~ ";" }
+replication_statement = { reliability ~ WS+ ~ ^"if" ~ WS* ~ "(" ~ WS* ~ expression_outer ~ WS* ~ ")" ~ WS* ~ unqualified_identifier_list? ~ WS* ~ ";" }
 replication_statements = _{ replication_statement ~ (WS* ~ replication_statement)* }
 replication_block = { ^"replication" ~ WS* ~ "{" ~ WS* ~ replication_statements? ~ WS* ~ "}" }
 
 type_declaration_statement = _{ (enum_declaration | struct_declaration) ~ ";" }
-class_statement = _{ compiler_directive | const_declaration | var_declaration  | type_declaration_statement | function_declaration | replication_block | state_declaration | defaultproperties }
+class_statement = _{ ";" | compiler_directive | const_declaration | var_declaration  | type_declaration_statement | function_declaration | replication_block | state_declaration | defaultproperties | cpptext }
 class_statements = _{ class_statement ~ (WS* ~ class_statement)* }
 eoi = _{ EOI }
 program = { SOI ~ WS* ~ class_declaration ~ WS* ~ class_statements? ~ WS* ~ eoi }
@@ -197,22 +199,14 @@ atom = _{ call | array_access | ("." ~ default_access) | ("." ~ static_access) |
 
 dyadic_expression = _{ dyadic_verb ~ WS* ~ expression }
 
-// TODO: chaining unary operators don't work very well (eg. ~--A) [valid uc, invalid ucp]
-monadic_verb = { monadic_pre_verb | monadic_post_verb }
-
 symbolic_verb = {
     "++" | "--" | "**" | "+=" | "-=" | "*=" | "/=" | "&&" | "^^" |
     "||" | "-=" | "<<" | ">>>" | ">>" | "<=" | ">=" | "==" | "~=" | "<" | ">" | "!=" |
     "$=" | "@=" | "$" | "@" | "+" | "-" | "=" | "&" | "|" | "^" | "%" | "*" | "/" | "!" | "~"
 }
 
-// TODO: this could be slowing the whole show down!
 monadic_pre_verb = { "++" | "--" | "~" | "-" | "!" }
 monadic_post_verb = { "++" | "--" }
-// monadic_pre_expression = _{ monadic_pre_verb ~ WS* ~ target }
-// monadic_post_expression = _{ target ~ WS* ~ monadic_post_verb }
-// monadic_expression = _{ monadic_pre_expression | monadic_post_expression }
-// TODO: the problem is that this monadic_expression is evaluated for every expression, then discarded
 
 primary = _{ cast | literal | default_access | static_access | global_call | unqualified_identifier | parenthetical_expression }   // primaries are the START of a TARGET
 target = _{ monadic_pre_verb? ~ WS* ~ (new | primary ~ (WS* ~ atom)*) ~ WS* ~ monadic_post_verb? }
@@ -227,7 +221,7 @@ expression_empty = { "," }
 expression_list = _{ (expression_outer ~ WS* ~ "," ~ WS* | (expression_empty ~ WS*))* ~ expression_outer? }
 constant_list = _{ (constant ~ "," | expression_empty)* ~ constant? }
 cast = { class_type ~ WS* ~ "(" ~ WS* ~ expression_outer ~ WS* ~ ")" }
-// TODO: certain casts (int, string) don't follow the cast grammar
+// NOTE: certain casts (int, string) don't follow the cast grammar, this is only for explicit
 
 code_scope = { "{" ~ WS* ~ code_statements? ~ WS* ~ "}" }
 function_body_or_semicolon = _{ ";" | ("{" ~ WS* ~ function_body ~ WS* ~ "}") }
@@ -262,7 +256,7 @@ for_statement = { ^"for" ~ WS* ~ "(" ~ WS* ~ for_statement_inner ~ WS* ~ ")" ~ W
 do_until_statement = { ^"do" ~ WS* ~ code_scope ~ (WS* ~ ^"until" ~ WS* ~ "(" ~ expression_outer ~ ")")? }
 
 // foreach_expression = { expression ~ WS+ ~ unqualified_identifier ~ WS* ~ call }
-foreach_statement = { ^"foreach" ~ WS+ ~ expression_outer ~ WS* ~ statement_or_block }
+foreach_statement = { ^"foreach" ~ WS+ ~ target ~ WS* ~ statement_or_block }
 switch_statement = { ^"switch" ~ WS* ~ "(" ~ WS* ~ expression_outer ~ WS* ~ ")" ~ WS* ~ "{" ~ (WS* ~ switch_case)* ~ WS* ~ switch_default_case? ~ WS* ~ "}" }
 switch_case_label = _{ ^"case" ~ WS+ ~ target ~ WS* ~ ":" }
 switch_default_label = _{ ^"default" ~ WS* ~ ":" }
@@ -284,7 +278,7 @@ state_label = { unqualified_identifier ~ WS* ~ ":" ~ WS* ~ code_statements? }
 state_ignores = { ^"ignores" ~ WS+ ~ unqualified_identifier_list ~ WS* ~ ";" }
 
 // STATES
-code_statement = _{ conditional_statement | for_statement | while_statement | do_until_statement | foreach_statement | return_statement | break_statement | continue_statement | goto_statement | compiler_directive | switch_statement | const_declaration | (expression_outer ~ WS* ~ ";") | statement_empty }
+code_statement = _{ conditional_statement | foreach_statement | for_statement | while_statement | do_until_statement | return_statement | break_statement | continue_statement | goto_statement | compiler_directive | switch_statement | const_declaration | (expression_outer ~ WS* ~ ";") | statement_empty }
 // TODO: operator precedence is handled at the parser level
 dyadic_verb_native = {
     "&&" | "^^" |
@@ -294,7 +288,7 @@ dyadic_verb_native = {
     "||" |
     "%" |
     "-=" |
-    "<<" | ">>" | ">>>" |
+    "<<" | ">>>" | ">>" |
     "<=" | ">=" | "==" | "~=" | "<" | ">" |
     "!=" |
     "&" | "|" | "^" |
@@ -308,11 +302,18 @@ dyadic_verb = { dyadic_verb_native | unqualified_identifier }
 // DEFAULTPROPERTIES
 DPWS = _{ " " | "\t" }
 defaultproperties_value = { literal | unqualified_identifier | defaultproperties_struct | defaultproperties_array }
-defaulproperties_assignment = { defaultproperties_target ~ DPWS* ~ "=" ~ DPWS* ~ defaultproperties_value }
-defaultproperties_struct = { "(" ~ DPWS* ~ (defaulproperties_assignment ~ DPWS* ~ ("," ~ DPWS* ~ defaulproperties_assignment)*)? ~ DPWS* ~ ")" }
+defaultproperties_assignment = { defaultproperties_target ~ DPWS* ~ "=" ~ DPWS* ~ defaultproperties_value ~ (DPWS* ~ ";")? }
+defaultproperties_struct = { "(" ~ DPWS* ~ (defaultproperties_assignment ~ DPWS* ~ ("," ~ DPWS* ~ defaultproperties_assignment)*)? ~ DPWS* ~ ")" }
 defaultproperties_array = { "(" ~ DPWS* ~ defaultproperties_value ~ DPWS * ~ ("," ~ DPWS* ~ defaultproperties_value)* ~ DPWS* ~ ")" }
-defaultproperties_object = { ^"begin" ~ DPWS+ ~ ^"object" ~ DPWS+ ~ ^"class" ~ "=" ~ identifier ~ (WS+ ~ defaulproperties_assignment)* ~ WS+ ~ ^"end" ~ DPWS+ ~ ^"object" }
-defaultproperties_line = _{ defaulproperties_assignment | defaultproperties_object }
+defaultproperties_object = { ^"begin" ~ DPWS+ ~ ^"object" ~ DPWS+ ~ ^"class" ~ "=" ~ identifier ~ (WS+ ~ defaultproperties_assignment)* ~ WS+ ~ ^"end" ~ DPWS+ ~ ^"object" }
+defaultproperties_line = _{ defaultproperties_assignment | defaultproperties_object }
 defaultproperties_lines = _{ defaultproperties_line ~ (WS* ~ defaultproperties_line)* }
-defaultproperties_target = { unqualified_identifier ~ DPWS* ~ ("(" ~ DPWS* ~ integer_literal_decimal ~ DPWS* ~ ")")? }
+defaultproperties_target = { unqualified_identifier ~ DPWS* ~ (("(" | "[") ~ DPWS* ~ integer_literal_decimal ~ DPWS* ~ (")" | "]"))? }
 defaultproperties = { ^"defaultproperties" ~ WS* ~ "{" ~ WS* ~ defaultproperties_lines? ~ WS* ~ "}"}
+
+// CPPTEXT
+cpptext_brackets = _{ "{" ~ WS* ~ cpptext_body ~ WS* ~ "}" }
+cpptext_item = _{ cpptext_brackets | (!"{" ~ !"}" ~ ANY) }
+cpptext_body = _{ cpptext_item* }
+cpptext_body_outer = { cpptext_body }
+cpptext = { ^"cpptext" ~ WS* ~ "{" ~ cpptext_body_outer ~ "}" }

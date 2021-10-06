@@ -409,6 +409,7 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                 let mut name: String = String::new();
                 let mut parent_class: Option<String> = None;
                 let mut modifiers: Vec<Box<AstNode>> = Vec::new();
+                let mut within: Option<String> = None;
                 inner_iter.for_each(|pair| {
                     match pair.as_rule() {
                         Rule::unqualified_identifier => {
@@ -420,13 +421,17 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                         Rule::class_modifier => {
                             modifiers.push(pair.into())
                         }
+                        Rule::class_within => {
+                            within = Some(pair.into_inner().into_iter().next().unwrap().as_str().to_string())
+                        }
                         _ => { panic!("unexpected pair")}
                     }
                 });
                 Box::new(AstNode::ClassDeclaration {
                     name,
                     parent_class,
-                    modifiers
+                    modifiers,
+                    within
                 })
             }
             Rule::const_declaration => {
@@ -453,10 +458,6 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
             }
             Rule::class_type => {
                 Box::new(AstNode::ClassType(self.into_inner().next().unwrap().into()))
-            }
-            Rule::state_label => {
-                // TODO:
-                Box::new(AstNode::StateLabel)
             }
             Rule::state_declaration => {
                 let mut modifiers: Vec<String> = Vec::new();
@@ -485,7 +486,11 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                             statements.push(pair.into_inner().next().unwrap().into())
                         }
                         Rule::state_label => {
-                            labels.push(pair.into())
+                            let mut inner_iter = pair.into_inner().into_iter();
+                            labels.push(Box::new(AstNode::StateLabel {
+                                label: inner_iter.next().unwrap().as_str().to_string(),
+                                statements: inner_iter.map(|pair| pair.into()).collect()
+                            }))
                         },
                         _ => panic!("unhandled rule")
                     }
@@ -733,52 +738,6 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                     statements
                 })
             }
-            // Rule::operator_type => {
-            //     let mut inner_iter = self.into_inner().into_iter();
-            //     Box::new(AstNode::OperatorType {
-            //         type_: inner_iter.next().unwrap().as_str().to_string(),
-            //         arguments: inner_iter.map(|pair| { pair.into() }).collect()
-            //     })
-            // }
-            // Rule::operator_declaration => {
-            //     let mut modifiers: Vec<Box<AstNode>> = Vec::new();
-            //     let mut type_: Option<Box<AstNode>> = None;
-            //     let mut return_type: Option<Box<AstNode>> = None;
-            //     let mut name: String = String::new();
-            //     let mut arguments: Vec<Box<AstNode>> = Vec::new();
-            //     let mut body: Option<Box<AstNode>> = None;
-            //     self.into_inner().into_iter().for_each(|pair| {
-            //         match pair.as_rule() {
-            //             Rule::operator_type => {
-            //                 type_ = Some(pair.into())
-            //             }
-            //             Rule::function_modifier => {
-            //                 modifiers.push(pair.into())
-            //             }
-            //             Rule::type_ => {
-            //                 return_type = Some(pair.into())
-            //             }
-            //             Rule::any_verb => {
-            //                 name = pair.as_str().to_string()
-            //             }
-            //             Rule::function_argument => {
-            //                 arguments.push(pair.into())
-            //             }
-            //             Rule::function_body => {
-            //                 body = Some(pair.into());
-            //             }
-            //             _ => { panic!("unhandled pair") }
-            //         }
-            //     });
-            //     Box::new(AstNode::OperatorDeclaration {
-            //         type_: type_.unwrap(),
-            //         modifiers,
-            //         return_type,
-            //         arguments,
-            //         name,
-            //         body
-            //     })
-            // }
             Rule::var_size => {
                 self.into_inner().next().unwrap().into()
             }
@@ -841,6 +800,9 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                     members
                 })
             },
+            Rule::cpptext => {
+                Box::new(AstNode::CppText(self.into_inner().into_iter().next().unwrap().as_str().to_string()))
+            }
             _ => { Box::new(AstNode::Unhandled) }
         }
     }
@@ -854,20 +816,25 @@ fn read_file_to_string(path: &str) -> Result<String, std::io::Error> {
 }
 
 fn main() {
-    if let Ok(contents) = read_file_to_string("src\\tests\\ExpressionSandbox.uc") {
-        let mut before = std::time::Instant::now();
-        let root = UnrealScriptParser::parse(Rule::program, contents.as_str());
-        println!("parsed file in {:.2?}", before.elapsed());
-        match root {
-            Ok(mut root) => {
-                before = std::time::Instant::now();
-                let _statement: Box<AstNode> = root.next().unwrap().into();
-                println!("built ast in {:?}", before.elapsed());
-                // println!("{:?}", statement);
-            }
-            Err(error) => {
-                println!("invalid expression! try again");
-                println!("{}", error)
+    let paths = std::fs::read_dir("C:\\Program Files (x86)\\Steam\\steamapps\\common\\red orchestra\\Engine\\Classes").unwrap();
+    for path in paths {
+        let path = path.unwrap();
+        if let Ok(contents) = read_file_to_string(path.path().as_os_str().to_str().unwrap()) {
+            let mut before = std::time::Instant::now();
+            let root = UnrealScriptParser::parse(Rule::program, contents.as_str());
+            match root {
+                Ok(mut root) => {
+                    println!("parsed {:?} in {:?}", path.file_name().to_str().unwrap(), before.elapsed())
+                    // before = std::time::Instant::now();
+                    // let statement: Box<AstNode> = root.next().unwrap().into();
+                    // println!("built ast in {:?}", before.elapsed());
+                    // println!("{:?}", statement);
+                }
+                Err(error) => {
+                    println!("failed to parse {:?}", path.file_name().to_str().unwrap());
+                    println!("invalid expression! try again");
+                    println!("{}", error)
+                }
             }
         }
     }
