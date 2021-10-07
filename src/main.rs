@@ -460,6 +460,7 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                 Box::new(AstNode::ClassType(self.into_inner().next().unwrap().into()))
             }
             Rule::state_declaration => {
+                let mut is_editable = false;
                 let mut modifiers: Vec<String> = Vec::new();
                 let mut name: Option<String> = None;
                 let mut parent: Option<String> = None;
@@ -474,6 +475,9 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                         Rule::unqualified_identifier => {
                             name = Some(pair.as_str().to_string())
                         },
+                        Rule::state_editable => {
+                            is_editable = true
+                        }
                         Rule::extends => {
                             parent = Some(pair.into_inner().next().unwrap().as_str().to_string())
                         },
@@ -496,6 +500,7 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                     }
                 });
                 Box::new(AstNode::StateDeclaration {
+                    is_editable,
                     modifiers,
                     name: name.unwrap(),
                     parent,
@@ -817,6 +822,8 @@ fn read_file_to_string(path: &str) -> Result<String, std::io::Error> {
 
 fn main() {
     let paths = std::fs::read_dir("C:\\Program Files (x86)\\Steam\\steamapps\\common\\red orchestra\\Engine\\Classes").unwrap();
+    let mut total = std::time::Instant::now();
+    let mut count = 0;
     for path in paths {
         let path = path.unwrap();
         if let Ok(contents) = read_file_to_string(path.path().as_os_str().to_str().unwrap()) {
@@ -824,11 +831,12 @@ fn main() {
             let root = UnrealScriptParser::parse(Rule::program, contents.as_str());
             match root {
                 Ok(mut root) => {
-                    println!("parsed {:?} in {:?}", path.file_name().to_str().unwrap(), before.elapsed())
+                    println!("parsed {:?} in {:?}", path.file_name().to_str().unwrap(), before.elapsed());
                     // before = std::time::Instant::now();
                     // let statement: Box<AstNode> = root.next().unwrap().into();
                     // println!("built ast in {:?}", before.elapsed());
                     // println!("{:?}", statement);
+                    count += 1;
                 }
                 Err(error) => {
                     println!("failed to parse {:?}", path.file_name().to_str().unwrap());
@@ -838,6 +846,7 @@ fn main() {
             }
         }
     }
+    println!("parsed {:?} files in {:?}", count, total.elapsed());
     loop {
         let mut input = String::new();
         stdin().read_line(&mut input).expect("Did not enter a string");

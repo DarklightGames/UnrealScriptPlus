@@ -31,12 +31,12 @@ float_literal_scientific = @{ digit+ ~ ("." ~ digit*)? ~ ^"e" ~ ("+" | "-")? ~ d
 float_literal = @{ ("-" | "+")? ~ (float_literal_scientific | float_literal_decimal) }
 numeric_literal = _{ float_literal | integer_literal }
 
-string_character = @{
-    !("\"" | "\\") ~ ANY
-    | "\\" ~ ("\"" | "\\" | "/" | "b" | "f" | "n" | "r" | "t")
-    | "\\" ~ ("u" ~ ASCII_HEX_DIGIT{4})
+
+string_literal_character = @{
+    !("\\" | "\"") ~ !("\0" | NEWLINE) ~ ANY
+    | "\\" ~ !("\0" | NEWLINE) ~ ANY
 }
-string_literal_inner = @{ string_character* }
+string_literal_inner = @{ string_literal_character* }
 string_literal = { "\"" ~ string_literal_inner ~ "\"" }
 
 name_character = @{ ASCII_ALPHANUMERIC | "_" | " " }
@@ -179,9 +179,11 @@ replication_block = { ^"replication" ~ WS* ~ "{" ~ WS* ~ replication_statements?
 
 type_declaration_statement = _{ (enum_declaration | struct_declaration) ~ ";" }
 class_statement = _{ ";" | compiler_directive | const_declaration | var_declaration  | type_declaration_statement | function_declaration | replication_block | state_declaration | defaultproperties | cpptext }
+class_statement_pre = { compiler_directive | const_declaration }
+class_statement_pres = _{ class_statement_pre ~ (WS* ~ class_statement_pre)* }
 class_statements = _{ class_statement ~ (WS* ~ class_statement)* }
 eoi = _{ EOI }
-program = { SOI ~ WS* ~ class_declaration ~ WS* ~ class_statements? ~ WS* ~ eoi }
+program = { SOI ~ WS* ~ class_statement_pres? ~ WS* ~ class_declaration ~ WS* ~ class_statements? ~ WS* ~ eoi }
 
 var_names = _{ var_name ~ (WS* ~ "," ~ WS* ~ var_name)* }
 local_declaration = { ^"local" ~ WS+ ~ type_ ~ WS+ ~ var_names ~ WS* ~ ";" }
@@ -191,10 +193,12 @@ local_declaration = { ^"local" ~ WS+ ~ type_ ~ WS+ ~ var_names ~ WS* ~ ";" }
 array_access = { "[" ~ WS* ~ expression_outer ~ WS* ~ "]" }
 member_access = { "." ~ WS* ~ unqualified_identifier }
 default_access = { ^"default" ~ WS* ~ "." ~ WS* ~ unqualified_identifier }
-default_call = { ^"default" ~ WS* ~ "." ~ WS* ~ unqualified_identifier ~ WS* ~ "(" ~ WS* ~ expression_list ~ WS* ~ ")" }
 static_access = { ^"static" ~ WS* ~ "." ~ WS* ~ unqualified_identifier }
+default_call = { ^"default" ~ WS* ~ "." ~ WS* ~ unqualified_identifier ~ WS* ~ "(" ~ WS* ~ expression_list ~ WS* ~ ")" }
 global_call = { ^"global" ~ WS* ~ "." ~ WS* ~ unqualified_identifier ~ WS* ~ "(" ~ WS* ~ expression_list ~ WS* ~ ")" }
 super_call = { ^"super" ~ WS* ~ ("(" ~ WS* ~ unqualified_identifier ~ WS* ~ ")")? ~ WS* ~ "." ~ WS* ~ unqualified_identifier ~ WS* ~ "(" ~ WS* ~ expression_list ~ WS* ~ ")" }
+call = { "(" ~ WS* ~ expression_list ~ WS* ~ ")" }
+any_call = _{ default_call | super_call | global_call | call }
 atom = _{ call | array_access | ("." ~ default_access) | ("." ~ static_access) | member_access | dyadic_expression }
 
 dyadic_expression = _{ dyadic_verb ~ WS* ~ expression }
@@ -210,13 +214,13 @@ monadic_post_verb = { "++" | "--" }
 
 primary = _{ cast | literal | default_access | static_access | global_call | unqualified_identifier | parenthetical_expression }   // primaries are the START of a TARGET
 target = _{ monadic_pre_verb? ~ WS* ~ (new | primary ~ (WS* ~ atom)*) ~ WS* ~ monadic_post_verb? }
+
 parenthetical_expression = { "(" ~ WS* ~ expression_outer ~ WS* ~ ")" }
 expression = _{ target | unqualified_identifier }   // TODO: monadic expression should be a target???
 
 // new is a kind of "terminal", nothing can come after it in an expression
 new = { ^"new" ~ (WS* ~ "(" ~ expression_list ~ ")")? ~ WS+ ~ expression } /// fuck this syntax
 
-call = { "(" ~ WS* ~ expression_list ~ WS* ~ ")" }
 expression_empty = { "," }
 expression_list = _{ (expression_outer ~ WS* ~ "," ~ WS* | (expression_empty ~ WS*))* ~ expression_outer? }
 constant_list = _{ (constant ~ "," | expression_empty)* ~ constant? }
@@ -256,7 +260,8 @@ for_statement = { ^"for" ~ WS* ~ "(" ~ WS* ~ for_statement_inner ~ WS* ~ ")" ~ W
 do_until_statement = { ^"do" ~ WS* ~ code_scope ~ (WS* ~ ^"until" ~ WS* ~ "(" ~ expression_outer ~ ")")? }
 
 // foreach_expression = { expression ~ WS+ ~ unqualified_identifier ~ WS* ~ call }
-foreach_statement = { ^"foreach" ~ WS+ ~ target ~ WS* ~ statement_or_block }
+foreach_function = { primary ~ WS* ~ (!call ~ atom)* ~ call }
+foreach_statement = { ^"foreach" ~ WS+ ~ foreach_function ~ WS* ~ statement_or_block }
 switch_statement = { ^"switch" ~ WS* ~ "(" ~ WS* ~ expression_outer ~ WS* ~ ")" ~ WS* ~ "{" ~ (WS* ~ switch_case)* ~ WS* ~ switch_default_case? ~ WS* ~ "}" }
 switch_case_label = _{ ^"case" ~ WS+ ~ target ~ WS* ~ ":" }
 switch_default_label = _{ ^"default" ~ WS* ~ ":" }
@@ -271,8 +276,9 @@ state_modifier = { ^"auto" | ^"simulated" }
 state_modifiers = _{ state_modifier ~ (WS+ ~ state_modifier)* }
 state_statement = { const_declaration | function_declaration }
 state_statements = _{ state_statement ~ (WS* ~ state_statement)* }
+state_editable = { "(" ~ WS* ~ ")" }
 state_declaration_body = _{ state_ignores? ~ WS* ~ state_statements? ~ WS* ~ state_labels? }
-state_declaration = { (state_modifiers ~ WS+)? ~ ^"state" ~ WS+ ~ unqualified_identifier ~ (WS+ ~ extends)? ~ WS* ~ "{" ~ WS* ~ state_declaration_body ~  WS* ~ "}" }
+state_declaration = { (state_modifiers ~ WS+)? ~ ^"state" ~ (WS* ~ state_editable)? ~ WS+ ~ unqualified_identifier ~ (WS+ ~ extends)? ~ WS* ~ "{" ~ WS* ~ state_declaration_body ~  WS* ~ "}" }
 state_labels = _{ state_label ~ (WS* ~ state_label)* }
 state_label = { unqualified_identifier ~ WS* ~ ":" ~ WS* ~ code_statements? }
 state_ignores = { ^"ignores" ~ WS+ ~ unqualified_identifier_list ~ WS* ~ ";" }
@@ -301,7 +307,7 @@ dyadic_verb = { dyadic_verb_native | unqualified_identifier }
 
 // DEFAULTPROPERTIES
 DPWS = _{ " " | "\t" }
-defaultproperties_value = { literal | unqualified_identifier | defaultproperties_struct | defaultproperties_array }
+defaultproperties_value = { literal | identifier | defaultproperties_struct | defaultproperties_array }
 defaultproperties_assignment = { defaultproperties_target ~ DPWS* ~ "=" ~ DPWS* ~ defaultproperties_value ~ (DPWS* ~ ";")? }
 defaultproperties_struct = { "(" ~ DPWS* ~ (defaultproperties_assignment ~ DPWS* ~ ("," ~ DPWS* ~ defaultproperties_assignment)*)? ~ DPWS* ~ ")" }
 defaultproperties_array = { "(" ~ DPWS* ~ defaultproperties_value ~ DPWS * ~ ("," ~ DPWS* ~ defaultproperties_value)* ~ DPWS* ~ ")" }

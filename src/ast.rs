@@ -109,6 +109,7 @@ pub enum AstNode {
         statements: Vec<Box<AstNode>>
     },
     StateDeclaration {
+        is_editable: bool,
         modifiers: Vec<String>,
         name: String,
         parent: Option<String>,
@@ -409,8 +410,11 @@ impl std::fmt::Debug for AstNode {
                 }
                 d.finish()
             }
-            AstNode::StateDeclaration { modifiers, name, parent, ignores, statements, labels } => {
+            AstNode::StateDeclaration { is_editable, modifiers, name, parent, ignores, statements, labels } => {
                 let mut d = f.debug_struct("StateDeclaration");
+                if *is_editable {
+                    d.field("is_editable", is_editable);
+                }
                 if !modifiers.is_empty() {
                     d.field("modifiers", modifiers);
                 }
