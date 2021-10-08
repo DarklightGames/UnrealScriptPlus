@@ -23,6 +23,8 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::ffi::OsString;
 
+use glob::glob;
+
 #[macro_use]
 extern crate lazy_static;
 
@@ -84,7 +86,7 @@ fn parse_arguments(pairs: &[Pair<Rule>]) -> Vec<Option<Box<AstNode>>> {
     let mut arguments = vec![];
     for pair in pairs {
         match pair.as_rule() {
-            Rule::expression_outer => {
+            Rule::expression => {
                 arguments.push(Some(pair.clone().into()))
             }
             Rule::expression_empty => {
@@ -359,7 +361,7 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                 }
                 Box::new(AstNode::ReturnStatement { expression })
             }
-            Rule::expression_outer | Rule::foreach_expression => {
+            Rule::expression | Rule::foreach_expression => {
                 let inner_pairs: Vec<Self> = self.into_inner().collect();
                 let expression = parse_expression(&inner_pairs[..]);
                 if let Ok(expression) = expression {
@@ -682,13 +684,13 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                         Rule::function_type => {
                             let inner_pair = pair.into_inner().into_iter().next().unwrap();
                             match inner_pair.as_rule() {
-                                Rule::function_type_without_argument => {
+                                Rule::function_type_no_arguments => {
                                     type_ = Some(Box::new(AstNode::FunctionType {
                                         type_: inner_pair.as_str().to_string(),
                                         arguments: None
                                     }))
                                 }
-                                Rule::operator => {
+                                Rule::function_type_operator => {
                                     type_ = Some(Box::new(AstNode::FunctionType {
                                         type_: "operator".to_string(),  // TODO: kinda sloppy
                                         arguments: Some(inner_pair.into_inner().into_iter().map(|pair| pair.into()).collect())
@@ -824,8 +826,6 @@ fn read_file_to_string(path: &str) -> Result<String, std::io::Error> {
     file.read_to_string(&mut contents)?;
     return Ok(contents)
 }
-
-use glob::{glob, GlobError};
 
 fn main() {
     let directories = vec![
@@ -1397,7 +1397,7 @@ mod tests {
                     extends(10, 21, [ identifier(18, 21) ]),
                     class_modifier(22, 33, [
                         class_modifier_type(22, 28),
-                        expression(29, 32, [ target(29, 32, [ unqualified_identifier(29, 32) ]) ])
+                        expression(29, 32, [ unqualified_identifier(29, 32) ])
                     ])
                 ])
             ]
@@ -1416,7 +1416,7 @@ mod tests {
                     extends(10, 21, [ identifier(18, 21) ]),
                     class_modifier(22, 36, [
                         class_modifier_type(22, 31),
-                        expression(32, 35, [ target(32, 35, [ unqualified_identifier(32, 35) ]) ])
+                        expression(32, 35, [ unqualified_identifier(32, 35) ])
                     ])
                 ])
             ]
@@ -1435,10 +1435,10 @@ mod tests {
                     extends(10, 21, [ identifier(18, 21) ]),
                     class_modifier(22, 38, [
                         class_modifier_type(22, 26),
-                        expression(27, 28, [ target(27, 28, [ literal(27, 28, [ integer_literal(27, 28, [ integer_literal_decimal(27, 28) ]) ]) ]) ]),
-                        expression(30, 31, [ target(30, 31, [ literal(30, 31, [ integer_literal(30, 31, [ integer_literal_decimal(30, 31) ]) ]) ]) ]),
-                        expression(33, 34, [ target(33, 34, [ literal(33, 34, [ integer_literal(33, 34, [ integer_literal_decimal(33, 34) ]) ]) ]) ]),
-                        expression(36, 37, [ target(36, 37, [ literal(36, 37, [ integer_literal(36, 37, [ integer_literal_decimal(36, 37) ]) ]) ]) ]),
+                        expression(27, 28, [ literal(27, 28, [ integer_literal(27, 28, [ integer_literal_decimal(27, 28) ]) ]) ]),
+                        expression(30, 31, [ literal(30, 31, [ integer_literal(30, 31, [ integer_literal_decimal(30, 31) ]) ]) ]),
+                        expression(33, 34, [ literal(33, 34, [ integer_literal(33, 34, [ integer_literal_decimal(33, 34) ]) ]) ]),
+                        expression(36, 37, [ literal(36, 37, [ integer_literal(36, 37, [ integer_literal_decimal(36, 37) ]) ]) ]),
                     ])
                 ])
             ]
@@ -1474,11 +1474,9 @@ mod tests {
             input: "Foo, Bar, Baz",
             rule: Rule::unqualified_identifier_list,
             tokens: [
-                unqualified_identifier_list(0, 13, [
-                    unqualified_identifier(0, 3),
-                    unqualified_identifier(5, 8),
-                    unqualified_identifier(10, 13)
-                ])
+                unqualified_identifier(0, 3),
+                unqualified_identifier(5, 8),
+                unqualified_identifier(10, 13)
             ]
         )
     }
@@ -1490,7 +1488,7 @@ mod tests {
             input: "Foo",
             rule: Rule::unqualified_identifier_list,
             tokens: [
-                unqualified_identifier_list(0, 3, [ unqualified_identifier(0, 3) ])
+                unqualified_identifier(0, 3)
             ]
         )
     }
@@ -1507,9 +1505,9 @@ mod tests {
                     extends(10, 21, [ identifier(18, 21) ]),
                     class_modifier(22, 51, [
                         class_modifier_type(22, 36),
-                        expression(37, 40, [ target(37, 40, [ unqualified_identifier(37, 40) ]) ]),
-                        expression(42, 45, [ target(42, 45, [ unqualified_identifier(42, 45) ]) ]),
-                        expression(47, 50, [ target(47, 50, [ unqualified_identifier(47, 50) ]) ])
+                        expression(37, 40, [ unqualified_identifier(37, 40) ]),
+                        expression(42, 45, [ unqualified_identifier(42, 45) ]),
+                        expression(47, 50, [ unqualified_identifier(47, 50) ])
                     ])
                 ])
             ]
@@ -1851,10 +1849,8 @@ mod tests {
             tokens: [
                 enum_declaration(0, 21, [
                     unqualified_identifier(5, 8),
-                    unqualified_identifier_list(11, 19, [
-                        unqualified_identifier(11, 14),
-                        unqualified_identifier(16, 19),
-                    ])
+                    unqualified_identifier(11, 14),
+                    unqualified_identifier(16, 19),
                 ])
             ]
         }
@@ -1869,10 +1865,8 @@ mod tests {
             tokens: [
                 enum_declaration(0, 22, [
                     unqualified_identifier(5, 8),
-                    unqualified_identifier_list(11, 19, [
-                        unqualified_identifier(11, 14),
-                        unqualified_identifier(16, 19),
-                    ])
+                    unqualified_identifier(11, 14),
+                    unqualified_identifier(16, 19)
                 ])
             ]
         }
@@ -1977,21 +1971,6 @@ mod tests {
     }
 
     #[test]
-    fn function_declaration_minimal() {
-        parses_to! {
-            parser: UnrealScriptParser,
-            input: "function Foo();",
-            rule: Rule::function_declaration,
-            tokens: [
-                function_declaration(0, 15, [
-                    function_type(0, 8),
-                    unqualified_identifier(9, 12)
-                ])
-            ]
-        }
-    }
-
-    #[test]
     fn function_argument_basic() {
         parses_to! {
             parser: UnrealScriptParser,
@@ -2014,8 +1993,8 @@ mod tests {
             rule: Rule::function_declaration,
             tokens: [
                 function_declaration(0, 15, [
-                    function_type(0, 8),
-                    unqualified_identifier(9, 12)
+                    function_type(0, 8, [ function_type_no_arguments(0, 8) ]),
+                    function_name(9, 12, [ unqualified_identifier(9, 12) ])
                 ])
             ]
         }
@@ -2029,9 +2008,9 @@ mod tests {
             rule: Rule::function_declaration,
             tokens: [
                 function_declaration(0, 19, [
-                    function_type(0, 8),
+                    function_type(0, 8, [ function_type_no_arguments(0, 8) ]),
                     type_(9, 12, [ identifier(9, 12) ]),
-                    unqualified_identifier(13, 16)
+                    function_name(13, 16, [ unqualified_identifier(13, 16) ])
                 ])
             ]
         }
@@ -2045,8 +2024,8 @@ mod tests {
             rule: Rule::function_declaration,
             tokens: [
                 function_declaration(0, 25, [
-                    function_type(0, 8),
-                    unqualified_identifier(9, 12),
+                    function_type(0, 8, [ function_type_no_arguments(0, 8) ]),
+                    function_name(9, 12, [ unqualified_identifier(9, 12) ]),
                     function_argument(13, 23, [
                         type_(13, 19, [ identifier(13, 19) ]),
                         var_name(20, 23, [ unqualified_identifier(20, 23) ])
@@ -2108,7 +2087,7 @@ mod tests {
             tokens: [
                 replication_statement(0, 22, [
                     reliability(0, 8),
-                    parenthetical_expression(12, 17, [ unqualified_identifier(13, 16) ]),
+                    expression(13, 16, [ unqualified_identifier(13, 16) ]),
                     unqualified_identifier(18, 21)
                 ])
             ]
@@ -2124,7 +2103,7 @@ mod tests {
             tokens: [
                 replication_statement(0, 27, [
                     reliability(0, 8),
-                    parenthetical_expression(12, 17, [ unqualified_identifier(13, 16) ]),
+                    expression(13, 16, [ unqualified_identifier(13, 16) ]),
                     unqualified_identifier(18, 21),
                     unqualified_identifier(23, 26)
                 ])
@@ -2141,7 +2120,7 @@ mod tests {
             parser: UnrealScriptParser,
             input: "#exec OBJ LOAD FILE=..\\Foo\\Bar.utx",
             rule: Rule::compiler_directive,
-            tokens: [ compiler_directive(0, 34, [ compiler_directive_inner(1, 34) ]) ]
+            tokens: [ compiler_directive(0, 34, [ compiler_directive_inner(1, 34), EOI(34, 34) ]) ]
         }
     }
 }

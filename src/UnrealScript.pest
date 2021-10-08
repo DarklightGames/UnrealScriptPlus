@@ -12,14 +12,13 @@ compiler_directive = { ^"#" ~ compiler_directive_inner ~ (("\n") | eoi)}
 alpha = @{ 'a'..'z' | 'A'..'Z' }
 digit = @{ '0'..'9' }
 unqualified_identifier = @{ (alpha | "_") ~ (alpha | digit | "_")* }
-unqualified_identifier_list = { unqualified_identifier ~ (WS* ~ "," ~ WS* ~  unqualified_identifier)* }
+unqualified_identifier_list = _{ unqualified_identifier ~ (WS* ~ "," ~ WS* ~  unqualified_identifier)* }
 qualified_identifier = @{ unqualified_identifier ~ "." ~ unqualified_identifier }
 identifier = @{ qualified_identifier | unqualified_identifier }
 
 // literals
 hex_digits = { ASCII_HEX_DIGIT+ }
-decimal_digits = { digit+ }
-integer_literal_decimal = @{ decimal_digits }
+integer_literal_decimal = @{ digit+ }
 integer_literal_hexadecimal = { ^"0x" ~ hex_digits }
 positive_or_negative = { "-" | "+" }
 integer_literal = { positive_or_negative? ~ (integer_literal_hexadecimal | integer_literal_decimal) }
@@ -168,9 +167,9 @@ function_argument_modifier = {
 function_argument_modifiers = _{ function_argument_modifier ~ (WS+ ~ function_argument_modifier)* }
 function_argument = { (function_argument_modifiers ~ WS+)? ~ type_ ~ WS+ ~ var_name}
 function_arguments = _{ function_argument ~ (WS* ~ "," ~ WS* ~ function_argument)* }
-operator = { ^"operator" ~  WS* ~ "(" ~ WS* ~ integer_literal ~ WS* ~ ")" }
-function_type_without_argument = { ^"function" | ^"event" | ^"delegate" | ^"preoperator" | ^"postoperator" }
-function_type = { function_type_without_argument | operator }
+function_type_operator = { ^"operator" ~  WS* ~ "(" ~ WS* ~ integer_literal ~ WS* ~ ")" }
+function_type_no_arguments = { ^"function" | ^"event" | ^"delegate" | ^"preoperator" | ^"postoperator" }
+function_type = { function_type_no_arguments | function_type_operator }
 function_types = _{ function_type ~ (WS+ ~ function_type)* }
 function_name = { unqualified_identifier | symbolic_verb }
 function_declaration = {
@@ -182,7 +181,7 @@ function_declaration = {
 }
 
 reliability = { ^"reliable" | ^"unreliable" }
-replication_statement = { reliability ~ WS+ ~ ^"if" ~ WS* ~ "(" ~ WS* ~ expression_outer ~ WS* ~ ")" ~ WS* ~ unqualified_identifier_list? ~ WS* ~ ";" }
+replication_statement = { reliability ~ WS+ ~ ^"if" ~ WS* ~ "(" ~ WS* ~ expression ~ WS* ~ ")" ~ WS* ~ unqualified_identifier ~ WS* ~ ("," ~ WS* ~ unqualified_identifier_list?)? ~ WS* ~ ";" }
 replication_statements = _{ replication_statement ~ (WS* ~ replication_statement)* }
 replication_block = { ^"replication" ~ WS* ~ "{" ~ WS* ~ replication_statements? ~ WS* ~ "}" }
 
@@ -199,7 +198,7 @@ local_declaration = { ^"local" ~ WS+ ~ type_ ~ WS+ ~ var_names ~ WS* ~ ";" }
 
 // LOGIC
 // build a straight LIST of what we see in front of us, we will shuffle the AST around in a separate pass!
-array_access = { "[" ~ WS* ~ expression_outer ~ WS* ~ "]" }
+array_access = { "[" ~ WS* ~ expression ~ WS* ~ "]" }
 member_access = { "." ~ WS* ~ unqualified_identifier }
 default_access = { ^"default" ~ WS* ~ "." ~ WS* ~ unqualified_identifier }
 static_access = { ^"static" ~ WS* ~ "." ~ WS* ~ unqualified_identifier }
@@ -209,7 +208,7 @@ super_call = { ^"super" ~ WS* ~ ("(" ~ WS* ~ unqualified_identifier ~ WS* ~ ")")
 call = { "(" ~ WS* ~ expression_list ~ WS* ~ ")" }
 any_call = _{ default_call | super_call | global_call | call }
 
-dyadic_expression = _{ dyadic_verb ~ WS* ~ expression }
+dyadic_expression = _{ dyadic_verb ~ WS* ~ expression_inner }
 
 symbolic_verb = {
     "++" | "--" | "**" | "+=" | "-=" | "*=" | "/=" | "&&" | "^^" |
@@ -224,16 +223,16 @@ atom = _{ call | array_access | ("." ~ default_access) | ("." ~ static_access) |
 primary = _{ cast | literal | default_access | static_access | global_call | unqualified_identifier | parenthetical_expression }
 target = _{ monadic_pre_verb? ~ WS* ~ (new | primary ~ (WS* ~ atom)*) ~ WS* ~ monadic_post_verb? }
 
-parenthetical_expression = { "(" ~ WS* ~ expression_outer ~ WS* ~ ")" }
-expression = _{ target | unqualified_identifier }   // TODO: monadic expression should be a target???
+parenthetical_expression = { "(" ~ WS* ~ expression ~ WS* ~ ")" }
+expression_inner = _{ target | unqualified_identifier }   // TODO: monadic expression should be a target???
 
 // new is a kind of "terminal", nothing can come after it in an expression
-new = { ^"new" ~ (WS* ~ "(" ~ expression_list ~ ")")? ~ WS+ ~ expression } /// fuck this syntax
+new = { ^"new" ~ (WS* ~ "(" ~ expression_list ~ ")")? ~ WS+ ~ expression_inner } /// fuck this syntax
 
 expression_empty = { "," }
-expression_list = _{ (expression_outer ~ WS* ~ "," ~ WS* | (expression_empty ~ WS*))* ~ expression_outer? }
+expression_list = _{ (expression ~ WS* ~ "," ~ WS* | (expression_empty ~ WS*))* ~ expression? }
 constant_list = _{ (constant ~ "," | expression_empty)* ~ constant? }
-cast = { class_type ~ WS* ~ "(" ~ WS* ~ expression_outer ~ WS* ~ ")" }
+cast = { class_type ~ WS* ~ "(" ~ WS* ~ expression ~ WS* ~ ")" }
 // NOTE: certain casts (int, string) don't follow the cast grammar, this is only for explicit
 
 code_scope = { "{" ~ WS* ~ code_statements? ~ WS* ~ "}" }
@@ -245,35 +244,35 @@ code_statements = _{ code_statement ~ (WS* ~ code_statement)* }
 code_statement_outer = { code_statement }
 statement_or_block = _{ code_statement_outer | code_scope }
 
-while_statement = { ^"while" ~ WS* ~ "(" ~ WS* ~ expression_outer ~ WS* ~ ")" ~ WS* ~ statement_or_block }
-return_statement = { ^"return" ~ (WS+ ~ expression_outer)? ~ WS* ~ ";" }
+while_statement = { ^"while" ~ WS* ~ "(" ~ WS* ~ expression ~ WS* ~ ")" ~ WS* ~ statement_or_block }
+return_statement = { ^"return" ~ (WS+ ~ expression)? ~ WS* ~ ";" }
 constant = _{ literal | unqualified_identifier }
 // For some reason unbeknownst to mere mortals, UnrealScript allows two default cases in switch statements.
 
 // CONTROL FLOW
 jump_label = { unqualified_identifier ~ WS* ~ ":" }
-if_statement_empty = { ^"if" ~ WS* ~ "(" ~ WS* ~ expression_outer ~ WS* ~ ")" }
-if_statement = { ^"if" ~ WS* ~ "(" ~ WS* ~ expression_outer ~ WS* ~ ")" ~ WS* ~ statement_or_block }
-elif_statement = { ^"else" ~ WS+ ~ ^"if" ~ WS* ~ "(" ~ WS* ~ expression_outer ~ WS* ~ ")" ~ WS* ~ statement_or_block }
+if_statement_empty = { ^"if" ~ WS* ~ "(" ~ WS* ~ expression ~ WS* ~ ")" }
+if_statement = { ^"if" ~ WS* ~ "(" ~ WS* ~ expression ~ WS* ~ ")" ~ WS* ~ statement_or_block }
+elif_statement = { ^"else" ~ WS+ ~ ^"if" ~ WS* ~ "(" ~ WS* ~ expression ~ WS* ~ ")" ~ WS* ~ statement_or_block }
 elif_statements = _{ elif_statement ~ (WS* ~ elif_statement)* }
 else_statement = { ^"else" ~ WS* ~ statement_or_block }
 conditional_statement = { (if_statement ~ WS* ~ elif_statements? ~ WS* ~ else_statement?) | if_statement_empty }
-expression_outer = { expression }
+expression = { expression_inner }
 
 statement_empty = _{ ";" }
 statement_empty_outer = { statement_empty }
-for_init = { expression_outer }
-for_predicate = { expression_outer }
-for_post = { expression_outer }
+for_init = { expression }
+for_predicate = { expression }
+for_post = { expression }
 for_statement_inner = { for_init? ~ WS* ~ ";" ~ WS* ~ for_predicate? ~ WS* ~ ";" ~ WS* ~ for_post? }
 for_statement = { ^"for" ~ WS* ~ "(" ~ WS* ~ for_statement_inner ~ WS* ~ ")" ~ WS* ~ statement_or_block }
 
-do_until_statement = { ^"do" ~ WS* ~ code_scope ~ (WS* ~ ^"until" ~ WS* ~ "(" ~ WS* ~ expression_outer ~ WS* ~ ")")? }
+do_until_statement = { ^"do" ~ WS* ~ code_scope ~ (WS* ~ ^"until" ~ WS* ~ "(" ~ WS* ~ expression ~ WS* ~ ")")? }
 
 foreach_expression_atom = _{ array_access | ("." ~ default_access) | ("." ~ static_access) | member_access | call }
 foreach_expression = { primary ~ WS* ~ (foreach_expression_atom ~ WS*)* }
 foreach_statement = { ^"foreach" ~ WS+ ~ foreach_expression ~ WS* ~ statement_or_block }
-switch_statement = { ^"switch" ~ WS* ~ "(" ~ WS* ~ expression_outer ~ WS* ~ ")" ~ WS* ~ "{" ~ (WS* ~ switch_case)* ~ WS* ~ switch_default_case? ~ WS* ~ "}" }
+switch_statement = { ^"switch" ~ WS* ~ "(" ~ WS* ~ expression ~ WS* ~ ")" ~ WS* ~ "{" ~ (WS* ~ switch_case)* ~ WS* ~ switch_default_case? ~ WS* ~ "}" }
 switch_case_label = _{ ^"case" ~ WS+ ~ target ~ WS* ~ ":" }
 switch_default_label = _{ ^"default" ~ WS* ~ ":" }
 switch_case = { switch_case_label ~ WS* ~ code_statements? }
@@ -295,7 +294,7 @@ state_label = { unqualified_identifier ~ WS* ~ ":" ~ WS* ~ code_statements? }
 state_ignores = { ^"ignores" ~ WS+ ~ unqualified_identifier_list ~ WS* ~ ";" }
 
 // STATES
-code_statement = _{ jump_label | conditional_statement | foreach_statement | for_statement | while_statement | do_until_statement | return_statement | break_statement | continue_statement | goto_statement | compiler_directive | switch_statement | const_declaration | (expression_outer ~ WS* ~ ";") | statement_empty }
+code_statement = _{ jump_label | conditional_statement | foreach_statement | for_statement | while_statement | do_until_statement | return_statement | break_statement | continue_statement | goto_statement | compiler_directive | switch_statement | const_declaration | (expression ~ WS* ~ ";") | statement_empty }
 // TODO: operator precedence is handled at the parser level
 dyadic_verb_native = {
     "&&" | "^^" |
