@@ -199,6 +199,7 @@ pub enum AstNode {
     GotoStatement {
         label: String
     },
+    JumpLabel(String),
     ReturnStatement {
         expression: Option<Box<AstNode>>
     },
@@ -635,6 +636,11 @@ impl std::fmt::Debug for AstNode {
             }
             AstNode::GotoStatement { label } => {
                 f.debug_struct("GotoStatement")
+                    .field("label", label)
+                    .finish()
+            }
+            AstNode::JumpLabel(label) => {
+                f.debug_struct("JumpLabel")
                     .field("label", label)
                     .finish()
             }

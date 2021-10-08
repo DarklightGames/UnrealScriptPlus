@@ -10,7 +10,7 @@ use pest::Parser;
 #[grammar = "UnrealScript.pest"]
 struct UnrealScriptParser;
 
-use std::fs::File;
+use std::fs::{File, ReadDir};
 use std::io::{Read, stdin};
 use crate::ast::{AstNode};
 use std::ops::AddAssign;
@@ -20,6 +20,8 @@ mod ast;
 
 use std::convert::Into;
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::ffi::OsString;
 
 #[macro_use]
 extern crate lazy_static;
@@ -357,7 +359,7 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                 }
                 Box::new(AstNode::ReturnStatement { expression })
             }
-            Rule::expression_outer => {
+            Rule::expression_outer | Rule::foreach_expression => {
                 let inner_pairs: Vec<Self> = self.into_inner().collect();
                 let expression = parse_expression(&inner_pairs[..]);
                 if let Ok(expression) = expression {
@@ -749,6 +751,9 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
             Rule::parenthetical_expression => {
                 Box::new(AstNode::ParentheticalExpression { expression: self.into_inner().next().unwrap().into() })
             }
+            Rule::jump_label => {
+                Box::new(AstNode::JumpLabel(self.into_inner().next().unwrap().as_str().to_string()))
+            }
             Rule::struct_declaration => {
                 let rules_itr = self.into_inner().into_iter();
                 let mut modifiers: Vec<String> = Vec::new();
@@ -820,47 +825,85 @@ fn read_file_to_string(path: &str) -> Result<String, std::io::Error> {
     return Ok(contents)
 }
 
+use glob::{glob, GlobError};
+
 fn main() {
-    let paths = std::fs::read_dir("C:\\Program Files (x86)\\Steam\\steamapps\\common\\red orchestra\\Engine\\Classes").unwrap();
+    let directories = vec![
+        "AHZ_ROVehicles",
+        "DH_Artillery",
+        "DH_BritishPlayers",
+        "DH_Construction",
+        "DH_Effects",
+        "DH_Engine",
+        "DH_Equipment",
+        "DH_Game",
+        "DH_GerPlayers",
+        "DH_Guns",
+        "DH_Interface",
+        "DH_LevelActors",
+        "DH_Mortars",
+        "DH_SovietPlayers",
+        "DH_USPlayers",
+        "DH_Vehicles",
+        "DH_Weapons",
+        "Editor",
+        "Engine",
+        "Fire",
+        "Gameplay",
+        "GUI2K4",
+        "IpDrv",
+        "ROAmmo",
+        "ROCustom",
+        "ROEffects",
+        "ROEngine",
+        "ROGame",
+        "ROInterface",
+        "ROInventory",
+        "RORoles",
+        "ROVehicles",
+        "UCore",
+        "Unrealed",
+        "UnrealGame",
+        "UTV2004c",
+        "UTV2004s",
+        "UWeb",
+        "XAdmin",
+        "XGame",
+        "XInterface",
+        "XVoting",
+        "XWebAdmin"
+    ];
     let mut total = std::time::Instant::now();
-    let mut count = 0;
-    for path in paths {
-        let path = path.unwrap();
-        if let Ok(contents) = read_file_to_string(path.path().as_os_str().to_str().unwrap()) {
-            let mut before = std::time::Instant::now();
-            let root = UnrealScriptParser::parse(Rule::program, contents.as_str());
-            match root {
-                Ok(mut root) => {
-                    println!("parsed {:?} in {:?}", path.file_name().to_str().unwrap(), before.elapsed());
-                    // before = std::time::Instant::now();
-                    // let statement: Box<AstNode> = root.next().unwrap().into();
-                    // println!("built ast in {:?}", before.elapsed());
-                    // println!("{:?}", statement);
-                    count += 1;
-                }
-                Err(error) => {
-                    println!("failed to parse {:?}", path.file_name().to_str().unwrap());
-                    println!("invalid expression! try again");
-                    println!("{}", error)
+    let mut total_count = 0;
+    let mut success_count = 0;
+    let mut fail_count = 0;
+    let root = Path::new("C:\\Program Files (x86)\\Steam\\steamapps\\common\\red orchestra");
+    for directory in directories {
+        let path = root.join(directory).join("Classes").join("*.uc");
+        for entry in glob(path.as_os_str().to_str().unwrap()).expect("failed to read glob pattern") {
+            total_count += 1;
+            match entry {
+                Err(error) => println!("path is wrong: {:?}", error),
+                Ok(path) => {
+                    if let Ok(contents) = read_file_to_string(path.as_os_str().to_str().unwrap()) {
+                        let mut before = std::time::Instant::now();
+                        let root = UnrealScriptParser::parse(Rule::program, contents.as_str());
+                        match root {
+                            Ok(mut root) => {
+                                success_count += 1;
+                            }
+                            Err(error) => {
+                                fail_count += 1;
+                                println!("failed to parse {:?}", path.file_name().unwrap().to_str().unwrap());
+                                println!("{}", error)
+                            }
+                        }
+                    }
                 }
             }
         }
     }
-    println!("parsed {:?} files in {:?}", count, total.elapsed());
-    loop {
-        let mut input = String::new();
-        stdin().read_line(&mut input).expect("Did not enter a string");
-        match UnrealScriptParser::parse(Rule::code_statement, input.as_str()) {
-            Ok(mut root) => {
-                let statement: Box<AstNode> = root.next().unwrap().into();
-                println!("{:?}", statement);
-            }
-            Err(error) => {
-                println!("invalid expression! try again");
-                println!("{}", error)
-            }
-        }
-    }
+    println!("parsed {:?}/{:?} ({:?} failures) files in {:?}", success_count, total_count, fail_count, total.elapsed());
 }
 
 #[cfg(test)]
@@ -877,11 +920,25 @@ mod tests {
             tokens: []
         )
     }
+
     #[test]
     fn comment_multi_line() {
         parses_to!(
             parser: UnrealScriptParser,
             input: "/* This is a multi-line comment! */",
+            rule: Rule::comment_multi_line,
+            tokens: []
+        )
+    }
+
+    // TODO: jump_label
+
+    #[test]
+    fn comment_multi_line_nested() {
+        // TODO:
+        parses_to!(
+            parser: UnrealScriptParser,
+            input: "/* /* This is a multi-line comment! */ Foo */",
             rule: Rule::comment_multi_line,
             tokens: []
         )
@@ -1329,7 +1386,7 @@ mod tests {
     }
 
     #[test]
-    fn class_declaration_config_modifer() {
+    fn class_declaration_config_modifier() {
         parses_to!(
             parser: UnrealScriptParser,
             input: "class Foo extends Bar config(Baz);",
@@ -1348,7 +1405,7 @@ mod tests {
     }
 
     #[test]
-    fn class_declaration_dependson_modifer() {
+    fn class_declaration_dependson_modifier() {
         parses_to!(
             parser: UnrealScriptParser,
             input: "class Foo extends Bar dependson(Baz);",
