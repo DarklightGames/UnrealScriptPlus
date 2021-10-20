@@ -1,86 +1,26 @@
 #[allow(unused_imports)]
 
-extern crate pest;
 #[macro_use]
 extern crate pest_derive;
-
-use pest::Parser;
-
-#[derive(Parser)]
-#[grammar = "UnrealScript.pest"]
-struct UnrealScriptParser;
-
-use std::fs::{File, ReadDir};
-use std::io::{Read, stdin};
-use crate::ast::{AstNode};
-use std::ops::AddAssign;
-use pest::iterators::Pair;
-
-mod ast;
-
-use std::convert::Into;
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use std::ffi::OsString;
-
-use glob::glob;
 
 #[macro_use]
 extern crate lazy_static;
 
-lazy_static! {
-    static ref OPERATOR_PRECEDENCES: HashMap<&'static str, u8> = {
-        let mut map = HashMap::new();
-        map.insert("==", 24);
-        map.insert("!=", 26);
-        map.insert("&&", 30);
-        map.insert("^^", 30);
-        map.insert("||", 32);
-        map.insert("*=", 34);
-        map.insert("/=", 34);
-        map.insert("+=", 34);
-        map.insert("-=", 34);
-        map.insert("*", 16);
-        map.insert("/", 16);
-        map.insert("%", 18);
-        map.insert("+", 20);
-        map.insert("-", 20);
-        map.insert("<<", 22);
-        map.insert(">>", 22);
-        map.insert(">>>", 22);
-        map.insert("<", 24);
-        map.insert(">", 24);
-        map.insert("<=", 24);
-        map.insert(">=", 24);
-        map.insert("==", 24);
-        map.insert("~=", 24);
-        map.insert("!=", 26);
-        map.insert("&", 28);
-        map.insert("^", 28);
-        map.insert("|", 28);
-        map.insert("!=", 28);
-        map.insert("**", 12);
-        map.insert("^", 28);
-        map.insert("|", 28);
-        map.insert("!=", 28);
-        map.insert("$", 40);
-        map.insert("@", 40);
-        map.insert("$=", 44);
-        map.insert("@=", 44);
-        map.insert("-=", 45);
-        map.insert("=", 46);    // TODO: just a guess
+use std::fs::{File};
+use std::io::{Read, stdin};
+use crate::ast::{AstNode};
 
-        // TODO: precedence relies on the TYPE also!
-        // TODO: all of these should be read from Object.uc before proper parsing, so that we don't
-        // need to have this table at all.
-        map.insert("clockwisefrom", 24);
-        map.insert("dot", 16);
-        map.insert("cross", 16);
+mod ast;
+mod parser;
 
-        map
-    };
-}
+use std::convert::Into;
+use std::path::{Path};
 
+use glob::glob;
+use std::str::FromStr;
+use crate::parser::parse_program;
+
+/*
 fn parse_arguments(pairs: &[Pair<Rule>]) -> Vec<Option<Box<AstNode>>> {
     let pairs = pairs.clone().into_iter();
     let mut arguments = vec![];
@@ -157,8 +97,7 @@ fn parse_target(pairs: &[Pair<Rule>]) -> Box<AstNode> {
     }
 }
 
-// TODO: maybe have this function take an iterator/slice
-fn parse_expression(pairs: &[Pair<Rule>]) -> Result<Box<AstNode>, String> {
+fn parse_expression(pairs: &[Pair<Rule>]) -> std::result::Result<Box<AstNode>, String> {
     // First, search for dyadic verbs
     let mut dyadic_verbs = vec![];
     for (index, pair) in pairs.into_iter().enumerate() {
@@ -210,10 +149,11 @@ fn parse_expression(pairs: &[Pair<Rule>]) -> Result<Box<AstNode>, String> {
         },
         _ => {}
     }
-
     return Ok(parse_target(pairs))
 }
+*/
 
+/*
 impl Into<Box<AstNode>> for Pair<'_, Rule> {
 
     fn into(self) -> Box<AstNode> {
@@ -238,6 +178,7 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                     else_statement
                 })
             }
+            // TODO: put this inside the Rule::conditional
             Rule::if_statement => {
                 let mut inner_pairs = self.into_inner().into_iter();
                 let predicate = inner_pairs.next().unwrap().into();
@@ -363,11 +304,7 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
             }
             Rule::expression | Rule::foreach_expression => {
                 let inner_pairs: Vec<Self> = self.into_inner().collect();
-                let expression = parse_expression(&inner_pairs[..]);
-                if let Ok(expression) = expression {
-                    return expression;
-                }
-                Box::new(AstNode::Expression())
+                return parse_expression(&inner_pairs[..]).expect("expression parse failed")
             }
             Rule::program => {
                 let mut inner_iter = self.into_inner().into_iter();
@@ -376,6 +313,7 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                     statements: inner_iter.map(|pair| { pair.into() }).collect()
                 })
             }
+            // TODO: put this all inside the replication block?
             Rule::replication_statement => {
                 let mut inner_iter = self.into_inner().into_iter();
                 Box::new(AstNode::ReplicationStatement {
@@ -396,9 +334,12 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                 })
             }
             Rule::compiler_directive => {
-                Box::new(AstNode::CompilerDirective {
-                    contents: self.into_inner().next().unwrap().as_str().to_string()
-                })
+                Box::new(AstNode::CompilerDirective(self.into_inner().next().unwrap().as_str().to_string()))
+            }
+            Rule::boolean_literal => {
+                Box::new(AstNode::BooleanLiteral(
+                    bool::from_str(self.as_str().to_lowercase().as_str()).unwrap()
+                ))
             }
             Rule::class_modifier => {
                 let mut inner_iter = self.into_inner().into_iter();
@@ -408,9 +349,8 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                 })
             }
             Rule::class_declaration => {
-                // TODO: turn this into a matching iter
                 let inner_iter = self.into_inner().into_iter();
-                let mut name: String = String::new();
+                let mut name: Box<AstNode> = String::new();
                 let mut parent_class: Option<String> = None;
                 let mut modifiers: Vec<Box<AstNode>> = Vec::new();
                 let mut within: Option<String> = None;
@@ -475,21 +415,21 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                     match pair.as_rule() {
                         Rule::state_modifier => {
                             modifiers.push(pair.as_str().to_string())
-                        },
+                        }
                         Rule::unqualified_identifier => {
                             name = Some(pair.as_str().to_string())
-                        },
+                        }
                         Rule::state_editable => {
                             is_editable = true
                         }
                         Rule::extends => {
                             parent = Some(pair.into_inner().next().unwrap().as_str().to_string())
-                        },
+                        }
                         Rule::state_ignores => {
                             pair.into_inner().into_iter().for_each(|pair| {
                                 ignores.push(pair.as_str().to_string())
                             })
-                        },
+                        }
                         Rule::state_statement => {
                             statements.push(pair.into_inner().next().unwrap().into())
                         }
@@ -499,7 +439,7 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                                 label: inner_iter.next().unwrap().as_str().to_string(),
                                 statements: inner_iter.map(|pair| pair.into()).collect()
                             }))
-                        },
+                        }
                         _ => panic!("unhandled rule")
                     }
                 });
@@ -514,34 +454,43 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                 })
             }
             Rule::integer_literal => {
-                let mut integer: i32 = 0;
                 let mut sign = 1;
+                let mut integer_parse_result = None;
                 self.into_inner().into_iter().for_each(|pair| {
                     match pair.as_rule() {
-                        Rule::positive_or_negative => {
+                        Rule::numeric_sign => {
                             if pair.as_str() == "-" {
                                 sign = -1
                             }
                         }
                         Rule::integer_literal_hexadecimal => {
-                            integer = i32::from_str_radix(pair.into_inner().next().unwrap().as_str(), 16).unwrap()
+                            /*
+                            TODO: this fails on 0xFFFF0000, presumably because this is out of the
+                            range of signed values, and it's not
+                            */
+                            integer_parse_result = Some(i32::from_str_radix(pair.into_inner().next().unwrap().as_str(), 16))
                         },
                         Rule::integer_literal_decimal => {
-                            integer = pair.as_str().parse::<i32>().unwrap();
+                            integer_parse_result = Some(pair.as_str().parse::<i32>())
                         }
                         _ => panic!("unhandled rule")
                     }
                 });
-                Box::new(AstNode::IntegerLiteral(integer * sign))
+                match integer_parse_result.unwrap() {
+                    Ok(integer) => { Box::new(AstNode::IntegerLiteral(integer * sign)) }
+                    Err(error) => { panic!("{:?}", error) }
+                }
             }
             Rule::float_literal => {
-                let string = self.as_str().to_lowercase().trim_end_matches("f").to_string();
-                Box::new(AstNode::FloatLiteral(string.as_str().parse::<f32>().unwrap()))
+                match self.as_str().to_lowercase().to_string().as_str().parse::<f32>() {
+                    Ok(string) => { Box::new(AstNode::FloatLiteral(string)) }
+                    Err(error) => { panic!("{:?}", error) }
+                }
             }
             Rule::object_literal => {
                 let mut inner_iter = self.into_inner().into_iter();
                 Box::new(AstNode::ObjectLiteral {
-                    type_: inner_iter.next().unwrap().as_str().to_string(),
+                    type_: inner_iter.next().unwrap().into(),
                     reference: inner_iter.next().unwrap().into_inner().next().unwrap().as_str().to_string()
                 })
             }
@@ -566,10 +515,10 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                 })
             }
             Rule::name_literal => {
-                Box::new(AstNode::NameLiteral(self.into_inner().next().unwrap().as_str().to_string()))
+                Box::new(AstNode::NameLiteral(self.as_str().to_string()))
             }
             Rule::string_literal => {
-                Box::new(AstNode::StringLiteral(self.into_inner().next().unwrap().as_str().to_string()))
+                Box::new(AstNode::StringLiteral(self.as_str().to_string()))
             }
             Rule::vector_literal => {
                 let mut inner_iter = self.into_inner().into_iter();
@@ -595,7 +544,7 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
             }
             Rule::var_name => {
                 let mut inner_iter = self.into_inner().into_iter();
-                let name = inner_iter.next().unwrap().as_str().to_string();
+                let name = inner_iter.next().unwrap().into();
                 let mut size: Option<Box<AstNode>> = None;
                 if let Some(pair) = inner_iter.next() {
                     size = Some(pair.into())
@@ -606,19 +555,19 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                 })
             }
             Rule::var_declaration => {
-                let mut category: Option<String> = None;
+                let mut category: Option<Box<AstNode>> = None;
                 let mut modifiers: Vec<String> = Vec::new();
                 let mut type_: Option<Box<AstNode>> = None;
                 let mut names: Vec<Box<AstNode>> = Vec::new();
                 self.into_inner().into_iter().for_each(|pair| {
                     match pair.as_rule() {
-                        Rule::var_category => {
-                            let inner = pair.into_inner().next();
-                            category = match inner {
-                                Some(pair) => Some(pair.as_str().to_string()),
-                                None => Some(String::new())
-                            }
-                        }
+                        // Rule::var_category => {
+                        //     let inner = pair.into_inner().next();
+                        //     category = match inner {
+                        //         Some(pair) => Some(pair.as_str().to_string()),
+                        //         None => Some(String::new()) // we still want to mark the category as present, even if it's empty
+                        //     }
+                        // }
                         Rule::var_modifier => {
                             modifiers.push(pair.as_str().to_string())
                         },
@@ -641,13 +590,6 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
             Rule::unqualified_identifier => {
                 Box::new(AstNode::UnqualifiedIdentifier(self.as_str().to_string()))
             },
-            Rule::function_modifier => {
-                let mut inner_iter = self.into_inner().into_iter();
-                Box::new(AstNode::FunctionModifier {
-                    type_: inner_iter.next().unwrap().as_str().to_string(),
-                    arguments: inner_iter.map(|pair| { pair.into() }).collect()
-                })
-            }
             Rule::function_argument => {
                 let mut modifiers: Vec<String> = Vec::new();
                 let mut type_: Option<Box<AstNode>> = None;
@@ -700,7 +642,11 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                             }
                         }
                         Rule::function_modifier => {
-                            modifiers.push(pair.into())
+                            let mut inner_iter = pair.into_inner().into_iter();
+                            modifiers.push(Box::new(AstNode::FunctionModifier {
+                                type_: inner_iter.next().unwrap().as_str().to_string(),
+                                arguments: inner_iter.map(|pair| pair.into()).collect()
+                            }))
                         }
                         Rule::type_ => {
                             return_type = Some(pair.into())
@@ -717,7 +663,7 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                         _ => { panic!("unhandled pair") }
                     }
                 });
-                Box::new(AstNode::FunctionDelaration {
+                Box::new(AstNode::FunctionDeclaration {
                     type_: type_.unwrap(),
                     modifiers,
                     return_type,
@@ -815,12 +761,13 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
             Rule::cpptext => {
                 Box::new(AstNode::CppText(self.into_inner().into_iter().next().unwrap().as_str().to_string()))
             }
-            _ => { Box::new(AstNode::Unhandled) }
+            _ => { Box::new(AstNode::Unknown) }
         }
     }
 }
+*/
 
-fn read_file_to_string(path: &str) -> Result<String, std::io::Error> {
+fn read_file_to_string(path: &str) -> std::result::Result<String, std::io::Error> {
     let mut file = File::open(path)?;
     let mut contents = String::new();
     file.read_to_string(&mut contents)?;
@@ -828,6 +775,19 @@ fn read_file_to_string(path: &str) -> Result<String, std::io::Error> {
 }
 
 fn main() {
+    let mut buffer = String::new();
+    loop {
+        buffer.clear();
+        std::io::stdin().read_line(&mut buffer).expect("huh!??");
+        match parse_program(&buffer) {
+            Ok(node) => { println!("{:?}", node) }
+            Err(err) => { println!("{:?}", err) }
+        }
+    }
+}
+
+/*
+fn test_all_files() {
     let directories = vec![
         "AHZ_ROVehicles",
         "DH_Artillery",
@@ -873,7 +833,7 @@ fn main() {
         "XVoting",
         "XWebAdmin"
     ];
-    let mut total = std::time::Instant::now();
+    let total = std::time::Instant::now();
     let mut total_count = 0;
     let mut success_count = 0;
     let mut fail_count = 0;
@@ -886,10 +846,11 @@ fn main() {
                 Err(error) => println!("path is wrong: {:?}", error),
                 Ok(path) => {
                     if let Ok(contents) = read_file_to_string(path.as_os_str().to_str().unwrap()) {
-                        let mut before = std::time::Instant::now();
                         let root = UnrealScriptParser::parse(Rule::program, contents.as_str());
+                        println!("{:?}", path);
                         match root {
                             Ok(mut root) => {
+                                let _program: Box<AstNode> = root.next().unwrap().into();
                                 success_count += 1;
                             }
                             Err(error) => {
@@ -905,6 +866,7 @@ fn main() {
     }
     println!("parsed {:?}/{:?} ({:?} failures) files in {:?}", success_count, total_count, fail_count, total.elapsed());
 }
+*/
 
 #[cfg(test)]
 mod tests {
@@ -965,7 +927,7 @@ mod tests {
             input: "-1234567",
             rule: Rule::integer_literal,
             tokens: [ integer_literal(0, 8, [
-                positive_or_negative(0, 1),
+                numeric_sign(0, 1),
                 integer_literal_decimal(1, 8)
                 ])
             ]
@@ -980,7 +942,7 @@ mod tests {
             rule: Rule::integer_literal,
             tokens: [
                 integer_literal(0, 8, [
-                    positive_or_negative(0, 1),
+                    numeric_sign(0, 1),
                     integer_literal_decimal(1, 8)
                 ])
             ]
@@ -1010,7 +972,7 @@ mod tests {
             input: "-0x0123456789ABCDEF",
             rule: Rule::integer_literal,
             tokens: [ integer_literal(0, 19, [
-                positive_or_negative(0, 1),
+                numeric_sign(0, 1),
                 integer_literal_hexadecimal(1, 19, [
                     hex_digits(3, 19)
                 ])
@@ -1170,6 +1132,18 @@ mod tests {
             rule: Rule::string_literal,
             tokens: [ string_literal(0, 2, [ string_literal_inner(1, 1) ]) ]
         )
+    }
+
+    #[test]
+    fn string_literal_with_newline_fails() {
+        fails_with! {
+            parser: UnrealScriptParser,
+            input: "\"First line.\nSecond line.\"",
+            rule: Rule::string_literal,
+            positives: [Rule::string_literal],
+            negatives: [],
+            pos: 0
+        }
     }
 
     #[test]
@@ -1873,20 +1847,6 @@ mod tests {
     }
 
     #[test]
-    fn struct_declaration_no_members() {
-        parses_to!{
-            parser: UnrealScriptParser,
-            input: "struct Foo { }",
-            rule: Rule::struct_declaration,
-            tokens: [
-                struct_declaration(0, 14, [
-                    unqualified_identifier(7, 10)
-                ])
-            ]
-        }
-    }
-
-    #[test]
     fn struct_var_declaration_simple() {
         parses_to!{
             parser: UnrealScriptParser,
@@ -1971,6 +1931,35 @@ mod tests {
     }
 
     #[test]
+    fn struct_declaration_no_members() {
+        parses_to!{
+            parser: UnrealScriptParser,
+            input: "struct Foo { }",
+            rule: Rule::struct_declaration,
+            tokens: [
+                struct_declaration(0, 14, [
+                    unqualified_identifier(7, 10)
+                ])
+            ]
+        }
+    }
+
+    #[test]
+    fn struct_declaration_cppstruct() {
+        parses_to!{
+            parser: UnrealScriptParser,
+            input: "struct Foo { cppstruct { virtual void Bar(Foo*) { } } }",
+            rule: Rule::struct_declaration,
+            tokens: [
+                struct_declaration(0, 55, [
+                    unqualified_identifier(7, 10),
+                    cppstruct(13, 53, [ cpp_body(24, 52) ])
+                ])
+            ]
+        }
+    }
+
+    #[test]
     fn function_argument_basic() {
         parses_to! {
             parser: UnrealScriptParser,
@@ -1980,6 +1969,78 @@ mod tests {
                 function_argument(0, 7, [
                     type_(0, 3, [ identifier(0, 3) ]),
                     var_name(4, 7, [ unqualified_identifier(4, 7) ])
+                ])
+            ]
+        }
+    }
+
+    #[test]
+    fn function_type_no_arguments() {
+        for input in ["function", "event", "delegate", "preoperator", "postoperator"] {
+            parses_to! {
+                parser: UnrealScriptParser,
+                input: input,
+                rule: Rule::function_type,
+                tokens: [
+                    function_type(0, input.len(), [ function_type_no_arguments(0, input.len()) ]),
+                ]
+            }
+        }
+    }
+
+    #[test]
+    fn function_type_operator() {
+        parses_to! {
+            parser: UnrealScriptParser,
+            input: "operator(42)",
+            rule: Rule::function_type,
+            tokens: [
+                function_type(0, 12, [ function_type_operator(0, 12, [ integer_literal(9, 11, [ integer_literal_decimal(9, 11) ]) ]) ]),
+            ]
+        }
+    }
+
+    #[test]
+    fn function_type_operator_with_no_arguments_fails() {
+        fails_with! {
+            parser: UnrealScriptParser,
+            input: "operator",
+            rule: Rule::function_type,
+            positives: [Rule::function_type],
+            negatives: [],
+            pos: 0
+        }
+    }
+
+    #[test]
+    fn function_declaration_with_multiple_function_types() {
+        parses_to! {
+            parser: UnrealScriptParser,
+            input: "function delegate event Foo();",
+            rule: Rule::function_declaration,
+            tokens: [
+                function_declaration(0, 30, [
+                    function_type(0, 8, [ function_type_no_arguments(0, 8) ]),
+                    function_type(9, 17, [ function_type_no_arguments(9, 17) ]),
+                    function_type(18, 23, [ function_type_no_arguments(18, 23) ]),
+                    function_name(24, 27, [ unqualified_identifier(24, 27) ])
+                ])
+            ]
+        }
+    }
+
+    #[test]
+    fn function_declaration_with_function_modifiers_on_both_sides_of_function_type() {
+        parses_to! {
+            parser: UnrealScriptParser,
+            input: "simulated function static Foo();",
+            rule: Rule::function_declaration,
+            tokens: [
+                function_declaration(0, 32, [
+                    function_modifier(0, 9, [ function_modifier_type_no_arguments(0, 9) ]),
+                    function_type(10, 18, [ function_type_no_arguments(10, 18) ]),
+                    function_modifier(19, 25, [ function_modifier_type_no_arguments(19, 25) ]),
+                    function_name(26, 29, [ unqualified_identifier(26, 29) ])
                 ])
             ]
         }
@@ -2113,14 +2174,65 @@ mod tests {
 
     // TODO: operator tests!
 
-    // TODO: compiler directive tests
     #[test]
-    fn compiler_directive_start_of_line() {
+    fn compiler_directive_end_of_input() {
         parses_to! {
             parser: UnrealScriptParser,
             input: "#exec OBJ LOAD FILE=..\\Foo\\Bar.utx",
             rule: Rule::compiler_directive,
             tokens: [ compiler_directive(0, 34, [ compiler_directive_inner(1, 34), EOI(34, 34) ]) ]
+        }
+    }
+
+    #[test]
+    fn compiler_directive_end_of_line() {
+        parses_to! {
+            parser: UnrealScriptParser,
+            input: "#exec OBJ LOAD FILE=..\\Foo\\Bar.utx\n",
+            rule: Rule::compiler_directive,
+            tokens: [ compiler_directive(0, 35, [ compiler_directive_inner(1, 34) ]) ]
+        }
+    }
+
+    #[test]
+    fn function_name_unqualified_identifier() {
+        parses_to! {
+            parser: UnrealScriptParser,
+            input: "Foo",
+            rule: Rule::function_name,
+            tokens: [ function_name(0, 3, [ unqualified_identifier(0, 3) ]) ]
+        }
+    }
+
+    #[test]
+    fn function_name_symbolic_verb() {
+        parses_to! {
+            parser: UnrealScriptParser,
+            input: "@=",
+            rule: Rule::function_name,
+            tokens: [ function_name(0, 2, [ symbolic_verb(0, 2) ]) ]
+        }
+    }
+
+    #[test]
+    fn expression_dyadic_add() {
+        parses_to! {
+            parser: UnrealScriptParser,
+            input: "a + b",
+            rule: Rule::expression,
+            tokens: [ expression(0, 5, [ unqualified_identifier(0, 1), dyadic_verb(2, 3), unqualified_identifier(4, 5) ]) ]
+        }
+    }
+
+    #[test]
+    fn code_statement_contiguous_dyadic_verbs_fails() {
+        fails_with! {
+            parser: UnrealScriptParser,
+            input: "a @ $ b;",
+            rule: Rule::code_statement,
+            positives: [Rule::unqualified_identifier, Rule::literal, Rule::class_type, Rule::default_access, Rule::static_access, Rule::global_call, Rule::monadic_pre_verb, Rule::parenthetical_expression, Rule::new],
+            negatives: [],
+            pos: 4
         }
     }
 }

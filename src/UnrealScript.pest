@@ -7,52 +7,52 @@ WS = _{ " " | "\n" | "\t" }
 WHITESPACE = _{ "\r" } // This symbol is truly useless, so just ignore it globally
 
 compiler_directive_inner = { (!"\n" ~ ANY)* }
-compiler_directive = { ^"#" ~ compiler_directive_inner ~ (("\n") | eoi)}
+compiler_directive = { ^"#" ~ compiler_directive_inner ~ ("\n" | eoi)}
 
 alpha = @{ 'a'..'z' | 'A'..'Z' }
 digit = @{ '0'..'9' }
-unqualified_identifier = @{ (alpha | "_") ~ (alpha | digit | "_")* }
+unqualified_identifier_inner = _{ (alpha | "_") ~ (alpha | digit | "_")* }
+unqualified_identifier = @{ unqualified_identifier_inner }
 unqualified_identifier_list = _{ unqualified_identifier ~ (WS* ~ "," ~ WS* ~  unqualified_identifier)* }
 qualified_identifier = @{ unqualified_identifier ~ "." ~ unqualified_identifier }
 identifier = @{ qualified_identifier | unqualified_identifier }
 
 // literals
-hex_digits = { ASCII_HEX_DIGIT+ }
 integer_literal_decimal = @{ digit+ }
-integer_literal_hexadecimal = { ^"0x" ~ hex_digits }
-positive_or_negative = { "-" | "+" }
-integer_literal = { positive_or_negative? ~ (integer_literal_hexadecimal | integer_literal_decimal) }
+integer_literal_hexadecimal = { ASCII_HEX_DIGIT+ }
+numeric_sign = { "-" | "+" }
+integer_literal = { numeric_sign? ~ (^"0x" ~ integer_literal_hexadecimal | integer_literal_decimal) }
 
-float_literal_decimal = @{ digit+ ~ "." ~ digit* ~ ^"f"? }
-float_literal_scientific = @{ digit+ ~ ("." ~ digit*)? ~ ^"e" ~ ("+" | "-")? ~ digit+ ~ ^"f"? }
+float_literal_decimal = @{ digit+ ~ "." ~ digit* }
+float_literal_scientific = @{ digit+ ~ ("." ~ digit*)? ~ ^"e" ~ ("+" | "-")? ~ digit+ }
 
 // has to have *either* the decimal or the E in order to be a float literal!
+float_literal_outer = _{ float_literal ~ ^"f"? }
 float_literal = @{ ("-" | "+")? ~ (float_literal_scientific | float_literal_decimal) }
-numeric_literal = _{ float_literal | integer_literal }
+numeric_literal = { float_literal_outer | integer_literal }
 
-
-string_literal_character = @{
+string_literal_character = _{
     !("\\" | "\"") ~ !("\0" | NEWLINE) ~ ANY
     | "\\" ~ !("\0" | NEWLINE) ~ ANY
 }
-string_literal_inner = @{ string_literal_character* }
-string_literal = { "\"" ~ string_literal_inner ~ "\"" }
+string_literal = @{ string_literal_character* }
+string_literal_outer = _{ "\"" ~ string_literal ~ "\"" }
 
 name_character = @{ ASCII_ALPHANUMERIC | "_" | " " }
-name_inner = @{ name_character* }
-name_literal = { "'" ~ name_inner ~ "'"}
+name_literal = { name_character* }
+name_literal_outer = _{ "'" ~ name_literal ~ "'"}
 single_quoted_string_character = @{ !"'" ~ !NEWLINE ~ ANY }
-single_quoted_string_inner = @{ single_quoted_string_character* }
-single_quoted_string = { "'" ~ single_quoted_string_inner  ~ "'"}
-object_literal = { unqualified_identifier ~ WS* ~ single_quoted_string }
+single_quoted_string = @{ single_quoted_string_character* }
+single_quoted_string_outer = _{ "'" ~ single_quoted_string  ~ "'"}
+object_literal = { unqualified_identifier ~ WS* ~ single_quoted_string_outer }
 vector_literal = { ^"vect" ~ WS* ~ "(" ~ WS* ~ numeric_literal ~ WS* ~ "," ~ WS* ~ numeric_literal ~ WS* ~ "," ~ WS* ~ numeric_literal ~ WS* ~ ")" }
 rotator_literal = { ^"rot" ~ WS* ~ "(" ~ WS* ~ numeric_literal ~ WS* ~ "," ~ WS* ~ numeric_literal ~ WS* ~ "," ~ WS* ~ numeric_literal ~ WS* ~ ")" }
 literal = {
     vector_literal |
     rotator_literal |
     numeric_literal |
-    string_literal |
-    name_literal |
+    string_literal_outer |
+    name_literal_outer |
     object_literal
 }
 
@@ -82,7 +82,6 @@ class_modifier_type = @{
     ^"native" |
     ^"noexport"
 }
-// TODO: WITHIN rule!
 class_modifier = { class_modifier_type ~ (WS* ~ "(" ~ WS* ~ expression_list ~ WS* ~ ")")? }
 class_within = { ^"within" ~ WS+ ~ identifier }
 class_declaration = { ^"class" ~ WS+ ~ unqualified_identifier ~ (WS+ ~ extends)? ~ (WS+ ~ class_within)? ~ (WS+ ~ class_modifier)* ~ WS* ~ ";" }
@@ -126,7 +125,8 @@ class_type = { ^"class" ~ WS* ~ "<" ~ WS* ~ identifier ~ WS* ~ ">" }
 type_ = { struct_declaration | enum_declaration | array_type | class_type | identifier }
 
 boolean_literal = { ^"true" | ^"false" }    // used only in special cases
-const_declaration = { ^"const" ~ WS+ ~ unqualified_identifier ~ WS* ~ "=" ~ WS* ~ (literal | boolean_literal) ~ WS* ~ ";" }
+const_value = { literal | boolean_literal }
+const_declaration = { ^"const" ~ WS+ ~ unqualified_identifier ~ WS* ~ "=" ~ WS* ~ const_value ~ WS* ~ ";" }
 enum_declaration = { ^"enum" ~ WS+ ~ unqualified_identifier ~ WS* ~ "{" ~ WS* ~ unqualified_identifier_list ~ WS* ~ ","? ~ WS* ~ "}"}
 enum_statement = { enum_declaration ~ ";" }
 
@@ -141,9 +141,8 @@ struct_modifiers = { struct_modifier* }
 extends = { ^"extends" ~ WS+ ~ identifier }
 struct_declaration = { ^"struct" ~ (WS+ ~ struct_modifier)* ~ WS+ ~ unqualified_identifier ~ WS+ ~ extends? ~ WS* ~ "{" ~ WS* ~ struct_inner_declarations? ~ WS* ~ "}" }
 
-// TODO: syntactically enforce argument rules (only native takes an argument)
-function_modifier_type = {
-    ^"native" |
+function_modifier_type_with_arguments = { ^"native" }
+function_modifier_type_no_arguments = {
     ^"private" |
     ^"protected" |
     ^"public" |
@@ -156,22 +155,23 @@ function_modifier_type = {
     ^"iterator" |
     ^"latent"
 }
-function_modifier = { function_modifier_type ~ (WS* ~ "(" ~ WS* ~ integer_literal ~ WS* ~ ")")? }
+function_modifier_with_arguments = _{ function_modifier_type_with_arguments ~ (WS* ~ "(" ~ WS* ~ integer_literal ~ WS* ~ ")")? }
+function_modifier = { function_modifier_with_arguments | function_modifier_type_no_arguments }
 function_modifiers = _{ function_modifier ~ (WS+ ~ function_modifier)* }
-function_argument_modifier = {
-    ^"coerce" |
-    ^"optional" |
-    ^"out" |
-    ^"skip"
-}
+
+function_argument_modifier = { ^"coerce" | ^"optional" | ^"out" | ^"skip" }
 function_argument_modifiers = _{ function_argument_modifier ~ (WS+ ~ function_argument_modifier)* }
 function_argument = { (function_argument_modifiers ~ WS+)? ~ type_ ~ WS+ ~ var_name}
 function_arguments = _{ function_argument ~ (WS* ~ "," ~ WS* ~ function_argument)* }
-function_type_operator = { ^"operator" ~  WS* ~ "(" ~ WS* ~ integer_literal ~ WS* ~ ")" }
+
+function_type_with_arguments_type = { ^"operator" }
+function_type_with_arguments = { function_type_with_arguments_type ~  WS* ~ "(" ~ WS* ~ integer_literal ~ WS* ~ ")" }
 function_type_no_arguments = { ^"function" | ^"event" | ^"delegate" | ^"preoperator" | ^"postoperator" }
-function_type = { function_type_no_arguments | function_type_operator }
+function_type = { function_type_no_arguments | function_type_with_arguments }
 function_types = _{ function_type ~ (WS+ ~ function_type)* }
+
 function_name = { unqualified_identifier | symbolic_verb }
+
 function_declaration = {
 	(function_modifiers ~ WS+)? ~ function_types ~
     ((WS+ ~ (function_modifier ~ WS+)*) | WS+) ~    // this odd line needs to compensate for necessary trailing whitespace on function modifiers, otherwise it can match against a type name of "StaticMesh", for example
@@ -180,24 +180,23 @@ function_declaration = {
     function_body_or_semicolon
 }
 
-reliability = { ^"reliable" | ^"unreliable" }
-replication_statement = { reliability ~ WS+ ~ ^"if" ~ WS* ~ "(" ~ WS* ~ expression ~ WS* ~ ")" ~ WS* ~ unqualified_identifier ~ WS* ~ ("," ~ WS* ~ unqualified_identifier_list?)? ~ WS* ~ ";" }
+replication_reliability = { ^"reliable" | ^"unreliable" }
+replication_statement = { replication_reliability ~ WS+ ~ ^"if" ~ WS* ~ "(" ~ WS* ~ expression ~ WS* ~ ")" ~ WS* ~ unqualified_identifier ~ WS* ~ ("," ~ WS* ~ unqualified_identifier_list?)? ~ WS* ~ ";" }
 replication_statements = _{ replication_statement ~ (WS* ~ replication_statement)* }
 replication_block = { ^"replication" ~ WS* ~ "{" ~ WS* ~ replication_statements? ~ WS* ~ "}" }
 
 type_declaration_statement = _{ (enum_declaration | struct_declaration) ~ ";" }
-class_statement = _{ ";" | compiler_directive | const_declaration | var_declaration  | type_declaration_statement | function_declaration | replication_block | state_declaration | defaultproperties | cpptext }
-class_statement_pre = { compiler_directive | const_declaration }
-class_statement_pres = _{ class_statement_pre ~ (WS* ~ class_statement_pre)* }
+class_statement = { ";" | compiler_directive | const_declaration | var_declaration  | type_declaration_statement | function_declaration | replication_block | state_declaration | defaultproperties | cpptext }
+pre_class_statement = { compiler_directive | const_declaration }
+pre_class_statements = _{ pre_class_statement ~ (WS* ~ pre_class_statement)* }
 class_statements = _{ class_statement ~ (WS* ~ class_statement)* }
 eoi = _{ EOI }
-program = { SOI ~ WS* ~ class_statement_pres? ~ WS* ~ class_declaration ~ WS* ~ class_statements? ~ WS* ~ eoi }
+program = { SOI ~ WS* ~ pre_class_statements? ~ WS* ~ class_declaration ~ WS* ~ class_statements? ~ WS* ~ eoi }
 
 var_names = _{ var_name ~ (WS* ~ "," ~ WS* ~ var_name)* }
 local_declaration = { ^"local" ~ WS+ ~ type_ ~ WS+ ~ var_names ~ WS* ~ ";" }
 
 // LOGIC
-// build a straight LIST of what we see in front of us, we will shuffle the AST around in a separate pass!
 array_access = { "[" ~ WS* ~ expression ~ WS* ~ "]" }
 member_access = { "." ~ WS* ~ unqualified_identifier }
 default_access = { ^"default" ~ WS* ~ "." ~ WS* ~ unqualified_identifier }
@@ -224,7 +223,7 @@ primary = _{ cast | literal | default_access | static_access | global_call | unq
 target = _{ monadic_pre_verb? ~ WS* ~ (new | primary ~ (WS* ~ atom)*) ~ WS* ~ monadic_post_verb? }
 
 parenthetical_expression = { "(" ~ WS* ~ expression ~ WS* ~ ")" }
-expression_inner = _{ target | unqualified_identifier }   // TODO: monadic expression should be a target???
+expression_inner = _{ target | unqualified_identifier }
 
 // new is a kind of "terminal", nothing can come after it in an expression
 new = { ^"new" ~ (WS* ~ "(" ~ expression_list ~ ")")? ~ WS+ ~ expression_inner } /// fuck this syntax
@@ -235,14 +234,14 @@ constant_list = _{ (constant ~ "," | expression_empty)* ~ constant? }
 cast = { class_type ~ WS* ~ "(" ~ WS* ~ expression ~ WS* ~ ")" }
 // NOTE: certain casts (int, string) don't follow the cast grammar, this is only for explicit
 
-code_scope = { "{" ~ WS* ~ code_statements? ~ WS* ~ "}" }
+code_scope_inner = _{ "{" ~ WS* ~ code_statements? ~ WS* ~ "}" }
+code_scope = { code_scope_inner }
 function_body_or_semicolon = _{ ";" | ("{" ~ WS* ~ function_body ~ WS* ~ "}") }
 const_declarations = _{ const_declaration ~ (WS* ~ const_declaration)* }
 function_body = { const_declarations? ~ WS* ~ local_declarations? ~ WS* ~ code_statements? }
 local_declarations = _{ local_declaration ~ (WS* ~ local_declaration)* }
 code_statements = _{ code_statement ~ (WS* ~ code_statement)* }
-code_statement_outer = { code_statement }
-statement_or_block = _{ code_statement_outer | code_scope }
+statement_or_block = { code_statement | code_scope_inner }
 
 while_statement = { ^"while" ~ WS* ~ "(" ~ WS* ~ expression ~ WS* ~ ")" ~ WS* ~ statement_or_block }
 return_statement = { ^"return" ~ (WS+ ~ expression)? ~ WS* ~ ";" }
@@ -264,18 +263,20 @@ statement_empty_outer = { statement_empty }
 for_init = { expression }
 for_predicate = { expression }
 for_post = { expression }
-for_statement_inner = { for_init? ~ WS* ~ ";" ~ WS* ~ for_predicate? ~ WS* ~ ";" ~ WS* ~ for_post? }
+for_statement_inner = _{ for_init? ~ WS* ~ ";" ~ WS* ~ for_predicate? ~ WS* ~ ";" ~ WS* ~ for_post? }
 for_statement = { ^"for" ~ WS* ~ "(" ~ WS* ~ for_statement_inner ~ WS* ~ ")" ~ WS* ~ statement_or_block }
 
-do_until_statement = { ^"do" ~ WS* ~ code_scope ~ (WS* ~ ^"until" ~ WS* ~ "(" ~ WS* ~ expression ~ WS* ~ ")")? }
+until = _{ ^"until" ~ WS* ~ "(" ~ WS* ~ expression ~ WS* ~ ")" }
+do_until_statement = { ^"do" ~ WS* ~ statement_or_block ~ (WS* ~ until)? }
 
 foreach_expression_atom = _{ array_access | ("." ~ default_access) | ("." ~ static_access) | member_access | call }
 foreach_expression = { primary ~ WS* ~ (foreach_expression_atom ~ WS*)* }
 foreach_statement = { ^"foreach" ~ WS+ ~ foreach_expression ~ WS* ~ statement_or_block }
 switch_statement = { ^"switch" ~ WS* ~ "(" ~ WS* ~ expression ~ WS* ~ ")" ~ WS* ~ "{" ~ (WS* ~ switch_case)* ~ WS* ~ switch_default_case? ~ WS* ~ "}" }
-switch_case_label = _{ ^"case" ~ WS+ ~ target ~ WS* ~ ":" }
+switch_case_label = { target }
+switch_case_label_outer = _{ ^"case" ~ WS+ ~ switch_case_label ~ WS* ~ ":" }
 switch_default_label = _{ ^"default" ~ WS* ~ ":" }
-switch_case = { switch_case_label ~ WS* ~ code_statements? }
+switch_case = { switch_case_label_outer ~ WS* ~ code_statements? }
 switch_default_case = { switch_default_label ~ WS* ~ code_statements? }
 continue_statement = { ^"continue" ~ WS* ~ ";" }
 break_statement = { ^"break" ~ WS* ~ ";" }
@@ -287,16 +288,16 @@ state_modifiers = _{ state_modifier ~ (WS+ ~ state_modifier)* }
 state_statement = { const_declaration | function_declaration }
 state_statements = _{ state_statement ~ (WS* ~ state_statement)* }
 state_editable = { "(" ~ WS* ~ ")" }
-state_declaration_body = _{ state_ignores? ~ WS* ~ state_statements? ~ WS* ~ state_labels? }
-state_declaration = { (state_modifiers ~ WS+)? ~ ^"state" ~ (WS* ~ state_editable)? ~ WS+ ~ unqualified_identifier ~ (WS+ ~ extends)? ~ WS* ~ "{" ~ WS* ~ state_declaration_body ~  WS* ~ "}" }
+state_ignores = { ^"ignores" ~ WS+ ~ unqualified_identifier_list ~ WS* ~ ";" }
 state_labels = _{ state_label ~ (WS* ~ state_label)* }
 state_label = { unqualified_identifier ~ WS* ~ ":" ~ WS* ~ code_statements? }
-state_ignores = { ^"ignores" ~ WS+ ~ unqualified_identifier_list ~ WS* ~ ";" }
+state_declaration_body = _{ state_ignores? ~ WS* ~ state_statements? ~ WS* ~ state_labels? }
+state_declaration = { (state_modifiers ~ WS+)? ~ ^"state" ~ (WS* ~ state_editable)? ~ WS+ ~ unqualified_identifier ~ (WS+ ~ extends)? ~ WS* ~ "{" ~ WS* ~ state_declaration_body ~  WS* ~ "}" }
 
 // STATES
-code_statement = _{ jump_label | conditional_statement | foreach_statement | for_statement | while_statement | do_until_statement | return_statement | break_statement | continue_statement | goto_statement | compiler_directive | switch_statement | const_declaration | (expression ~ WS* ~ ";") | statement_empty }
+code_statement = { jump_label | conditional_statement | foreach_statement | for_statement | while_statement | do_until_statement | return_statement | break_statement | continue_statement | goto_statement | compiler_directive | switch_statement | const_declaration | (expression ~ WS* ~ ";") | statement_empty }
 // TODO: operator precedence is handled at the parser level
-dyadic_verb_native = {
+dyadic_verb_native = _{
     "&&" | "^^" |
     "**" |
     "+=" | "-=" | "*=" | "/=" |
@@ -313,7 +314,7 @@ dyadic_verb_native = {
     "+" | "-" |
     "="
 }
-dyadic_verb = { dyadic_verb_native | unqualified_identifier }
+dyadic_verb = { dyadic_verb_native | unqualified_identifier_inner }
 
 // DEFAULTPROPERTIES
 LWS = _{ " " | "\t" }
@@ -335,9 +336,9 @@ defaultproperties_target = { unqualified_identifier ~ LWS* ~ (defaultproperties_
 defaultproperties = { ^"defaultproperties" ~ WS* ~ "{" ~ WS* ~ defaultproperties_lines? ~ WS* ~ "}" }
 
 // CPPTEXT
-cpp_brackets = _{ "{" ~ WS* ~ cpp_body ~ WS* ~ "}" }
+cpp_brackets = _{ "{" ~ WS* ~ cpp_body_inner ~ WS* ~ "}" }
 cpp_item = _{ cpp_brackets | (!"{" ~ !"}" ~ ANY) }
-cpp_body = _{ cpp_item* }
-cpp_body_outer = { cpp_body }
-cpptext = { ^"cpptext" ~ WS* ~ "{" ~ cpp_body_outer ~ "}" }
-cppstruct = { ^"cppstruct" ~ WS* ~ "{" ~ cpp_body_outer ~ "}" }
+cpp_body_inner = _{ cpp_item* }
+cpp_body = { cpp_body_inner }
+cpptext = { ^"cpptext" ~ WS* ~ "{" ~ cpp_body ~ "}" }
+cppstruct = { ^"cppstruct" ~ WS* ~ "{" ~ cpp_body ~ "}" }

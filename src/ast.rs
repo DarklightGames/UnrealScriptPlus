@@ -1,6 +1,40 @@
+use std::fmt::Write;
+use std::convert::TryFrom;
+
+#[derive(Debug)]
+pub enum ReplicationReliability {
+    Reliable,
+    Unreliable
+}
+
+impl From<&str> for ReplicationReliability {
+    fn from(s: &str) -> Self {
+        match s {
+            "reliable" => ReplicationReliability::Reliable,
+            "unreliable" => ReplicationReliability::Unreliable,
+            _ => panic!("unhandled replication reliability type")
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum StateModifier {
+    Auto,
+    Simulated
+}
+
+impl From<&str> for StateModifier {
+    fn from(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "auto" => StateModifier::Auto,
+            "simulated" => StateModifier::Simulated,
+            _ => panic!("unhandled state modifier")
+        }
+    }
+}
+
 pub enum AstNode {
     Program {
-        class_declaration: Box<AstNode>,
         statements: Vec<Box<AstNode>>
     },
     IntegerLiteral(i32),
@@ -22,11 +56,11 @@ pub enum AstNode {
         arguments: Vec<Box<AstNode>>
     },
     FunctionArgument {
-        modifiers: Vec<String>,
+        modifiers: Vec<Box<AstNode>>,
         type_: Box<AstNode>,
         name: Box<AstNode>
     },
-    FunctionDelaration {
+    FunctionDeclaration {
         type_: Box<AstNode>,
         modifiers: Vec<Box<AstNode>>,
         return_type: Option<Box<AstNode>>,
@@ -47,16 +81,14 @@ pub enum AstNode {
         body: Option<Box<AstNode>>
     },
     ReplicationStatement {
-        is_reliable: bool,
+        reliability: ReplicationReliability,
         condition: Box<AstNode>,
-        variables: Vec<String>
+        variables: Vec<Box<AstNode>>
     },
     ReplicationBlock {
         statements: Vec<Box<AstNode>>
     },
-    CompilerDirective {
-        contents: String
-    },
+    CompilerDirective(String),
     RotatorLiteral {
         pitch: Box<AstNode>,
         yaw: Box<AstNode>,
@@ -64,25 +96,25 @@ pub enum AstNode {
     },
     None,
     ObjectLiteral {
-        type_: String,
+        type_: Box<AstNode>,
         reference: String
     },
     ClassDeclaration {
-        name: String,
-        parent_class: Option<String>,
+        name: Box<AstNode>,
+        parent_class: Option<Box<AstNode>>,
         modifiers: Vec<Box<AstNode>>,
-        within: Option<String>
+        within: Option<Box<AstNode>>
     },
     ConstDeclaration {
-        name: String,
+        name: Box<AstNode>,
         value: Box<AstNode>
     },
     EnumDeclaration {
-        name: String,
-        values: Vec<String>
+        name: Box<AstNode>,
+        values: Vec<Box<AstNode>>
     },
     VarName {
-        name: String,
+        name: Box<AstNode>,
         size: Option<Box<AstNode>>
     },
     StructVarDeclaration {
@@ -92,45 +124,47 @@ pub enum AstNode {
         names: Vec<Box<AstNode>>
     },
     StructDeclaration {
-        name: String,
-        parent: Option<String>,
+        name: Box<AstNode>,
+        parent: Option<Box<AstNode>>,
         modifiers: Vec<String>,
-        members: Vec<Box<AstNode>>
+        members: Vec<Box<AstNode>>,
+        cpp: Option<Box<AstNode>>
     },
     ArrayType(Box<AstNode>),
     VarDeclaration {
-        category: Option<String>,
+        category: Option<Box<AstNode>>,
         modifiers: Vec<String>,
         type_: Box<AstNode>,
         names: Vec<Box<AstNode>>
     },
     StateLabel {
-        label: String,
+        label: Box<AstNode>,
         statements: Vec<Box<AstNode>>
     },
     StateDeclaration {
         is_editable: bool,
-        modifiers: Vec<String>,
-        name: String,
-        parent: Option<String>,
-        ignores: Vec<String>,
+        modifiers: Vec<StateModifier>,
+        name: Box<AstNode>,
+        parent: Option<Box<AstNode>>,
+        ignores: Vec<Box<AstNode>>,
         statements: Vec<Box<AstNode>>,
         labels: Vec<Box<AstNode>>
     },
+    Identifier(String),
+    QualifiedIdentifier(String),
     UnqualifiedIdentifier(String),
     VarSize(Box<AstNode>),
     ClassType(Box<AstNode>),
-    Identifier(String),
 
     // FLOW
     ForStatement {
         init: Option<Box<AstNode>>,
         predicate: Option<Box<AstNode>>,
         post: Option<Box<AstNode>>,
-        body: Box<AstNode>
+        statements: Vec<Box<AstNode>>
     },
     DoUntilStatement {
-        body: Box<AstNode>,
+        statements: Vec<Box<AstNode>>,
         predicate: Option<Box<AstNode>>
     },
     New {
@@ -139,11 +173,11 @@ pub enum AstNode {
     },
     WhileStatement {
         predicate: Box<AstNode>,
-        body: Box<AstNode>
+        statements: Vec<Box<AstNode>>
     },
     ForEachStatement {
         predicate: Box<AstNode>,
-        body: Box<AstNode>
+        statements: Vec<Box<AstNode>>
     },
     SwitchCase {
         predicate: Box<AstNode>,
@@ -197,7 +231,7 @@ pub enum AstNode {
     BreakStatement,
     ContinueStatement,
     GotoStatement {
-        label: String
+        label: Box<AstNode>
     },
     JumpLabel(String),
     ReturnStatement {
@@ -253,16 +287,16 @@ pub enum AstNode {
         type_: Box<AstNode>,
         operand: Box<AstNode>
     },
+    CppStruct(String),
     CppText(String),
-    Unhandled
+    Unknown
 }
 
 impl std::fmt::Debug for AstNode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         return match self {
-            AstNode::Program { class_declaration, statements } => {
+            AstNode::Program { statements } => {
                 f.debug_struct("Program")
-                    .field("class_declaration", class_declaration)
                     .field("statements", statements)
                     .finish()
             }
@@ -275,7 +309,7 @@ impl std::fmt::Debug for AstNode {
                 if !modifiers.is_empty() {
                     d.field("modifiers", modifiers);
                 }
-                if let Some(wihin) = within {
+                if let Some(within) = within {
                     d.field("within", within);
                 }
                 d.finish()
@@ -293,14 +327,12 @@ impl std::fmt::Debug for AstNode {
                     .finish()
             }
             AstNode::VarName { name, size } => {
+                let mut d = f.debug_struct("VarName");
+                d.field("name", name);
                 if let Some(size) = size {
-                    f.debug_struct("VarName")
-                        .field("name", name)
-                        .field("size", size)
-                        .finish()
-                } else {
-                    f.write_str(name)
+                    d.field("size", size);
                 }
+                d.finish()
             }
             AstNode::ClassModifier { type_, arguments } => {
                 if arguments.is_empty() {
@@ -346,7 +378,7 @@ impl std::fmt::Debug for AstNode {
                 }
                 d.finish()
             }
-            AstNode::StructDeclaration { name, modifiers, parent, members } => {
+            AstNode::StructDeclaration { name, modifiers, parent, members, cpp } => {
                 let mut d = f.debug_struct("StructDeclaration");
                 d.field("name", name);
                 if let Some(parent) = parent {
@@ -358,11 +390,14 @@ impl std::fmt::Debug for AstNode {
                 if !modifiers.is_empty() {
                     d.field("modifiers", modifiers);
                 }
+                if let Some(cpp) = cpp {
+                    d.field("cpp", cpp);
+                }
                 d.finish()
             }
-            AstNode::ReplicationStatement { is_reliable, condition, variables } => {
+            AstNode::ReplicationStatement { reliability, condition, variables } => {
                 let mut d = f.debug_struct("ReplicationStatement");
-                d.field("is_reliable", is_reliable);
+                d.field("reliability", reliability);
                 d.field("condition", condition);
                 if !variables.is_empty() {
                     d.field("variables", variables);
@@ -384,9 +419,9 @@ impl std::fmt::Debug for AstNode {
                 return f.write_str(value.to_string().as_str())
             }
             AstNode::ObjectLiteral { type_, reference } => {
-                return f.write_fmt(format_args!("{}'{}'", type_, reference));
+                return f.write_fmt(format_args!("{:?}'{}'", type_, reference));
             }
-            AstNode::CompilerDirective { contents } => {
+            AstNode::CompilerDirective(contents) => {
                 f.debug_struct("CompilerDirective")
                     .field("contents", contents)
                     .finish()
@@ -464,7 +499,7 @@ impl std::fmt::Debug for AstNode {
                 }
                 d.finish()
             }
-            AstNode::FunctionDelaration { type_, modifiers, return_type, name, arguments, body } => {
+            AstNode::FunctionDeclaration { type_, modifiers, return_type, name, arguments, body } => {
                 let mut d = f.debug_struct("FunctionDeclaration");
                 d.field("type", type_);
                 d.field("name", name);
@@ -602,30 +637,30 @@ impl std::fmt::Debug for AstNode {
                     .field("statements", statements)
                     .finish()
             }
-            AstNode::ForStatement { init, predicate, post, body } => {
+            AstNode::ForStatement { init, predicate, post, statements } => {
                 f.debug_struct("ForStatement")
                     .field("init", init)
                     .field("predicate", predicate)
                     .field("post", post)
-                    .field("body", body)
+                    .field("statements", statements)
                     .finish()
             }
-            AstNode::WhileStatement { predicate, body } => {
+            AstNode::WhileStatement { predicate, statements } => {
                 f.debug_struct("WhileStatement")
                     .field("predicate", predicate)
-                    .field("body", body)
+                    .field("statements", statements)
                     .finish()
             }
-            AstNode::DoUntilStatement { body, predicate } => {
+            AstNode::DoUntilStatement { statements, predicate } => {
                 f.debug_struct("DoUntilStatement")
-                    .field("body", body)
+                    .field("statements", statements)
                     .field("predicate", predicate)
                     .finish()
             }
-            AstNode::ForEachStatement { predicate, body } => {
+            AstNode::ForEachStatement { predicate, statements } => {
                 f.debug_struct("ForEachStatement")
                     .field("predicate", predicate)
-                    .field("body", body)
+                    .field("statements", statements)
                     .finish()
             }
             AstNode::BreakStatement => {
@@ -719,6 +754,11 @@ impl std::fmt::Debug for AstNode {
             }
             AstNode::CppText(body) => {
                 f.debug_struct("CppText")
+                    .field("body", body)
+                    .finish()
+            }
+            AstNode::CppStruct(body) => {
+                f.debug_struct("CppStruct")
                     .field("body", body)
                     .finish()
             }
