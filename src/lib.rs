@@ -3,25 +3,25 @@
 extern crate pest;
 #[macro_use]
 extern crate pest_derive;
-use pest::error::{Error, ErrorVariant};
-use pest::iterators::{Pair, Pairs};
+use pest::error::{Error, ErrorVariant, LineColLocation, InputLocation};
+use pest::iterators::{Pair};
 use pest::Parser;
+
+use std::str::FromStr;
 
 #[derive(Parser)]
 #[grammar = "UnrealScript.pest"]
 struct UnrealScriptParser;
 
 use std::fs::{File};
-use std::io::{Read, stdin};
+use std::io::{Read};
 use std::ops::AddAssign;
 use std::convert::{TryInto};
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use glob::glob;
 use encoding::{Encoding, DecoderTrap};
 
 mod ast;
-use crate::ast::{AstNode};
+use crate::ast::*;
 
 extern crate encoding;
 
@@ -387,11 +387,7 @@ impl TryInto<Box<AstNode>> for Pair<'_, Rule> {
             Rule::replication_statement => {
                 let mut inner_iter = self.into_inner().into_iter();
                 Ok(Box::new(AstNode::ReplicationStatement {
-                    is_reliable: match inner_iter.next().unwrap().as_str().to_lowercase().as_str() {
-                        "reliable" => { true }
-                        "unreliable" => { false }
-                        _ => { panic!("unrecognized reliability type") }
-                    },
+                    reliability: ReplicationReliability::from_str(inner_iter.next().unwrap().as_str()).unwrap(),
                     condition: inner_iter.next().unwrap().try_into()?,
                     variables: inner_iter.next().unwrap().into_inner().into_iter().map(|pair| { pair.as_str().to_string() }).collect()
                 }))
@@ -409,7 +405,7 @@ impl TryInto<Box<AstNode>> for Pair<'_, Rule> {
             Rule::class_modifier => {
                 let mut inner_iter = self.into_inner().into_iter();
                 Ok(Box::new(AstNode::ClassModifier {
-                    type_: inner_iter.next().unwrap().as_str().to_string(),
+                    type_: ClassModifier::from_str(inner_iter.next().unwrap().as_str()).unwrap(),
                     arguments: inner_iter.map(|pair| { pair.try_into() }).collect::<Result<Vec<Box<AstNode>>, _>>()?
                 }))
             }
@@ -469,7 +465,7 @@ impl TryInto<Box<AstNode>> for Pair<'_, Rule> {
             }
             Rule::state_declaration => {
                 let mut is_editable = false;
-                let mut modifiers: Vec<String> = Vec::new();
+                let mut modifiers: Vec<StateModifier> = Vec::new();
                 let mut name: Option<String> = None;
                 let mut parent: Option<String> = None;
                 let mut ignores: Vec<String> = Vec::new();
@@ -479,7 +475,7 @@ impl TryInto<Box<AstNode>> for Pair<'_, Rule> {
                 for pair in inner_iter {
                     match pair.as_rule() {
                         Rule::state_modifier => {
-                            modifiers.push(pair.as_str().to_string())
+                            modifiers.push(StateModifier::from_str(pair.as_str()).unwrap())
                         },
                         Rule::unqualified_identifier => {
                             name = Some(pair.as_str().to_string())
@@ -626,7 +622,7 @@ impl TryInto<Box<AstNode>> for Pair<'_, Rule> {
             }
             Rule::var_declaration => {
                 let mut category: Option<String> = None;
-                let mut modifiers: Vec<String> = Vec::new();
+                let mut modifiers: Vec<VarModifier> = Vec::new();
                 let mut type_: Option<Box<AstNode>> = None;
                 let mut names: Vec<Box<AstNode>> = Vec::new();
                 let inner_iter = self.into_inner().into_iter();
@@ -640,7 +636,7 @@ impl TryInto<Box<AstNode>> for Pair<'_, Rule> {
                             }
                         }
                         Rule::var_modifier => {
-                            modifiers.push(pair.as_str().to_string())
+                            modifiers.push(VarModifier::from_str(pair.as_str()).unwrap())
                         },
                         Rule::type_ => {
                             type_ = Some(pair.try_into()?)
@@ -664,19 +660,19 @@ impl TryInto<Box<AstNode>> for Pair<'_, Rule> {
             Rule::function_modifier => {
                 let mut inner_iter = self.into_inner().into_iter();
                 Ok(Box::new(AstNode::FunctionModifier {
-                    type_: inner_iter.next().unwrap().as_str().to_string(),
+                    type_: FunctionModifier::from_str(inner_iter.next().unwrap().as_str()).unwrap(),
                     arguments: inner_iter.map(|pair| pair.try_into()).collect::<Result<Vec<Box<AstNode>>, _>>()?
                 }))
             }
             Rule::function_argument => {
-                let mut modifiers: Vec<String> = Vec::new();
+                let mut modifiers = Vec::new();
                 let mut type_: Option<Box<AstNode>> = None;
                 let mut name: Option<Box<AstNode>> = None;
                 let inner_iter = self.into_inner().into_iter();
                 for pair in inner_iter {
                     match pair.as_rule() {
                         Rule::function_argument_modifier => {
-                            modifiers.push(pair.as_str().to_string())
+                            modifiers.push(FunctionArgumentModifier::from_str(pair.as_str()).unwrap())
                         }
                         Rule::type_ => {
                             type_ = Some(pair.try_into()?)
@@ -780,14 +776,14 @@ impl TryInto<Box<AstNode>> for Pair<'_, Rule> {
             }
             Rule::struct_declaration => {
                 let rules_itr = self.into_inner().into_iter();
-                let mut modifiers: Vec<String> = Vec::new();
+                let mut modifiers: Vec<StructModifier> = Vec::new();
                 let mut parent: Option<String> = None;
                 let mut name: String = String::new();
                 let mut members: Vec<Box<AstNode>> = Vec::new();
                 for pair in rules_itr {
                     match pair.as_rule() {
                         Rule::struct_modifier => {
-                            modifiers.push(pair.as_str().to_string())
+                            modifiers.push(StructModifier::from_str(pair.as_str()).unwrap())
                         }
                         Rule::unqualified_identifier => {
                             name.add_assign(pair.as_str())
@@ -871,107 +867,82 @@ fn read_file_to_string(path: &str) -> Result<String, ParsingError> {
         .map_err(|e| ParsingError::EncodingError(e.to_string()))
 }
 
-fn parse_expressions() {
-    let mut contents = String::new();
-    std::io::stdin().read_line(&mut contents).unwrap();
-    match UnrealScriptParser::parse(Rule::expression, contents.as_str()) {
-        Ok(root) => {
-            let result: Result<Box<AstNode>, _> = root.into_iter().next().unwrap().try_into();
-            match result {
-                Ok(ast) => println!("{:?}", ast),
-                Err(error) => println!("{:?}", error)
-            }
-        },
-        Err(err) => println!("{:?}", err)
-    };
-}
-
-fn main() {
-    // parse_file("C:\\UnrealScriptPlus\\src\\TestFile.uc");
-    // return;
-    // loop {
-    //     parse_expressions()
-    // }
-    let directories = vec![
-        "AHZ_ROVehicles",
-        "DH_Artillery",
-        "DH_BritishPlayers",
-        "DH_Construction",
-        "DH_Effects",
-        "DH_Engine",
-        "DH_Equipment",
-        "DH_Game",
-        "DH_GerPlayers",
-        "DH_Guns",
-        "DH_Interface",
-        "DH_LevelActors",
-        "DH_Mortars",
-        "DH_SovietPlayers",
-        "DH_USPlayers",
-        "DH_Vehicles",
-        "DH_Weapons",
-        "Editor",
-        "Engine",
-        "Fire",
-        "Gameplay",
-        "GUI2K4",
-        "IpDrv",
-        "ROAmmo",
-        "ROCustom",
-        "ROEffects",
-        "ROEngine",
-        "ROGame",
-        "ROInterface",
-        "ROInventory",
-        "RORoles",
-        "ROVehicles",
-        "UCore",
-        "Unrealed",
-        "UnrealGame",
-        "UTV2004c",
-        "UTV2004s",
-        "UWeb",
-        "XAdmin",
-        "XGame",
-        "XInterface",
-        "XVoting",
-        "XWebAdmin"
-    ];
-    let mut total = std::time::Instant::now();
-    let mut total_count = 0;
-    let mut success_count = 0;
-    let mut fail_count = 0;
-    let root = Path::new("C:\\Program Files (x86)\\Steam\\steamapps\\common\\red orchestra");
-    for directory in directories {
-        let path = root.join(directory).join("Classes").join("*.uc");
-        for entry in glob(path.as_os_str().to_str().unwrap()).expect("failed to read glob pattern") {
-            match entry {
-                Err(error) => println!("path is wrong: {:?}", error),
-                Ok(path) => {
-                    total_count += 1;
-                    match parse_file(path.as_os_str().to_str().unwrap()) {
-                        Ok(ast) => {
-                            success_count += 1
-                        }
-                        Err(e) => {
-                            println!("{:?}", path.as_os_str().to_str());
-                            println!("{:?}", e);
-                            fail_count += 1
-                        }
-                    }
-                }
-            }
-        }
-    }
-    println!("parsed {:?}/{:?} ({:?} failures) files in {:?}", success_count, total_count, fail_count, total.elapsed());
-}
-
-fn parse_program<'a>(contents: &'a str) -> Result<Pair<'a, Rule>, ParsingError> {
+pub fn parse_program(contents: &str) -> Result<Pair<Rule>, ParsingError> {
     Ok(UnrealScriptParser::parse(Rule::program, contents)?.into_iter().next().unwrap())
 }
 
-fn parse_file(path: &str) -> Result<Box<AstNode>, ParsingError> {
+pub fn parse_file(path: &str) -> Result<Box<AstNode>, ParsingError> {
     Ok(parse_program(read_file_to_string(path)?.as_str())?.try_into()?)
+}
+
+// PYTHON STUFF
+use pyo3::prelude::{pymodule};
+use pyo3::create_exception;
+use pyo3::types::{PyDict};
+use pyo3::{Python, PyResult, exceptions, PyNativeType, ToPyObject, PyObject};
+use pyo3::prelude::PyModule;
+
+create_exception!(unrealscriptplus, ScriptParseError, pyo3::exceptions::PyException);
+
+#[pymodule]
+fn unrealscriptplus(py: Python, m: &PyModule) -> PyResult<()> {
+
+    fn pest_error_to_py_object(py: Python, e: pest::error::Error<Rule>) -> PyObject {
+        let sequence = vec![
+            (
+                "line_col".to_object(py),
+                match e.line_col {
+                    LineColLocation::Pos(pos) => pos.to_object(py),
+                    LineColLocation::Span(span1, span2) => (span1, span2).to_object(py)
+                }
+            ).to_object(py),
+            (
+                "location".to_object(py),
+                match e.location {
+                    InputLocation::Pos(pos) => pos.to_object(py),
+                    InputLocation::Span(span) => span.to_object(py)
+                }
+            ).to_object(py),
+            (
+                "variant".to_object(py),
+                match e.variant {
+                    ErrorVariant::ParsingError { positives, negatives } => {
+                        let positives: Vec<String> = positives.into_iter().map(|r| format!("{:?}", r).to_string()).collect();
+                        let negatives: Vec<String> = negatives .into_iter().map(|r| format!("{:?}", r).to_string()).collect();
+                        PyDict::from_sequence(py, vec![
+                            ("type".to_object(py), "parsing".to_object(py)).to_object(py),
+                            ("positives".to_object(py), positives.to_object(py)).to_object(py),
+                            ("negatives".to_object(py), negatives.to_object(py)).to_object(py),
+                        ].to_object(py)).unwrap().to_object(py)
+                    },
+                    ErrorVariant::CustomError { message } => {
+                        PyDict::from_sequence(py, vec![
+                            ("type".to_object(py), "custom".to_object(py)).to_object(py),
+                            ("message".to_object(py), message.to_object(py)).to_object(py)
+                        ].to_object(py)).unwrap().to_object(py)
+                    },
+                }
+            ).to_object(py)
+        ].to_object(py);
+        PyDict::from_sequence(py, sequence).unwrap().to_object(py)
+    }
+
+    #[pyfn(m)]
+    #[pyo3(pass_module)]
+    fn parse_file(module: &PyModule, path: &str) -> PyResult<bool> {
+        match crate::parse_file(path) {
+            Ok(_) => Ok(true),
+            Err(e) => {
+                Err(match e {
+                    ParsingError::PestError(e) => ScriptParseError::new_err(pest_error_to_py_object(module.py(), e)),
+                    ParsingError::EncodingError(e) => exceptions::PyUnicodeEncodeError::new_err(e.to_string()),
+                    ParsingError::IoError(e) => exceptions::PyIOError::new_err(e.to_string())
+                })
+            }
+        }
+    }
+    m.add("ParseError", py.get_type::<ScriptParseError>())?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1198,7 +1169,7 @@ mod tests {
         // TODO: this is good but WAY too verbose, figure out a more compact way to run this test
         match UnrealScriptParser::parse(Rule::float_literal, "123.456f") {
             Ok(mut node) => {
-                let bigbox: Box<AstNode> = node.next().unwrap().into();
+                let bigbox: Box<AstNode> = node.next().unwrap().try_into().unwrap();
                 match bigbox.as_ref() {
                     AstNode::FloatLiteral(value) => {
                         assert_eq!(*value, 123.456);

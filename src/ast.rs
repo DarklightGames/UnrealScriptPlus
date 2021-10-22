@@ -1,3 +1,110 @@
+use strum_macros::{EnumString, Display};
+
+#[derive(Debug, PartialEq, Display, EnumString)]
+#[strum(serialize_all="lowercase")]
+pub enum ClassModifier {
+    Abstract,
+    CacheExempt,
+    Config,
+    DependsOn,
+    Guid,
+    Instanced,
+    ParseConfig,
+    PerObjectConfig,
+    SafeReplace,
+    Transient,
+    CollapseCategories,
+    DontCollapseCategories,
+    EditInlineNew,
+    NotEditInlineNew,
+    HideCategories,
+    ShowCategories,
+    HideDropDown,
+    Placeable,
+    NotPlaceable,
+    ExportStructs,
+    Intrinsic,
+    NativeReplication,
+    Native,
+    NoExport
+}
+
+#[derive(Debug, PartialEq, Display, EnumString)]
+#[strum(serialize_all="lowercase")]
+pub enum FunctionModifier {
+    Native,
+    Private,
+    Protected,
+    Public,
+    Static,
+    Final,
+    Exec,
+    Simulated,
+    Singular,
+    Intrinsic,
+    Iterator,
+    Latent
+}
+#[derive(Debug, PartialEq, Display, EnumString)]
+#[strum(serialize_all="lowercase")]
+pub enum FunctionArgumentModifier {
+    Coerce,
+    Optional,
+    Out,
+    Skip
+}
+
+#[derive(Debug, PartialEq, Display, EnumString)]
+#[strum(serialize_all="lowercase")]
+pub enum StructModifier {
+    Long,
+    Transient,
+    Export,
+    Init,
+    Native
+}
+
+#[derive(Debug, PartialEq, Display, EnumString)]
+#[strum(serialize_all="lowercase")]
+pub enum StateModifier {
+    Auto,
+    Simulated
+}
+
+#[derive(Debug, PartialEq, Display, EnumString)]
+#[strum(serialize_all="lowercase")]
+pub enum VarModifier {
+    Const,
+    Deprecated,
+    Private,
+    Protected,
+    Public,
+    Automated,
+    Config,
+    GlobalConfig,
+    Input,
+    Localized,
+    Transient,
+    Travel,
+    EdFindable,
+    EditConstArray,
+    EditConst,
+    EditInlineNotify,
+    EditInlineUse,
+    EditInline,
+    Cache,
+    Export,
+    Native,
+    NoExport
+}
+
+#[derive(Debug, PartialEq, Display, EnumString)]
+#[strum(serialize_all="lowercase")]
+pub enum ReplicationReliability {
+    Reliable,
+    Unreliable
+}
+
 pub enum AstNode {
     Program {
         class_declaration: Box<AstNode>,
@@ -9,7 +116,7 @@ pub enum AstNode {
     StringLiteral(String),
     NameLiteral(String),
     ClassModifier {
-        type_: String,
+        type_: ClassModifier,
         arguments: Vec<Box<AstNode>>
     },
     VectorLiteral {
@@ -18,11 +125,11 @@ pub enum AstNode {
         z: Box<AstNode>
     },
     FunctionModifier {
-        type_: String,
+        type_: FunctionModifier,
         arguments: Vec<Box<AstNode>>
     },
     FunctionArgument {
-        modifiers: Vec<String>,
+        modifiers: Vec<FunctionArgumentModifier>,
         type_: Box<AstNode>,
         name: Box<AstNode>
     },
@@ -39,7 +146,7 @@ pub enum AstNode {
         arguments: Vec<Box<AstNode>>
     },
     OperatorDeclaration {
-        modifiers: Vec<Box<AstNode>>,
+        modifiers: Vec<FunctionModifier>,
         type_: Box<AstNode>,
         return_type: Option<Box<AstNode>>,
         arguments: Vec<Box<AstNode>>,
@@ -47,7 +154,7 @@ pub enum AstNode {
         body: Option<Box<AstNode>>
     },
     ReplicationStatement {
-        is_reliable: bool,
+        reliability: ReplicationReliability,
         condition: Box<AstNode>,
         variables: Vec<String>
     },
@@ -94,13 +201,13 @@ pub enum AstNode {
     StructDeclaration {
         name: String,
         parent: Option<String>,
-        modifiers: Vec<String>,
+        modifiers: Vec<StructModifier>,
         members: Vec<Box<AstNode>>
     },
     ArrayType(Box<AstNode>),
     VarDeclaration {
         category: Option<String>,
-        modifiers: Vec<String>,
+        modifiers: Vec<VarModifier>,
         type_: Box<AstNode>,
         names: Vec<Box<AstNode>>
     },
@@ -110,7 +217,7 @@ pub enum AstNode {
     },
     StateDeclaration {
         is_editable: bool,
-        modifiers: Vec<String>,
+        modifiers: Vec<StateModifier>,
         name: String,
         parent: Option<String>,
         ignores: Vec<String>,
@@ -306,7 +413,7 @@ impl std::fmt::Debug for AstNode {
             }
             AstNode::ClassModifier { type_, arguments } => {
                 if arguments.is_empty() {
-                    f.write_str(type_)
+                    f.write_str(type_.to_string().as_str())
                 } else {
                     f.debug_struct("ClassModifier")
                         .field("type", type_)
@@ -362,9 +469,9 @@ impl std::fmt::Debug for AstNode {
                 }
                 d.finish()
             }
-            AstNode::ReplicationStatement { is_reliable, condition, variables } => {
+            AstNode::ReplicationStatement { reliability, condition, variables } => {
                 let mut d = f.debug_struct("ReplicationStatement");
-                d.field("is_reliable", is_reliable);
+                d.field("reliability", reliability);
                 d.field("condition", condition);
                 if !variables.is_empty() {
                     d.field("variables", variables);
@@ -438,7 +545,7 @@ impl std::fmt::Debug for AstNode {
             }
             AstNode::FunctionModifier { type_, arguments } => {
                 if arguments.is_empty() {
-                    return f.write_str(type_)
+                    return f.write_str(type_.to_string().as_str())
                 } else {
                     let mut d = f.debug_struct("FunctionModifier");
                     d.field("type", type_);
