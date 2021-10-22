@@ -192,6 +192,8 @@ pub enum AstNode {
         names: Vec<Box<AstNode>>
     },
 
+    EmptyStatement,
+
     // todo: do/while loop
 
     BreakStatement,
@@ -275,7 +277,7 @@ impl std::fmt::Debug for AstNode {
                 if !modifiers.is_empty() {
                     d.field("modifiers", modifiers);
                 }
-                if let Some(wihin) = within {
+                if let Some(within) = within {
                     d.field("within", within);
                 }
                 d.finish()

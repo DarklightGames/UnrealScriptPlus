@@ -3,27 +3,27 @@
 extern crate pest;
 #[macro_use]
 extern crate pest_derive;
-
+use pest::error::{Error, ErrorVariant};
+use pest::iterators::{Pair, Pairs};
 use pest::Parser;
 
 #[derive(Parser)]
 #[grammar = "UnrealScript.pest"]
 struct UnrealScriptParser;
 
-use std::fs::{File, ReadDir};
+use std::fs::{File};
 use std::io::{Read, stdin};
-use crate::ast::{AstNode};
 use std::ops::AddAssign;
-use pest::iterators::Pair;
-
-mod ast;
-
-use std::convert::Into;
+use std::convert::{TryInto};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::ffi::OsString;
-
 use glob::glob;
+use encoding::{Encoding, DecoderTrap};
+
+mod ast;
+use crate::ast::{AstNode};
+
+extern crate encoding;
 
 #[macro_use]
 extern crate lazy_static;
@@ -76,100 +76,98 @@ lazy_static! {
         map.insert("clockwisefrom", 24);
         map.insert("dot", 16);
         map.insert("cross", 16);
-
         map
     };
 }
 
-fn parse_arguments(pairs: &[Pair<Rule>]) -> Vec<Option<Box<AstNode>>> {
+fn parse_arguments(pairs: &[Pair<Rule>]) -> ParseResult<Vec<Option<Box<AstNode>>>> {
     let pairs = pairs.clone().into_iter();
     let mut arguments = vec![];
     for pair in pairs {
         match pair.as_rule() {
             Rule::expression => {
-                arguments.push(Some(pair.clone().into()))
+                arguments.push(Some(pair.clone().try_into()?))
             }
             Rule::expression_empty => {
                 arguments.push(None)
             }
-            _ => { panic!("unhandled pair"); }
+            _ => { panic!("bad rule {:?}", pair); }
         }
     }
-    arguments
+    Ok(arguments)
 }
 
 // Recursively parse the target.
-fn parse_target(pairs: &[Pair<Rule>]) -> Box<AstNode> {
+fn parse_target(pairs: &[Pair<Rule>]) -> ParseResult<Box<AstNode>> {
     let (pair, remaining) = pairs.split_last().unwrap();
     return match pair.as_rule() {
         Rule::parenthetical_expression => {
-            pair.clone().into()
+            pair.clone().try_into()
         }
         Rule::global_call => {
             let mut inner_iter = pair.clone().into_inner().into_iter();
             let name = inner_iter.next().unwrap().as_str().to_string();
             let arguments: Vec<Pair<Rule>> = inner_iter.collect();
-            Box::new(AstNode::GlobalCall {
+            Ok(Box::new(AstNode::GlobalCall {
                 name,
-                arguments: parse_arguments(&arguments[..]),
-            })
+                arguments: parse_arguments(&arguments[..])?,
+            }))
         }
         Rule::call => {
             let argument_pairs: Vec<Pair<Rule>> = pair.clone().into_inner().into_iter().collect();
-            Box::new(AstNode::Call {
-                arguments: parse_arguments(&argument_pairs[..]),
-                operand: parse_target(remaining)
-            })
+            Ok(Box::new(AstNode::Call {
+                arguments: parse_arguments(&argument_pairs[..])?,
+                operand: parse_target(remaining)?
+            }))
         },
         Rule::member_access => {
-            Box::new(AstNode::MemberAccess {
+            Ok(Box::new(AstNode::MemberAccess {
                 target: pair.clone().into_inner().next().unwrap().as_str().to_string(),
-                operand: parse_target(remaining)
-            })
+                operand: parse_target(remaining)?
+            }))
         },
         Rule::array_access => {
-            Box::new(AstNode::ArrayAccess {
-                argument: pair.clone().into_inner().next().unwrap().into(),
-                operand: parse_target(remaining)
-            })
+            Ok(Box::new(AstNode::ArrayAccess {
+                argument: pair.clone().into_inner().next().unwrap().try_into()?,
+                operand: parse_target(remaining)?
+            }))
         },
         Rule::static_access => {
             let mut operand = None;
             if !remaining.is_empty() {
-                operand = Some(parse_target(remaining));
+                operand = Some(parse_target(remaining)?);
             }
-            Box::new(AstNode::StaticAccess {
+            Ok(Box::new(AstNode::StaticAccess {
                 target: pair.clone().into_inner().next().unwrap().as_str().to_string(),
                 operand
-            })
+            }))
         },
         Rule::default_access => {
             let mut operand = None;
             if !remaining.is_empty() {
-                operand = Some(parse_target(remaining));
+                operand = Some(parse_target(remaining)?);
             }
-            Box::new(AstNode::DefaultAccess {
+            Ok(Box::new(AstNode::DefaultAccess {
                 target: pair.clone().into_inner().next().unwrap().as_str().to_string(),
                 operand
-            })
+            }))
         }
-        _ => { pair.clone().into() }
+        _ => pair.clone().try_into()
     }
 }
 
 // TODO: maybe have this function take an iterator/slice
-fn parse_expression(pairs: &[Pair<Rule>]) -> Result<Box<AstNode>, String> {
+fn parse_expression(pairs: &[Pair<Rule>]) -> ParseResult<Box<AstNode>> {
     // First, search for dyadic verbs
     let mut dyadic_verbs = vec![];
     for (index, pair) in pairs.into_iter().enumerate() {
         match pair.as_rule() {
             Rule::dyadic_verb => {
-                let operator_precedence = OPERATOR_PRECEDENCES.get(pair.as_str());
+                let operator_precedence = OPERATOR_PRECEDENCES.get(pair.as_str().to_lowercase().as_str());
                 if let Some(operator_precedence) = operator_precedence {
                     dyadic_verbs.push((operator_precedence, index, pair.as_str()))
                 } else {
-                    println!("unrecognized dyadic verb: {:?} at {:?}", pair.as_str(), pair.as_span());
-                    return Err("Unrecognized dyadic verb".to_string());
+                    return Err(Error::new_from_span(ErrorVariant::CustomError { message: String::from("unrecognized dyadic verb") }, pair.as_span()))
                 }
             },
             _ => {}
@@ -196,7 +194,7 @@ fn parse_expression(pairs: &[Pair<Rule>]) -> Result<Box<AstNode>, String> {
         Rule::monadic_post_verb => {
             return Ok(Box::new(AstNode::MonadicPostExpression {
                 operator: pairs.last().unwrap().as_str().to_string(),
-                target: parse_target(&pairs[..pairs.len() - 1])
+                target: parse_target(&pairs[..pairs.len() - 1])?
             }))
         }
         _ => {}
@@ -205,207 +203,215 @@ fn parse_expression(pairs: &[Pair<Rule>]) -> Result<Box<AstNode>, String> {
         Rule::monadic_pre_verb => {
             return Ok(Box::new(AstNode::MonadicPreExpression {
                 operator: pairs.first().unwrap().as_str().to_string(),
-                target: parse_target(&pairs[1..])
+                target: parse_target(&pairs[1..])?
             }))
         },
         _ => {}
     }
-
-    return Ok(parse_target(pairs))
+    parse_target(pairs)
 }
 
-impl Into<Box<AstNode>> for Pair<'_, Rule> {
+pub type ParseResult<T> = std::result::Result<T, pest::error::Error<Rule>>;
 
-    fn into(self) -> Box<AstNode> {
+impl TryInto<Box<AstNode>> for Pair<'_, Rule> {
+
+    type Error = pest::error::Error<Rule>;
+
+    fn try_into(self) -> std::prelude::rust_2015::Result<Box<AstNode>, Self::Error> {
         match self.as_rule() {
+            Rule::statement_empty => Ok(Box::new(AstNode::EmptyStatement)),
             Rule::code_scope => {
                 let inner_pairs = self.into_inner().into_iter();
-                let statements: Vec<Box<AstNode>> = inner_pairs.map(|pair| { pair.into() }).collect();
-                Box::new(AstNode::CodeScope { statements })
+                let statements: Result<Vec<Box<AstNode>>, _> = inner_pairs
+                    .map(|pair| pair.try_into()).
+                    collect();
+                Ok(Box::new(AstNode::CodeScope { statements: statements? }))
             }
             Rule::code_statement_outer => {
-                return self.into_inner().into_iter().next().unwrap().into()
+                self.into_inner().into_iter().next().unwrap().try_into()
             }
             Rule::conditional_statement => {
-                let mut inner_pairs = self.into_inner().into_iter();
-                let if_statement = inner_pairs.next().unwrap().into();
-                let elif_statements: Vec<Box<AstNode>> = Vec::new();
-                let else_statement = None;
-                // TODO: this still aint done!
-                Box::new(AstNode::ConditionalStatement {
-                    if_statement,
+                let outer_pairs = self.into_inner().into_iter();
+                let mut if_statement = None;
+                let mut elif_statements: Vec<Box<AstNode>> = Vec::new();
+                let mut else_statement = None;
+                for pair in outer_pairs {
+                    let mut inner_pairs = pair.clone().into_inner().into_iter();
+                    match pair.as_rule() {
+                        Rule::if_statement_empty => {
+                            let predicate = inner_pairs.next().unwrap().try_into()?;
+                            if_statement = Some(Box::new(AstNode::IfStatement {
+                                predicate,
+                                statements: vec![]
+                            }))
+                        }
+                        Rule::if_statement => {
+                            let predicate = inner_pairs.next().unwrap().try_into()?;
+                            let statements: Result<Vec<Box<AstNode>>, _> = inner_pairs.map(|pair| pair.try_into()).collect();
+                            if_statement = Some(Box::new(AstNode::IfStatement {
+                                predicate,
+                                statements: statements?
+                            }))
+                        }
+                        Rule::elif_statement => {
+                            let predicate = inner_pairs.next().unwrap().try_into()?;
+                            let statements: Result<Vec<Box<AstNode>>, _> = inner_pairs.map(|pair| { pair.try_into() }).collect();
+                            elif_statements.push(Box::new(AstNode::ElifStatement {
+                                predicate,
+                                statements: statements?
+                            }))
+                        }
+                        Rule::else_statement => {
+                            let statements: Result<Vec<Box<AstNode>>, _> = inner_pairs.map(|pair| pair.try_into()).collect();
+                            else_statement = Some(Box::new(AstNode::ElseStatement { statements: statements? }))
+                        }
+                        _ => panic!("unhandled rule")
+                    }
+                }
+                Ok(Box::new(AstNode::ConditionalStatement {
+                    if_statement: if_statement.unwrap(),
                     elif_statements,
                     else_statement
-                })
-            }
-            Rule::if_statement => {
-                let mut inner_pairs = self.into_inner().into_iter();
-                let predicate = inner_pairs.next().unwrap().into();
-                let statements: Vec<Box<AstNode>> = inner_pairs.map(|pair| {
-                    pair.into()
-                }).collect();
-                Box::new(AstNode::IfStatement {
-                    predicate,
-                    statements
-                })
-            }
-            Rule::elif_statement => {
-                let mut inner_pairs = self.into_inner().into_iter();
-                let predicate = inner_pairs.next().unwrap().into();
-                let statements: Vec<Box<AstNode>> = inner_pairs.map(|pair| {
-                    pair.into()
-                }).collect();
-                Box::new(AstNode::ElifStatement {
-                    predicate,
-                    statements
-                })
-            }
-            Rule::else_statement => {
-                let inner_pairs = self.into_inner().into_iter();
-                let statements: Vec<Box<AstNode>> = inner_pairs.map(|pair| {
-                    pair.into()
-                }).collect();
-                Box::new(AstNode::ElseStatement { statements })
+                }))
             }
             Rule::for_statement => {
-                let mut inner_pairs = self.into_inner().into_iter();
-                let mut init: Option<Box<AstNode>> = None;
-                let mut predicate: Option<Box<AstNode>> = None;
-                let mut post: Option<Box<AstNode>> = None;
-                inner_pairs.next().unwrap().into_inner().into_iter().for_each(|pair| {
-                   match pair.as_rule() {
-                       Rule::for_init => {
-                           init = Some(pair.into_inner().into_iter().next().unwrap().into());
-                       }
-                       Rule::for_predicate => {
-                           predicate = Some(pair.into_inner().into_iter().next().unwrap().into());
-                       },
-                       Rule::for_post => {
-                           post = Some(pair.into_inner().into_iter().next().unwrap().into());
-                       },
-                       _ => panic!("unexpected rule")
-                   }
-                });
-                Box::new(AstNode::ForStatement {
+                let mut init = None;
+                let mut predicate = None;
+                let mut post = None;
+                // inner pairs is moved...???
+                let mut outer_pairs = self.into_inner().into_iter();
+                let inner_pairs = outer_pairs.next().unwrap().into_inner();
+                for pair in inner_pairs {
+                    match pair.as_rule() {
+                        Rule::for_init => {
+                            init = Some(pair.into_inner().into_iter().next().unwrap().try_into()?);
+                        }
+                        Rule::for_predicate => {
+                            predicate = Some(pair.into_inner().into_iter().next().unwrap().try_into()?);
+                        },
+                        Rule::for_post => {
+                            post = Some(pair.into_inner().into_iter().next().unwrap().try_into()?);
+                        },
+                        _ => panic!("unexpected rule")
+                    }
+                }
+                Ok(Box::new(AstNode::ForStatement {
                     init,
                     predicate,
                     post,
-                    body: inner_pairs.next().unwrap().into()
-                })
+                    body: outer_pairs.next().unwrap().try_into()?
+                }))
             }
             Rule::while_statement => {
                 let mut inner_pairs = self.into_inner().into_iter();
-                Box::new(AstNode::WhileStatement {
-                    predicate: inner_pairs.next().unwrap().into(),
-                    body: inner_pairs.next().unwrap().into()
-                })
+                Ok(Box::new(AstNode::WhileStatement {
+                    predicate: inner_pairs.next().unwrap().try_into()?,
+                    body: inner_pairs.next().unwrap().try_into()?
+                }))
             }
             Rule::do_until_statement => {
                 let mut inner_pairs = self.into_inner().into_iter();
-                Box::new(AstNode::DoUntilStatement {
-                    body: inner_pairs.next().unwrap().into(),
+                Ok(Box::new(AstNode::DoUntilStatement {
+                    body: inner_pairs.next().unwrap().try_into()?,
                     predicate: match inner_pairs.next() {
-                        Some(pair) => { Some(pair.into()) },
+                        Some(pair) => { Some(pair.try_into()?) },
                         None => { None }
                     }
-                })
+                }))
             }
             Rule::foreach_statement => {
                 let mut inner_pairs = self.into_inner().into_iter();
-                Box::new(AstNode::ForEachStatement {
-                    predicate: inner_pairs.next().unwrap().into(),
-                    body: inner_pairs.next().unwrap().into()
-                })
+                Ok(Box::new(AstNode::ForEachStatement {
+                    predicate: inner_pairs.next().unwrap().try_into()?,
+                    body: inner_pairs.next().unwrap().try_into()?
+                }))
             }
             Rule::goto_statement => {
-                Box::new(AstNode::GotoStatement {
+                Ok(Box::new(AstNode::GotoStatement {
                     label: self.into_inner().into_iter().next().unwrap().as_str().to_string()
-                })
+                }))
             }
             Rule::break_statement => {
-                Box::new(AstNode::BreakStatement)
+                Ok(Box::new(AstNode::BreakStatement))
             }
             Rule::continue_statement => {
-                Box::new(AstNode::ContinueStatement)
+                Ok(Box::new(AstNode::ContinueStatement))
             }
             Rule::switch_statement => {
                 let mut inner_iter = self.into_inner().into_iter();
-                Box::new(AstNode::SwitchStatement {
-                    predicate: inner_iter.next().unwrap().into(),
-                    cases: inner_iter.map(|pair| {
-                        match pair.as_rule() {
-                            Rule::switch_case => {
-                                let mut case_inner_iter = pair.into_inner().into_iter();
-                                Box::new(AstNode::SwitchCase {
-                                    predicate: case_inner_iter.next().unwrap().into(),
-                                    statements: case_inner_iter.map(|pair| pair.into()).collect()
-                                })
-                            }
-                            Rule::switch_default_case => {
-                                Box::new(AstNode::SwitchDefaultCase {
-                                    statements: pair.into_inner().into_iter().map(|pair| pair.into()).collect()
-                                })
-                            }
-                            _ => panic!("unhandled rule")
+                let predicate = inner_iter.next().unwrap().try_into()?;
+                let mut cases: Vec<Box<AstNode>> = Vec::new();
+                for pair in inner_iter {
+                    match pair.as_rule() {
+                        Rule::switch_case => {
+                            let mut case_inner_iter = pair.into_inner().into_iter();
+                            cases.push(Box::new(AstNode::SwitchCase {
+                                predicate: case_inner_iter.next().unwrap().try_into()?,
+                                statements: case_inner_iter.map(|pair| pair.try_into()).collect::<Result<Vec<Box<AstNode>>, _>>()?
+                            }))
                         }
-                    }).collect()
-                })
+                        Rule::switch_default_case => {
+                            cases.push(Box::new(AstNode::SwitchDefaultCase {
+                                statements: pair.into_inner().into_iter().map(|pair| pair.try_into()).collect::<Result<Vec<Box<AstNode>>, _>>()?
+                            }))
+                        }
+                        _ => panic!("unhandled rule")
+                    }
+                }
+                Ok(Box::new(AstNode::SwitchStatement {
+                    predicate,
+                    cases
+                }))
             }
             Rule::return_statement => {
                 let mut expression: Option<Box<AstNode>> = None;
                 match self.into_inner().into_iter().next() {
                     Some(item) => {
-                        expression = Some(item.into())
+                        expression = Some(item.try_into()?)
                     },
                     None => {}
                 }
-                Box::new(AstNode::ReturnStatement { expression })
+                Ok(Box::new(AstNode::ReturnStatement { expression }))
             }
             Rule::expression | Rule::foreach_expression => {
                 let inner_pairs: Vec<Self> = self.into_inner().collect();
-                let expression = parse_expression(&inner_pairs[..]);
-                if let Ok(expression) = expression {
-                    return expression;
-                }
-                Box::new(AstNode::Expression())
+                parse_expression(&inner_pairs[..])
             }
             Rule::program => {
                 let mut inner_iter = self.into_inner().into_iter();
-                Box::new(AstNode::Program {
-                    class_declaration: inner_iter.next().unwrap().into(),
-                    statements: inner_iter.map(|pair| { pair.into() }).collect()
-                })
+                Ok(Box::new(AstNode::Program {
+                    class_declaration: inner_iter.next().unwrap().try_into()?,
+                    statements: inner_iter.map(|pair| pair.try_into() ).collect::<Result<Vec<Box<AstNode>>, _>>()?
+                }))
             }
             Rule::replication_statement => {
                 let mut inner_iter = self.into_inner().into_iter();
-                Box::new(AstNode::ReplicationStatement {
+                Ok(Box::new(AstNode::ReplicationStatement {
                     is_reliable: match inner_iter.next().unwrap().as_str().to_lowercase().as_str() {
                         "reliable" => { true }
                         "unreliable" => { false }
                         _ => { panic!("unrecognized reliability type") }
                     },
-                    condition: inner_iter.next().unwrap().into(),
+                    condition: inner_iter.next().unwrap().try_into()?,
                     variables: inner_iter.next().unwrap().into_inner().into_iter().map(|pair| { pair.as_str().to_string() }).collect()
-                })
+                }))
             }
             Rule::replication_block => {
-                Box::new(AstNode::ReplicationBlock {
-                    statements: self.into_inner().into_iter().map(|pair| {
-                        pair.into()
-                    }).collect()
-                })
+                Ok(Box::new(AstNode::ReplicationBlock {
+                    statements: self.into_inner().into_iter().map(|pair| { pair.try_into() }).collect::<Result<Vec<Box<AstNode>>, _>>()?
+                }))
             }
             Rule::compiler_directive => {
-                Box::new(AstNode::CompilerDirective {
+                Ok(Box::new(AstNode::CompilerDirective {
                     contents: self.into_inner().next().unwrap().as_str().to_string()
-                })
+                }))
             }
             Rule::class_modifier => {
                 let mut inner_iter = self.into_inner().into_iter();
-                Box::new(AstNode::ClassModifier {
+                Ok(Box::new(AstNode::ClassModifier {
                     type_: inner_iter.next().unwrap().as_str().to_string(),
-                    arguments: inner_iter.map(|pair| { pair.into() }).collect()
-                })
+                    arguments: inner_iter.map(|pair| { pair.try_into() }).collect::<Result<Vec<Box<AstNode>>, _>>()?
+                }))
             }
             Rule::class_declaration => {
                 // TODO: turn this into a matching iter
@@ -414,7 +420,7 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                 let mut parent_class: Option<String> = None;
                 let mut modifiers: Vec<Box<AstNode>> = Vec::new();
                 let mut within: Option<String> = None;
-                inner_iter.for_each(|pair| {
+                for pair in inner_iter {
                     match pair.as_rule() {
                         Rule::unqualified_identifier => {
                             name = pair.as_str().to_string()
@@ -423,45 +429,43 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                             parent_class = Some(pair.into_inner().next().unwrap().as_str().to_string())
                         }
                         Rule::class_modifier => {
-                            modifiers.push(pair.into())
+                            modifiers.push(pair.try_into()?)
                         }
                         Rule::class_within => {
                             within = Some(pair.into_inner().into_iter().next().unwrap().as_str().to_string())
                         }
-                        _ => { panic!("unexpected pair")}
+                        _ => { panic!("unexpected pair") }
                     }
-                });
-                Box::new(AstNode::ClassDeclaration {
+                }
+                Ok(Box::new(AstNode::ClassDeclaration {
                     name,
                     parent_class,
                     modifiers,
                     within
-                })
+                }))
             }
             Rule::const_declaration => {
                 let mut inner_iter = self.into_inner().into_iter();
-                Box::new(AstNode::ConstDeclaration {
+                Ok(Box::new(AstNode::ConstDeclaration {
                     name: inner_iter.next().unwrap().as_str().to_string(),
-                    value: inner_iter.next().unwrap().into()
-                })
+                    value: inner_iter.next().unwrap().try_into()?
+                }))
             }
             Rule::enum_declaration => {
                 let mut inner_iter = self.into_inner().into_iter();
-                Box::new(AstNode::EnumDeclaration {
+                Ok(Box::new(AstNode::EnumDeclaration {
                     name: inner_iter.next().unwrap().as_str().to_string(),
-                    values: inner_iter.next().unwrap().into_inner().into_iter().map(|pair| {
-                        return pair.as_str().to_string();
-                    }).collect()
-                })
+                    values: inner_iter.next().unwrap().into_inner().into_iter().map(|pair| pair.as_str().to_string() ).collect()
+                }))
             }
             Rule::literal => {
-                self.into_inner().next().unwrap().into()
+                self.into_inner().next().unwrap().try_into()
             }
             Rule::identifier => {
-                Box::new(AstNode::Identifier(self.as_str().to_string()))
+                Ok(Box::new(AstNode::Identifier(self.as_str().to_string())))
             }
             Rule::class_type => {
-                Box::new(AstNode::ClassType(self.into_inner().next().unwrap().into()))
+                Ok(Box::new(AstNode::ClassType(self.into_inner().next().unwrap().try_into()?)))
             }
             Rule::state_declaration => {
                 let mut is_editable = false;
@@ -471,7 +475,8 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                 let mut ignores: Vec<String> = Vec::new();
                 let mut statements: Vec<Box<AstNode>> = Vec::new();
                 let mut labels: Vec<Box<AstNode>> = Vec::new();
-                self.into_inner().into_iter().for_each(|pair| {
+                let inner_iter = self.into_inner().into_iter();
+                for pair in inner_iter {
                     match pair.as_rule() {
                         Rule::state_modifier => {
                             modifiers.push(pair.as_str().to_string())
@@ -491,19 +496,19 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                             })
                         },
                         Rule::state_statement => {
-                            statements.push(pair.into_inner().next().unwrap().into())
+                            statements.push(pair.into_inner().next().unwrap().try_into()?)
                         }
                         Rule::state_label => {
                             let mut inner_iter = pair.into_inner().into_iter();
                             labels.push(Box::new(AstNode::StateLabel {
                                 label: inner_iter.next().unwrap().as_str().to_string(),
-                                statements: inner_iter.map(|pair| pair.into()).collect()
+                                statements: inner_iter.map(|pair| pair.try_into()).collect::<Result<Vec<Box<AstNode>>, _>>()?
                             }))
                         },
                         _ => panic!("unhandled rule")
                     }
-                });
-                Box::new(AstNode::StateDeclaration {
+                }
+                Ok(Box::new(AstNode::StateDeclaration {
                     is_editable,
                     modifiers,
                     name: name.unwrap(),
@@ -511,12 +516,13 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                     ignores,
                     statements,
                     labels
-                })
+                }))
             }
             Rule::integer_literal => {
                 let mut integer: i32 = 0;
                 let mut sign = 1;
-                self.into_inner().into_iter().for_each(|pair| {
+                let inner_iter = self.into_inner().into_iter();
+                for pair in inner_iter {
                     match pair.as_rule() {
                         Rule::positive_or_negative => {
                             if pair.as_str() == "-" {
@@ -524,93 +530,107 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                             }
                         }
                         Rule::integer_literal_hexadecimal => {
-                            integer = i32::from_str_radix(pair.into_inner().next().unwrap().as_str(), 16).unwrap()
+                            let span = pair.as_span();
+                            match u32::from_str_radix(pair.into_inner().next().unwrap().as_str(), 16) {
+                                Ok(u) => {
+                                    integer = i32::from_be_bytes(u.to_be_bytes())
+                                }
+                                Err(e) => return Err(Error::new_from_span(ErrorVariant::CustomError { message: e.to_string() }, span))
+                            }
                         },
                         Rule::integer_literal_decimal => {
-                            integer = pair.as_str().parse::<i32>().unwrap();
+                            match pair.as_str().parse::<i32>() {
+                                Ok(i) => integer = i,
+                                Err(e) => return Err(Error::new_from_span(ErrorVariant::CustomError { message: e.to_string() }, pair.as_span()))
+                            }
                         }
                         _ => panic!("unhandled rule")
                     }
-                });
-                Box::new(AstNode::IntegerLiteral(integer * sign))
+                }
+                Ok(Box::new(AstNode::IntegerLiteral(integer * sign)))
             }
             Rule::float_literal => {
                 let string = self.as_str().to_lowercase().trim_end_matches("f").to_string();
-                Box::new(AstNode::FloatLiteral(string.as_str().parse::<f32>().unwrap()))
+                return match string.as_str().parse::<f32>() {
+                    Ok(f) => Ok(Box::new(AstNode::FloatLiteral(f))),
+                    Err(e) => Err(Error::new_from_span(ErrorVariant::CustomError { message: e.to_string() }, self.as_span()))
+                }
             }
             Rule::object_literal => {
                 let mut inner_iter = self.into_inner().into_iter();
-                Box::new(AstNode::ObjectLiteral {
+                Ok(Box::new(AstNode::ObjectLiteral {
                     type_: inner_iter.next().unwrap().as_str().to_string(),
                     reference: inner_iter.next().unwrap().into_inner().next().unwrap().as_str().to_string()
-                })
+                }))
             }
             Rule::new => {
                 let inner_pairs: Vec<Pair<Rule>> = self.into_inner().into_iter().collect();
                 let (type_, arguments) = inner_pairs.split_last().unwrap();
-                Box::new(AstNode::New {
-                    type_: type_.clone().into(),
-                    arguments: parse_arguments(arguments)
-                })
+                // TODO: this is wrong, needs to be an EXPRESSION after this!!
+                Ok(Box::new(AstNode::New {
+                    type_: type_.clone().try_into()?,
+                    arguments: parse_arguments(arguments)?
+                }))
             }
             Rule::cast => {
                 let mut inner_iter = self.into_inner().into_iter();
-                Box::new(AstNode::Cast {
-                    type_: inner_iter.next().unwrap().into(),
-                    operand: inner_iter.next().unwrap().into(),
-                })
+                Ok(Box::new(AstNode::Cast {
+                    type_: inner_iter.next().unwrap().try_into()?,
+                    operand: inner_iter.next().unwrap().try_into()?,
+                }))
             }
             Rule::defaultproperties => {
-                Box::new(AstNode::DefaultProperties {
-                    lines: self.into_inner().into_iter().map(|pair| pair.into()).collect()
-                })
+                Ok(Box::new(AstNode::DefaultProperties {
+                    lines: self.into_inner().into_iter().map(|pair| pair.try_into()).collect::<Result<Vec<Box<AstNode>>, _>>()?
+                }))
             }
             Rule::name_literal => {
-                Box::new(AstNode::NameLiteral(self.into_inner().next().unwrap().as_str().to_string()))
+                Ok(Box::new(AstNode::NameLiteral(self.into_inner().next().unwrap().as_str().to_string())))
             }
             Rule::string_literal => {
-                Box::new(AstNode::StringLiteral(self.into_inner().next().unwrap().as_str().to_string()))
+                Ok(Box::new(AstNode::StringLiteral(self.into_inner().next().unwrap().as_str().to_string())))
             }
             Rule::vector_literal => {
                 let mut inner_iter = self.into_inner().into_iter();
-                Box::new(AstNode::VectorLiteral {
-                    x: inner_iter.next().unwrap().into(),
-                    y: inner_iter.next().unwrap().into(),
-                    z: inner_iter.next().unwrap().into()
-                })
+                Ok(Box::new(AstNode::VectorLiteral {
+                    x: inner_iter.next().unwrap().try_into()?,
+                    y: inner_iter.next().unwrap().try_into()?,
+                    z: inner_iter.next().unwrap().try_into()?
+                }))
             }
             Rule::array_type => {
-                Box::new(AstNode::ArrayType(self.into_inner().next().unwrap().into()))
+                Ok(Box::new(AstNode::ArrayType(self.into_inner().next().unwrap().try_into()?)))
             }
             Rule::rotator_literal => {
                 let mut inner_iter = self.into_inner().into_iter();
-                Box::new(AstNode::RotatorLiteral {
-                    pitch: inner_iter.next().unwrap().into(),
-                    yaw: inner_iter.next().unwrap().into(),
-                    roll: inner_iter.next().unwrap().into()
-                })
+                Ok(Box::new(AstNode::RotatorLiteral {
+                    pitch: inner_iter.next().unwrap().try_into()?,
+                    yaw: inner_iter.next().unwrap().try_into()?,
+                    roll: inner_iter.next().unwrap().try_into()?
+                }))
             }
             Rule::type_ => {
-                self.into_inner().next().unwrap().into()
+                self.into_inner().next().unwrap().try_into()
             }
             Rule::var_name => {
                 let mut inner_iter = self.into_inner().into_iter();
                 let name = inner_iter.next().unwrap().as_str().to_string();
                 let mut size: Option<Box<AstNode>> = None;
                 if let Some(pair) = inner_iter.next() {
-                    size = Some(pair.into())
+                    size = Some(pair.try_into()?)
                 }
-                Box::new(AstNode::VarName {
+                Ok(Box::new(AstNode::VarName {
                     name,
                     size
-                })
+                }))
             }
             Rule::var_declaration => {
                 let mut category: Option<String> = None;
                 let mut modifiers: Vec<String> = Vec::new();
                 let mut type_: Option<Box<AstNode>> = None;
                 let mut names: Vec<Box<AstNode>> = Vec::new();
-                self.into_inner().into_iter().for_each(|pair| {
+                let inner_iter = self.into_inner().into_iter();
+                for pair in inner_iter {
                     match pair.as_rule() {
                         Rule::var_category => {
                             let inner = pair.into_inner().next();
@@ -623,54 +643,55 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                             modifiers.push(pair.as_str().to_string())
                         },
                         Rule::type_ => {
-                            type_ = Some(pair.into())
+                            type_ = Some(pair.try_into()?)
                         },
                         Rule::var_name => {
-                            names.push(pair.into())
+                            names.push(pair.try_into()?)
                         }
                         _ => { panic!("invalid pair") }
                     }
-                });
-                Box::new(AstNode::VarDeclaration {
+                }
+                Ok(Box::new(AstNode::VarDeclaration {
                     category,
                     modifiers,
                     type_: type_.unwrap(),
                     names
-                })
+                }))
             }
             Rule::unqualified_identifier => {
-                Box::new(AstNode::UnqualifiedIdentifier(self.as_str().to_string()))
+                Ok(Box::new(AstNode::UnqualifiedIdentifier(self.as_str().to_string())))
             },
             Rule::function_modifier => {
                 let mut inner_iter = self.into_inner().into_iter();
-                Box::new(AstNode::FunctionModifier {
+                Ok(Box::new(AstNode::FunctionModifier {
                     type_: inner_iter.next().unwrap().as_str().to_string(),
-                    arguments: inner_iter.map(|pair| { pair.into() }).collect()
-                })
+                    arguments: inner_iter.map(|pair| pair.try_into()).collect::<Result<Vec<Box<AstNode>>, _>>()?
+                }))
             }
             Rule::function_argument => {
                 let mut modifiers: Vec<String> = Vec::new();
                 let mut type_: Option<Box<AstNode>> = None;
                 let mut name: Option<Box<AstNode>> = None;
-                self.into_inner().into_iter().for_each(|pair| {
+                let inner_iter = self.into_inner().into_iter();
+                for pair in inner_iter {
                     match pair.as_rule() {
                         Rule::function_argument_modifier => {
                             modifiers.push(pair.as_str().to_string())
                         }
                         Rule::type_ => {
-                            type_ = Some(pair.into())
+                            type_ = Some(pair.try_into()?)
                         }
                         Rule::var_name => {
-                            name = Some(pair.into())
+                            name = Some(pair.try_into()?)
                         }
                         _ => { panic!("unhandled rule") }
                     }
-                });
-                Box::new(AstNode::FunctionArgument {
+                }
+                Ok(Box::new(AstNode::FunctionArgument {
                     modifiers,
                     type_: type_.unwrap(),
                     name: name.unwrap()
-                })
+                }))
             }
             Rule::function_declaration => {
                 let mut modifiers: Vec<Box<AstNode>> = Vec::new();
@@ -679,7 +700,8 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                 let mut arguments: Vec<Box<AstNode>> = Vec::new();
                 let mut name: String = String::new();
                 let mut body: Option<Box<AstNode>> = None;
-                self.into_inner().into_iter().for_each(|pair| {
+                let inner_iter = self.into_inner().into_iter();
+                for pair in inner_iter {
                     match pair.as_rule() {
                         Rule::function_type => {
                             let inner_pair = pair.into_inner().into_iter().next().unwrap();
@@ -693,68 +715,68 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                                 Rule::function_type_operator => {
                                     type_ = Some(Box::new(AstNode::FunctionType {
                                         type_: "operator".to_string(),  // TODO: kinda sloppy
-                                        arguments: Some(inner_pair.into_inner().into_iter().map(|pair| pair.into()).collect())
+                                        arguments: Some(inner_pair.into_inner().into_iter().map(|pair| pair.try_into()).collect::<Result<Vec<Box<AstNode>>, _>>()?)
                                     }))
                                 }
                                 _ => panic!("unhandled rule")
                             }
                         }
                         Rule::function_modifier => {
-                            modifiers.push(pair.into())
+                            modifiers.push(pair.try_into()?)
                         }
                         Rule::type_ => {
-                            return_type = Some(pair.into())
+                            return_type = Some(pair.try_into()?)
                         }
                         Rule::function_name => {
                             name = pair.as_str().to_string()
                         }
                         Rule::function_argument => {
-                            arguments.push(pair.into())
+                            arguments.push(pair.try_into()?)
                         }
                         Rule::function_body => {
-                           body = Some(pair.into());
+                            body = Some(pair.try_into()?);
                         }
                         _ => { panic!("unhandled pair") }
                     }
-                });
-                Box::new(AstNode::FunctionDelaration {
+                }
+                Ok(Box::new(AstNode::FunctionDelaration {
                     type_: type_.unwrap(),
                     modifiers,
                     return_type,
                     name,
                     arguments,
                     body
-                })
+                }))
             }
             Rule::function_body => {
                 let inner_iter = self.into_inner().into_iter();
                 let mut locals: Vec<Box<AstNode>> = Vec::new();
                 let mut statements: Vec<Box<AstNode>> = Vec::new();
-                inner_iter.for_each(|pair| {
+                for pair in inner_iter {
                     match pair.as_rule() {
                         Rule::local_declaration => {
                             let mut inner_iter = pair.into_inner();
                             locals.push(Box::new(AstNode::LocalDeclaration {
-                                type_: inner_iter.next().unwrap().into(),
-                                names: inner_iter.into_iter().map(|pair| { pair.into() }).collect()
+                                type_: inner_iter.next().unwrap().try_into()?,
+                                names: inner_iter.into_iter().map(|pair| pair.try_into()).collect::<Result<Vec<Box<AstNode>>, _>>()?
                             }))
                         },
-                        _ => { statements.push(pair.into()); }
+                        _ => { statements.push(pair.try_into()?); }
                     }
-                });
-                Box::new(AstNode::FunctionBody {
+                }
+                Ok(Box::new(AstNode::FunctionBody {
                     locals,
                     statements
-                })
+                }))
             }
             Rule::var_size => {
-                self.into_inner().next().unwrap().into()
+                self.into_inner().next().unwrap().try_into()
             }
             Rule::parenthetical_expression => {
-                Box::new(AstNode::ParentheticalExpression { expression: self.into_inner().next().unwrap().into() })
+                Ok(Box::new(AstNode::ParentheticalExpression { expression: self.into_inner().next().unwrap().try_into()? }))
             }
             Rule::jump_label => {
-                Box::new(AstNode::JumpLabel(self.into_inner().next().unwrap().as_str().to_string()))
+                Ok(Box::new(AstNode::JumpLabel(self.into_inner().next().unwrap().as_str().to_string())))
             }
             Rule::struct_declaration => {
                 let rules_itr = self.into_inner().into_iter();
@@ -762,7 +784,7 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                 let mut parent: Option<String> = None;
                 let mut name: String = String::new();
                 let mut members: Vec<Box<AstNode>> = Vec::new();
-                rules_itr.for_each(|pair| {
+                for pair in rules_itr {
                     match pair.as_rule() {
                         Rule::struct_modifier => {
                             modifiers.push(pair.as_str().to_string())
@@ -778,7 +800,8 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                             let mut modifiers: Vec<String> = Vec::new();
                             let mut type_: Option<Box<AstNode>> = None;
                             let mut names: Vec<Box<AstNode>> = Vec::new();
-                            pair.into_inner().into_iter().for_each(|pair| {
+                            let inner_iter = pair.into_inner().into_iter();
+                            for pair in inner_iter {
                                 match pair.as_rule() {
                                     Rule::struct_var_editable => {
                                         editable = true
@@ -787,14 +810,14 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                                         modifiers.push(pair.as_str().to_string())
                                     },
                                     Rule::type_ => {
-                                        type_ = Some(pair.into())
+                                        type_ = Some(pair.try_into()?)
                                     },
                                     Rule::var_name => {
-                                        names.push(pair.into())
+                                        names.push(pair.try_into()?)
                                     }
                                     _ => { panic!("Invalid state") }
                                 }
-                            });
+                            }
                             members.push( Box::new(AstNode::StructVarDeclaration {
                                 editable,
                                 modifiers,
@@ -804,30 +827,71 @@ impl Into<Box<AstNode>> for Pair<'_, Rule> {
                         }
                         _ => { }
                     }
-                });
-                Box::new(AstNode::StructDeclaration {
+                }
+                Ok(Box::new(AstNode::StructDeclaration {
                     modifiers,
                     name,
                     parent,
                     members
-                })
+                }))
             },
             Rule::cpptext => {
-                Box::new(AstNode::CppText(self.into_inner().into_iter().next().unwrap().as_str().to_string()))
+                Ok(Box::new(AstNode::CppText(self.into_inner().into_iter().next().unwrap().as_str().to_string())))
             }
-            _ => { Box::new(AstNode::Unhandled) }
+            _ => { Ok(Box::new(AstNode::Unhandled)) }   // TODO: just return an error
         }
     }
 }
 
-fn read_file_to_string(path: &str) -> Result<String, std::io::Error> {
+#[derive(Debug)]
+pub enum ParsingError {
+    IoError(std::io::Error),
+    EncodingError(String),
+    PestError(pest::error::Error<Rule>)
+}
+
+impl From<std::io::Error> for ParsingError {
+    fn from(error: std::io::Error) -> Self {
+        ParsingError::IoError(error)
+    }
+}
+
+impl From<pest::error::Error<Rule>> for ParsingError {
+    fn from(error: pest::error::Error<Rule>) -> Self {
+        ParsingError::PestError(error)
+    }
+}
+
+fn read_file_to_string(path: &str) -> Result<String, ParsingError> {
     let mut file = File::open(path)?;
+    let mut buffer: Vec<u8> = Vec::new();
+    file.read_to_end(&mut buffer)?;
+    encoding::all::WINDOWS_1252
+        .decode(&mut buffer, DecoderTrap::Strict)
+        .map_err(|e| ParsingError::EncodingError(e.to_string()))
+}
+
+fn parse_expressions() {
     let mut contents = String::new();
-    file.read_to_string(&mut contents)?;
-    return Ok(contents)
+    std::io::stdin().read_line(&mut contents).unwrap();
+    match UnrealScriptParser::parse(Rule::expression, contents.as_str()) {
+        Ok(root) => {
+            let result: Result<Box<AstNode>, _> = root.into_iter().next().unwrap().try_into();
+            match result {
+                Ok(ast) => println!("{:?}", ast),
+                Err(error) => println!("{:?}", error)
+            }
+        },
+        Err(err) => println!("{:?}", err)
+    };
 }
 
 fn main() {
+    // parse_file("C:\\UnrealScriptPlus\\src\\TestFile.uc");
+    // return;
+    // loop {
+    //     parse_expressions()
+    // }
     let directories = vec![
         "AHZ_ROVehicles",
         "DH_Artillery",
@@ -881,22 +945,18 @@ fn main() {
     for directory in directories {
         let path = root.join(directory).join("Classes").join("*.uc");
         for entry in glob(path.as_os_str().to_str().unwrap()).expect("failed to read glob pattern") {
-            total_count += 1;
             match entry {
                 Err(error) => println!("path is wrong: {:?}", error),
                 Ok(path) => {
-                    if let Ok(contents) = read_file_to_string(path.as_os_str().to_str().unwrap()) {
-                        let mut before = std::time::Instant::now();
-                        let root = UnrealScriptParser::parse(Rule::program, contents.as_str());
-                        match root {
-                            Ok(mut root) => {
-                                success_count += 1;
-                            }
-                            Err(error) => {
-                                fail_count += 1;
-                                println!("failed to parse {:?}", path.file_name().unwrap().to_str().unwrap());
-                                println!("{}", error)
-                            }
+                    total_count += 1;
+                    match parse_file(path.as_os_str().to_str().unwrap()) {
+                        Ok(ast) => {
+                            success_count += 1
+                        }
+                        Err(e) => {
+                            println!("{:?}", path.as_os_str().to_str());
+                            println!("{:?}", e);
+                            fail_count += 1
                         }
                     }
                 }
@@ -904,6 +964,14 @@ fn main() {
         }
     }
     println!("parsed {:?}/{:?} ({:?} failures) files in {:?}", success_count, total_count, fail_count, total.elapsed());
+}
+
+fn parse_program<'a>(contents: &'a str) -> Result<Pair<'a, Rule>, ParsingError> {
+    Ok(UnrealScriptParser::parse(Rule::program, contents)?.into_iter().next().unwrap())
+}
+
+fn parse_file(path: &str) -> Result<Box<AstNode>, ParsingError> {
+    Ok(parse_program(read_file_to_string(path)?.as_str())?.try_into()?)
 }
 
 #[cfg(test)]

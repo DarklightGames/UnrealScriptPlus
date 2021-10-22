@@ -227,7 +227,7 @@ parenthetical_expression = { "(" ~ WS* ~ expression ~ WS* ~ ")" }
 expression_inner = _{ target | unqualified_identifier }   // TODO: monadic expression should be a target???
 
 // new is a kind of "terminal", nothing can come after it in an expression
-new = { ^"new" ~ (WS* ~ "(" ~ expression_list ~ ")")? ~ WS+ ~ expression_inner } /// fuck this syntax
+new = { ^"new" ~ (WS* ~ "(" ~ WS* ~ expression_list ~ WS* ~ ")")? ~ WS* ~ expression } /// fuck this syntax
 
 expression_empty = { "," }
 expression_list = _{ (expression ~ WS* ~ "," ~ WS* | (expression_empty ~ WS*))* ~ expression? }
@@ -239,7 +239,8 @@ code_scope = { "{" ~ WS* ~ code_statements? ~ WS* ~ "}" }
 function_body_or_semicolon = _{ ";" | ("{" ~ WS* ~ function_body ~ WS* ~ "}") }
 const_declarations = _{ const_declaration ~ (WS* ~ const_declaration)* }
 function_body = { const_declarations? ~ WS* ~ local_declarations? ~ WS* ~ code_statements? }
-local_declarations = _{ local_declaration ~ (WS* ~ local_declaration)* }
+local_declaration_outer = _{ local_declaration | statement_empty }
+local_declarations = _{ local_declaration_outer ~ (WS* ~ local_declaration_outer)* }
 code_statements = _{ code_statement ~ (WS* ~ code_statement)* }
 code_statement_outer = { code_statement }
 statement_or_block = _{ code_statement_outer | code_scope }
@@ -259,8 +260,6 @@ else_statement = { ^"else" ~ WS* ~ statement_or_block }
 conditional_statement = { (if_statement ~ WS* ~ elif_statements? ~ WS* ~ else_statement?) | if_statement_empty }
 expression = { expression_inner }
 
-statement_empty = _{ ";" }
-statement_empty_outer = { statement_empty }
 for_init = { expression }
 for_predicate = { expression }
 for_post = { expression }
@@ -293,7 +292,8 @@ state_labels = _{ state_label ~ (WS* ~ state_label)* }
 state_label = { unqualified_identifier ~ WS* ~ ":" ~ WS* ~ code_statements? }
 state_ignores = { ^"ignores" ~ WS+ ~ unqualified_identifier_list ~ WS* ~ ";" }
 
-// STATES
+// STATEMENTS
+statement_empty = { ";" }
 code_statement = _{ jump_label | conditional_statement | foreach_statement | for_statement | while_statement | do_until_statement | return_statement | break_statement | continue_statement | goto_statement | compiler_directive | switch_statement | const_declaration | (expression ~ WS* ~ ";") | statement_empty }
 // TODO: operator precedence is handled at the parser level
 dyadic_verb_native = {
