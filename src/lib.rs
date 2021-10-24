@@ -1,4 +1,9 @@
-#[allow(unused_imports)]
+use std::str::FromStr;
+use std::fs::{File};
+use std::io::{Read};
+use std::ops::AddAssign;
+use std::convert::{TryInto};
+use std::collections::HashMap;
 
 extern crate pest;
 #[macro_use]
@@ -7,18 +12,9 @@ use pest::error::{Error, ErrorVariant, LineColLocation, InputLocation};
 use pest::iterators::{Pair};
 use pest::Parser;
 
-use std::str::FromStr;
-
 #[derive(Parser)]
 #[grammar = "UnrealScript.pest"]
 struct UnrealScriptParser;
-
-use std::fs::{File};
-use std::io::{Read};
-use std::ops::AddAssign;
-use std::convert::{TryInto};
-use std::collections::HashMap;
-use encoding::{Encoding, DecoderTrap};
 
 mod ast;
 use crate::ast::*;
@@ -167,7 +163,10 @@ fn parse_expression(pairs: &[Pair<Rule>]) -> ParseResult<Box<AstNode>> {
                 if let Some(operator_precedence) = operator_precedence {
                     dyadic_verbs.push((operator_precedence, index, pair.as_str()))
                 } else {
-                    return Err(Error::new_from_span(ErrorVariant::CustomError { message: String::from("unrecognized dyadic verb") }, pair.as_span()))
+                    return Err(Error::new_from_span(
+                        ErrorVariant::CustomError { message: format!("unrecognized dyadic verb \"{}\"", pair.as_str()) },
+                        pair.as_span())
+                    )
                 }
             },
             _ => {}
@@ -881,6 +880,7 @@ use pyo3::create_exception;
 use pyo3::types::{PyDict};
 use pyo3::{Python, PyResult, exceptions, PyNativeType, ToPyObject, PyObject};
 use pyo3::prelude::PyModule;
+use encoding::{DecoderTrap, Encoding};
 
 create_exception!(unrealscriptplus, ScriptParseError, pyo3::exceptions::PyException);
 
@@ -941,7 +941,7 @@ fn unrealscriptplus(py: Python, m: &PyModule) -> PyResult<()> {
             }
         }
     }
-    m.add("ParseError", py.get_type::<ScriptParseError>())?;
+    m.add("ScriptParseError", py.get_type::<ScriptParseError>())?;
     Ok(())
 }
 
