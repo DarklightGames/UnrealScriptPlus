@@ -404,7 +404,7 @@ impl TryInto<Box<AstNode>> for Pair<'_, Rule> {
             Rule::class_modifier => {
                 let mut inner_iter = self.into_inner().into_iter();
                 Ok(Box::new(AstNode::ClassModifier {
-                    type_: ClassModifier::from_str(inner_iter.next().unwrap().as_str()).unwrap(),
+                    type_: ClassModifier::from_str(inner_iter.next().unwrap().as_str().to_lowercase().as_str()).unwrap(),
                     arguments: inner_iter.map(|pair| { pair.try_into() }).collect::<Result<Vec<Box<AstNode>>, _>>()?
                 }))
             }
@@ -474,7 +474,7 @@ impl TryInto<Box<AstNode>> for Pair<'_, Rule> {
                 for pair in inner_iter {
                     match pair.as_rule() {
                         Rule::state_modifier => {
-                            modifiers.push(StateModifier::from_str(pair.as_str()).unwrap())
+                            modifiers.push(StateModifier::from_str(pair.as_str().to_lowercase().as_str()).unwrap())
                         },
                         Rule::unqualified_identifier => {
                             name = Some(pair.as_str().to_string())
@@ -635,7 +635,7 @@ impl TryInto<Box<AstNode>> for Pair<'_, Rule> {
                             }
                         }
                         Rule::var_modifier => {
-                            modifiers.push(VarModifier::from_str(pair.as_str()).unwrap())
+                            modifiers.push(VarModifier::from_str(pair.as_str().to_lowercase().as_str()).unwrap())
                         },
                         Rule::type_ => {
                             type_ = Some(pair.try_into()?)
@@ -659,7 +659,7 @@ impl TryInto<Box<AstNode>> for Pair<'_, Rule> {
             Rule::function_modifier => {
                 let mut inner_iter = self.into_inner().into_iter();
                 Ok(Box::new(AstNode::FunctionModifier {
-                    type_: FunctionModifier::from_str(inner_iter.next().unwrap().as_str()).unwrap(),
+                    type_: FunctionModifier::from_str(inner_iter.next().unwrap().as_str().to_lowercase().as_str()).unwrap(),
                     arguments: inner_iter.map(|pair| pair.try_into()).collect::<Result<Vec<Box<AstNode>>, _>>()?
                 }))
             }
@@ -671,7 +671,7 @@ impl TryInto<Box<AstNode>> for Pair<'_, Rule> {
                 for pair in inner_iter {
                     match pair.as_rule() {
                         Rule::function_argument_modifier => {
-                            modifiers.push(FunctionArgumentModifier::from_str(pair.as_str()).unwrap())
+                            modifiers.push(FunctionArgumentModifier::from_str(pair.as_str().to_lowercase().as_str()).unwrap())
                         }
                         Rule::type_ => {
                             type_ = Some(pair.try_into()?)
@@ -782,7 +782,7 @@ impl TryInto<Box<AstNode>> for Pair<'_, Rule> {
                 for pair in rules_itr {
                     match pair.as_rule() {
                         Rule::struct_modifier => {
-                            modifiers.push(StructModifier::from_str(pair.as_str()).unwrap())
+                            modifiers.push(StructModifier::from_str(pair.as_str().to_lowercase().as_str()).unwrap())
                         }
                         Rule::unqualified_identifier => {
                             name.add_assign(pair.as_str())
