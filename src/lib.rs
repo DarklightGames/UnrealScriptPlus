@@ -17,6 +17,8 @@ use pest::Parser;
 struct UnrealScriptParser;
 
 mod ast;
+mod visitor;
+
 use crate::ast::*;
 
 extern crate encoding;
@@ -180,9 +182,9 @@ fn parse_expression(pairs: &[Pair<Rule>]) -> ParseResult<Box<AstNode>> {
         match dyadic_verbs.first() {
             Some((_, index, operator)) => {
                 return Ok(Box::new(AstNode::DyadicExpression {
-                    lhs: parse_expression(&pairs[..index - 0]).unwrap(),
+                    lhs: parse_expression(&pairs[..index - 0])?,
                     operator: operator.to_string(),
-                    rhs: parse_expression(&pairs[index + 1..]).unwrap()
+                    rhs: parse_expression(&pairs[index + 1..])?
                 }));
             },
             _ => {}
@@ -378,10 +380,15 @@ impl TryInto<Box<AstNode>> for Pair<'_, Rule> {
             }
             Rule::program => {
                 let mut inner_iter = self.into_inner().into_iter();
-                Ok(Box::new(AstNode::Program {
-                    class_declaration: inner_iter.next().unwrap().try_into()?,
-                    statements: inner_iter.map(|pair| pair.try_into() ).collect::<Result<Vec<Box<AstNode>>, _>>()?
-                }))
+                let mut statements = Vec::new();
+                let class_declaration = inner_iter.next().unwrap().try_into()?;
+                for pair in inner_iter {
+                    match pair.as_rule() {
+                        Rule::EOI => {}
+                        _ => statements.push(pair.try_into()?)
+                    }
+                }
+                Ok(Box::new(AstNode::Program { class_declaration, statements }))
             }
             Rule::replication_statement => {
                 let mut inner_iter = self.into_inner().into_iter();
@@ -576,7 +583,7 @@ impl TryInto<Box<AstNode>> for Pair<'_, Rule> {
             }
             Rule::defaultproperties => {
                 Ok(Box::new(AstNode::DefaultProperties {
-                    lines: self.into_inner().into_iter().map(|pair| pair.try_into()).collect::<Result<Vec<Box<AstNode>>, _>>()?
+                    statements: self.into_inner().into_iter().map(|pair| pair.try_into()).collect::<Result<Vec<Box<AstNode>>, _>>()?
                 }))
             }
             Rule::name_literal => {
@@ -690,7 +697,7 @@ impl TryInto<Box<AstNode>> for Pair<'_, Rule> {
             }
             Rule::function_declaration => {
                 let mut modifiers: Vec<Box<AstNode>> = Vec::new();
-                let mut type_: Option<Box<AstNode>> = None;
+                let mut types: Vec<Box<AstNode>> = Vec::new();
                 let mut return_type: Option<Box<AstNode>> = None;
                 let mut arguments: Vec<Box<AstNode>> = Vec::new();
                 let mut name: String = String::new();
@@ -699,17 +706,23 @@ impl TryInto<Box<AstNode>> for Pair<'_, Rule> {
                 for pair in inner_iter {
                     match pair.as_rule() {
                         Rule::function_type => {
+                            if types.len() > 0 {
+                                return Err(Error::new_from_span(
+                                    ErrorVariant::CustomError { message: format!("multiply defined function types") },
+                                    pair.as_span())
+                                )
+                            }
                             let inner_pair = pair.into_inner().into_iter().next().unwrap();
                             match inner_pair.as_rule() {
                                 Rule::function_type_no_arguments => {
-                                    type_ = Some(Box::new(AstNode::FunctionType {
-                                        type_: inner_pair.as_str().to_string(),
+                                    types.push(Box::new(AstNode::FunctionType {
+                                        type_: FunctionType::from_str(inner_pair.as_str().to_lowercase().to_string().as_str()).unwrap(),
                                         arguments: None
                                     }))
                                 }
                                 Rule::function_type_operator => {
-                                    type_ = Some(Box::new(AstNode::FunctionType {
-                                        type_: "operator".to_string(),  // TODO: kinda sloppy
+                                    types.push(Box::new(AstNode::FunctionType {
+                                        type_: FunctionType::Operator,
                                         arguments: Some(inner_pair.into_inner().into_iter().map(|pair| pair.try_into()).collect::<Result<Vec<Box<AstNode>>, _>>()?)
                                     }))
                                 }
@@ -735,7 +748,7 @@ impl TryInto<Box<AstNode>> for Pair<'_, Rule> {
                     }
                 }
                 Ok(Box::new(AstNode::FunctionDelaration {
-                    type_: type_.unwrap(),
+                    types,
                     modifiers,
                     return_type,
                     name,
@@ -768,7 +781,17 @@ impl TryInto<Box<AstNode>> for Pair<'_, Rule> {
                 self.into_inner().next().unwrap().try_into()
             }
             Rule::parenthetical_expression => {
-                Ok(Box::new(AstNode::ParentheticalExpression { expression: self.into_inner().next().unwrap().try_into()? }))
+                let span = self.clone().as_span();
+                let inner: Box<AstNode> = self.into_inner().next().unwrap().try_into()?;
+                match inner.as_ref() {
+                    AstNode::ParentheticalExpression { .. } => {
+                        return Err(Error::new_from_span(
+                            ErrorVariant::CustomError { message: String::from("redundant nested parenthetical expression") },
+                            span))
+                    }
+                    _ => { }
+                }
+                Ok(Box::new(AstNode::ParentheticalExpression { expression: inner }))
             }
             Rule::jump_label => {
                 Ok(Box::new(AstNode::JumpLabel(self.into_inner().next().unwrap().as_str().to_string())))
@@ -791,7 +814,7 @@ impl TryInto<Box<AstNode>> for Pair<'_, Rule> {
                             parent = Some(pair.into_inner().next().unwrap().as_str().to_string())
                         }
                         Rule::struct_var_declaration => {
-                            let mut editable = false;
+                            let mut is_editable = false;
                             let mut modifiers: Vec<String> = Vec::new();
                             let mut type_: Option<Box<AstNode>> = None;
                             let mut names: Vec<Box<AstNode>> = Vec::new();
@@ -799,7 +822,7 @@ impl TryInto<Box<AstNode>> for Pair<'_, Rule> {
                             for pair in inner_iter {
                                 match pair.as_rule() {
                                     Rule::struct_var_editable => {
-                                        editable = true
+                                        is_editable = true
                                     }
                                     Rule::var_modifier => {
                                         modifiers.push(pair.as_str().to_string())
@@ -814,7 +837,7 @@ impl TryInto<Box<AstNode>> for Pair<'_, Rule> {
                                 }
                             }
                             members.push( Box::new(AstNode::StructVarDeclaration {
-                                editable,
+                                is_editable,
                                 modifiers,
                                 type_: type_.unwrap(),
                                 names,
@@ -833,7 +856,53 @@ impl TryInto<Box<AstNode>> for Pair<'_, Rule> {
             Rule::cpptext => {
                 Ok(Box::new(AstNode::CppText(self.into_inner().into_iter().next().unwrap().as_str().to_string())))
             }
-            _ => { Ok(Box::new(AstNode::Unhandled)) }   // TODO: just return an error
+            Rule::defaultproperties_assignment => {
+                let mut inner_iter = self.into_inner().into_iter();
+                Ok(Box::new(AstNode::DefaultPropertiesAssignment {
+                    target: inner_iter.next().unwrap().try_into()?,
+                    value: match inner_iter.next() {
+                        Some(pair) => Some(pair.try_into()?),
+                        None => None
+                    }
+                }))
+            }
+            Rule::defaultproperties_object => {
+                let mut inner_iter = self.into_inner().into_iter();
+                let class = inner_iter.next().unwrap().try_into()?;
+                let mut statements = Vec::new();
+                for pair in inner_iter {
+                    statements.push(pair.try_into()?);
+                }
+                Ok(Box::new(AstNode::DefaultPropertiesObject { class, statements }))
+            }
+            Rule::defaultproperties_target => {
+                let mut inner_iter = self.into_inner().into_iter();
+                Ok(Box::new(AstNode::DefaultPropertiesTarget {
+                    target: inner_iter.next().unwrap().try_into()?,
+                    index:  match inner_iter.next() {
+                        Some(pair) => Some(pair.try_into()?),
+                        None => None
+                    }
+                }))
+            }
+            Rule::defaultproperties_struct => {
+                let mut assignments = Vec::new();
+                for pair in self.into_inner().into_iter() {
+                    assignments.push(pair.try_into()?)
+                }
+                Ok(Box::new(AstNode::DefaultPropertiesStruct { assignments }))
+            }
+            Rule::defaultproperties_array => {
+                let mut elements = Vec::new();
+                for pair in self.into_inner().into_iter() {
+                    match pair.as_rule() {
+                        Rule::defaultproperties_array_comma => elements.push(None),
+                        _ => elements.push(Some(pair.try_into()?))
+                    }
+                }
+                Ok(Box::new(AstNode::DefaultPropertiesArray { elements }))
+            }
+            _ => panic!("unhandled rule {:?} {:?}", self.as_str(), self.as_span())
         }
     }
 }

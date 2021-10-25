@@ -7,7 +7,7 @@ WS = _{ " " | "\n" | "\t" }
 WHITESPACE = _{ "\r" } // This symbol is truly useless, so just ignore it globally
 
 compiler_directive_inner = { (!"\n" ~ ANY)* }
-compiler_directive = { ^"#" ~ compiler_directive_inner ~ (("\n") | eoi)}
+compiler_directive = { ^"#" ~ compiler_directive_inner ~ (("\n") | EOI)}
 
 alpha = @{ 'a'..'z' | 'A'..'Z' }
 digit = @{ '0'..'9' }
@@ -190,8 +190,7 @@ class_statement = _{ ";" | compiler_directive | const_declaration | var_declarat
 class_statement_pre = { compiler_directive | const_declaration }
 class_statement_pres = _{ class_statement_pre ~ (WS* ~ class_statement_pre)* }
 class_statements = _{ class_statement ~ (WS* ~ class_statement)* }
-eoi = _{ EOI }
-program = { SOI ~ WS* ~ class_statement_pres? ~ WS* ~ class_declaration ~ WS* ~ class_statements? ~ WS* ~ eoi }
+program = { SOI ~ WS* ~ class_statement_pres? ~ WS* ~ class_declaration ~ WS* ~ class_statements? ~ WS* ~ EOI }
 
 var_names = _{ var_name ~ (WS* ~ "," ~ WS* ~ var_name)* }
 local_declaration = { ^"local" ~ WS+ ~ type_ ~ WS+ ~ var_names ~ WS* ~ ";" }
@@ -221,7 +220,10 @@ monadic_post_verb = { "++" | "--" }
 
 atom = _{ call | array_access | ("." ~ default_access) | ("." ~ static_access) | member_access | (monadic_post_verb? ~ WS* ~ dyadic_expression) }
 primary = _{ cast | literal | default_access | static_access | global_call | unqualified_identifier | parenthetical_expression }
-target = _{ monadic_pre_verb? ~ WS* ~ (new | primary ~ (WS* ~ atom)*) ~ WS* ~ monadic_post_verb? }
+target = _{
+    (numeric_literal ~ (WS* ~ atom)* ~ WS* ~ monadic_post_verb?) |
+    (monadic_pre_verb? ~ WS* ~ (new | primary ~ (WS* ~ atom)*) ~ WS* ~ monadic_post_verb?)
+    }
 
 parenthetical_expression = { "(" ~ WS* ~ expression ~ WS* ~ ")" }
 expression_inner = _{ target | unqualified_identifier }   // TODO: monadic expression should be a target???
@@ -272,7 +274,7 @@ foreach_expression_atom = _{ array_access | ("." ~ default_access) | ("." ~ stat
 foreach_expression = { primary ~ WS* ~ (foreach_expression_atom ~ WS*)* }
 foreach_statement = { ^"foreach" ~ WS+ ~ foreach_expression ~ WS* ~ statement_or_block }
 switch_statement = { ^"switch" ~ WS* ~ "(" ~ WS* ~ expression ~ WS* ~ ")" ~ WS* ~ "{" ~ (WS* ~ switch_case)* ~ WS* ~ switch_default_case? ~ WS* ~ "}" }
-switch_case_label = _{ ^"case" ~ WS+ ~ target ~ WS* ~ ":" }
+switch_case_label = _{ ^"case" ~ WS+ ~ expression ~ WS* ~ ":" }
 switch_default_label = _{ ^"default" ~ WS* ~ ":" }
 switch_case = { switch_case_label ~ WS* ~ code_statements? }
 switch_default_case = { switch_default_label ~ WS* ~ code_statements? }
@@ -319,7 +321,7 @@ dyadic_verb = { dyadic_verb_native | unqualified_identifier }
 LWS = _{ " " | "\t" }
 defaultproperties_opening_bracket = _{ "(" | "[" }
 defaultproperties_closing_bracket = _{ ")" | "]" }
-defaultproperties_value = { literal | identifier | defaultproperties_struct | defaultproperties_array }
+defaultproperties_value = _{ literal | identifier | defaultproperties_struct | defaultproperties_array }
 defaultproperties_assignment = { defaultproperties_target ~ LWS* ~ "=" ~ LWS* ~ defaultproperties_value? ~ (LWS* ~ ";")* }
 defaultproperties_struct = { ("(" | "[") ~ LWS* ~ (defaultproperties_assignment ~ LWS* ~ ("," ~ LWS* ~ defaultproperties_assignment)*)? ~ LWS* ~ (")" | "]") }
 defaultproperties_array_comma = { "," }
@@ -331,7 +333,8 @@ defaultproperties_array = {
 defaultproperties_object = { ^"begin" ~ LWS+ ~ ^"object" ~ LWS+ ~ ^"class" ~ "=" ~ identifier ~ (WS+ ~ (defaultproperties_assignment | defaultproperties_object))* ~ WS+ ~ ^"end" ~ LWS+ ~ ^"object" }
 defaultproperties_line = _{ defaultproperties_assignment | defaultproperties_object }
 defaultproperties_lines = _{ defaultproperties_line ~ (WS* ~ defaultproperties_line)* }
-defaultproperties_target = { unqualified_identifier ~ LWS* ~ (defaultproperties_opening_bracket ~ LWS* ~ (integer_literal | unqualified_identifier) ~ LWS* ~ defaultproperties_closing_bracket)? }
+defaultproperties_array_access = _{ defaultproperties_opening_bracket ~ LWS* ~ (integer_literal | unqualified_identifier) ~ LWS* ~ defaultproperties_closing_bracket }
+defaultproperties_target = { unqualified_identifier ~ LWS* ~ defaultproperties_array_access? }
 defaultproperties = { ^"defaultproperties" ~ WS* ~ "{" ~ WS* ~ defaultproperties_lines? ~ WS* ~ "}" }
 
 // CPPTEXT

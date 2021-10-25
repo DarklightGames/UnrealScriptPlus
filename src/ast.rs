@@ -105,6 +105,17 @@ pub enum ReplicationReliability {
     Unreliable
 }
 
+#[derive(Debug, PartialEq, Display, EnumString)]
+#[strum(serialize_all="lowercase")]
+pub enum FunctionType {
+    Function,
+    Event,
+    Delegate,
+    PreOperator,
+    PostOperator,
+    Operator
+}
+
 pub enum AstNode {
     Program {
         class_declaration: Box<AstNode>,
@@ -134,20 +145,8 @@ pub enum AstNode {
         name: Box<AstNode>
     },
     FunctionDelaration {
-        type_: Box<AstNode>,
+        types: Vec<Box<AstNode>>,
         modifiers: Vec<Box<AstNode>>,
-        return_type: Option<Box<AstNode>>,
-        arguments: Vec<Box<AstNode>>,
-        name: String,
-        body: Option<Box<AstNode>>
-    },
-    OperatorType {
-        type_: String,
-        arguments: Vec<Box<AstNode>>
-    },
-    OperatorDeclaration {
-        modifiers: Vec<FunctionModifier>,
-        type_: Box<AstNode>,
         return_type: Option<Box<AstNode>>,
         arguments: Vec<Box<AstNode>>,
         name: String,
@@ -193,7 +192,7 @@ pub enum AstNode {
         size: Option<Box<AstNode>>
     },
     StructVarDeclaration {
-        editable: bool,
+        is_editable: bool,
         modifiers: Vec<String>,
         type_: Box<AstNode>,
         names: Vec<Box<AstNode>>
@@ -264,7 +263,7 @@ pub enum AstNode {
         cases: Vec<Box<AstNode>>
     },
     FunctionType {
-        type_: String,
+        type_: FunctionType,
         arguments: Option<Vec<Box<AstNode>>>
     },
     FunctionBody {
@@ -293,16 +292,11 @@ pub enum AstNode {
     ElseStatement {
         statements: Vec<Box<AstNode>>
     },
-
     LocalDeclaration {
         type_: Box<AstNode>,
         names: Vec<Box<AstNode>>
     },
-
     EmptyStatement,
-
-    // todo: do/while loop
-
     BreakStatement,
     ContinueStatement,
     GotoStatement {
@@ -341,7 +335,6 @@ pub enum AstNode {
         operand: Box<AstNode>,
         target: String,
     },
-    Expression(),
     MonadicPostExpression {
         operator: String,
         target: Box<AstNode>
@@ -356,14 +349,31 @@ pub enum AstNode {
         rhs: Box<AstNode>
     },
     DefaultProperties {
-        lines: Vec<Box<AstNode>>
+        statements: Vec<Box<AstNode>>
+    },
+    DefaultPropertiesAssignment {
+        target: Box<AstNode>,
+        value: Option<Box<AstNode>>
+    },
+    DefaultPropertiesTarget {
+        target: Box<AstNode>,
+        index: Option<Box<AstNode>>
+    },
+    DefaultPropertiesStruct {
+        assignments: Vec<Box<AstNode>>
+    },
+    DefaultPropertiesArray {
+        elements: Vec<Option<Box<AstNode>>>
+    },
+    DefaultPropertiesObject {
+        class: Box<AstNode>,
+        statements: Vec<Box<AstNode>>
     },
     Cast {
         type_: Box<AstNode>,
         operand: Box<AstNode>
     },
-    CppText(String),
-    Unhandled
+    CppText(String)
 }
 
 impl std::fmt::Debug for AstNode {
@@ -443,12 +453,12 @@ impl std::fmt::Debug for AstNode {
                 }
                 d.finish()
             }
-            AstNode::StructVarDeclaration { editable, modifiers, type_, names } => {
+            AstNode::StructVarDeclaration { is_editable, modifiers, type_, names } => {
                 let mut d = f.debug_struct("StructVarDeclaration");
                 d.field("type", type_);
                 d.field("names", names);
-                if *editable {
-                    d.field("editable", editable);
+                if *is_editable {
+                    d.field("is_editable", is_editable);
                 }
                 if !modifiers.is_empty() {
                     d.field("modifiers", modifiers);
@@ -483,35 +493,19 @@ impl std::fmt::Debug for AstNode {
                 d.field("statements", statements);
                 d.finish()
             }
-            AstNode::BooleanLiteral(value) => {
-                return f.write_str(value.to_string().as_str())
-            }
-            AstNode::IntegerLiteral(value) => {
-                return f.write_str(value.to_string().as_str())
-            }
-            AstNode::FloatLiteral(value) => {
-                return f.write_str(value.to_string().as_str())
-            }
-            AstNode::ObjectLiteral { type_, reference } => {
-                return f.write_fmt(format_args!("{}'{}'", type_, reference));
-            }
+            AstNode::BooleanLiteral(value) => f.write_str(value.to_string().as_str()),
+            AstNode::IntegerLiteral(value) => f.write_str(value.to_string().as_str()),
+            AstNode::FloatLiteral(value) => f.write_str(value.to_string().as_str()),
+            AstNode::ObjectLiteral { type_, reference } => f.write_fmt(format_args!("{}'{}'", type_, reference)),
             AstNode::CompilerDirective { contents } => {
                 f.debug_struct("CompilerDirective")
                     .field("contents", contents)
                     .finish()
             }
-            AstNode::NameLiteral(name) => {
-                return f.write_fmt(format_args!("'{}'", name))
-            }
-            AstNode::StringLiteral(string) => {
-                return f.write_fmt(format_args!("\"{}\"", string))
-            }
-            AstNode::UnqualifiedIdentifier(value) => {
-                return f.write_str(value.as_str())
-            }
-            AstNode::Identifier(value) => {
-                return f.write_str(value.as_str())
-            }
+            AstNode::NameLiteral(name) => f.write_fmt(format_args!("'{}'", name)),
+            AstNode::StringLiteral(string) => f.write_fmt(format_args!("\"{}\"", string)),
+            AstNode::UnqualifiedIdentifier(value) => f.write_str(value.as_str()),
+            AstNode::Identifier(value) => f.write_str(value.as_str()),
             AstNode::StateLabel { label, statements } => {
                 let mut d = f.debug_struct("StateLabel");
                 d.field("label", label);
@@ -565,45 +559,14 @@ impl std::fmt::Debug for AstNode {
             AstNode::FunctionType { type_, arguments } => {
                 let mut d = f.debug_struct("FunctionType");
                 d.field("type", type_);
-                match arguments {
-                    Some(_) => {
-                        d.field("arguments", arguments);
-                    }
-                    None => {}
-                }
-                d.finish()
-            }
-            AstNode::FunctionDelaration { type_, modifiers, return_type, name, arguments, body } => {
-                let mut d = f.debug_struct("FunctionDeclaration");
-                d.field("type", type_);
-                d.field("name", name);
-                if let Some(return_type) = return_type {
-                    d.field("return_type", return_type);
-                }
-                if !arguments.is_empty() {
+                if let Some(arguments) = arguments {
                     d.field("arguments", arguments);
                 }
-                if !modifiers.is_empty() {
-                    d.field("modifiers", modifiers);
-                }
-                if let Some(body) = body {
-                    d.field("body", body);
-                }
                 d.finish()
             }
-            AstNode::OperatorType { type_, arguments } => {
-                if arguments.is_empty() {
-                    f.write_str(type_)
-                } else {
-                    f.debug_struct("OperatorType")
-                        .field("type", type_)
-                        .field("arguments", arguments)
-                        .finish()
-                }
-            }
-            AstNode::OperatorDeclaration { type_, modifiers, return_type, name, arguments, body } => {
-                let mut d = f.debug_struct("OperatorDeclaration");
-                d.field("type", type_);
+            AstNode::FunctionDelaration { types, modifiers, return_type, name, arguments, body } => {
+                let mut d = f.debug_struct("FunctionDeclaration");
+                d.field("types", types);
                 d.field("name", name);
                 if let Some(return_type) = return_type {
                     d.field("return_type", return_type);
@@ -737,12 +700,8 @@ impl std::fmt::Debug for AstNode {
                     .field("body", body)
                     .finish()
             }
-            AstNode::BreakStatement => {
-                f.debug_struct("BreakStatement").finish()
-            }
-            AstNode::ContinueStatement => {
-                f.debug_struct("ContinueStatement").finish()
-            }
+            AstNode::BreakStatement => f.debug_struct("BreakStatement").finish(),
+            AstNode::ContinueStatement => f.debug_struct("ContinueStatement").finish(),
             AstNode::GotoStatement { label } => {
                 f.debug_struct("GotoStatement")
                     .field("label", label)
@@ -815,9 +774,9 @@ impl std::fmt::Debug for AstNode {
                     .field("roll", roll)
                     .finish()
             }
-            AstNode::DefaultProperties { lines } => {
+            AstNode::DefaultProperties { statements } => {
                 f.debug_struct("DefaultProperties")
-                    .field("lines", lines)
+                    .field("statements", statements)
                     .finish()
             }
             AstNode::Cast { type_, operand } => {
