@@ -1543,10 +1543,10 @@ mod tests {
                     extends(10, 21, [ identifier(18, 21) ]),
                     class_modifier(22, 38, [
                         class_modifier_type(22, 26),
-                        expression(27, 28, [ literal(27, 28, [ integer_literal(27, 28, [ integer_literal_decimal(27, 28) ]) ]) ]),
-                        expression(30, 31, [ literal(30, 31, [ integer_literal(30, 31, [ integer_literal_decimal(30, 31) ]) ]) ]),
-                        expression(33, 34, [ literal(33, 34, [ integer_literal(33, 34, [ integer_literal_decimal(33, 34) ]) ]) ]),
-                        expression(36, 37, [ literal(36, 37, [ integer_literal(36, 37, [ integer_literal_decimal(36, 37) ]) ]) ]),
+                        expression(27, 28, [ integer_literal(27, 28, [ integer_literal_decimal(27, 28) ]) ]),
+                        expression(30, 31, [ integer_literal(30, 31, [ integer_literal_decimal(30, 31) ]) ]),
+                        expression(33, 34, [ integer_literal(33, 34, [ integer_literal_decimal(33, 34) ]) ]),
+                        expression(36, 37, [ integer_literal(36, 37, [ integer_literal_decimal(36, 37) ]) ]),
                     ])
                 ])
             ]
