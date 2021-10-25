@@ -18,6 +18,8 @@ glob = "0.3.0"
 encoding = "0.2"
 strum = { version = "0.22", features = ["derive"] }
 strum_macros = "0.22"
+pest_consume = "1.1.1"
+pest_consume_macros = "1.1.0"
 
 [dependencies.pyo3]
 version = "0.14.1"

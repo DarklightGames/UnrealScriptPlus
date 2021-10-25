@@ -2,7 +2,7 @@ use strum_macros::{EnumString, Display};
 
 #[derive(Debug, PartialEq, Display, EnumString)]
 #[strum(serialize_all="lowercase")]
-pub enum ClassModifier {
+pub enum ClassModifierType {
     Abstract,
     CacheExempt,
     Config,
@@ -31,7 +31,7 @@ pub enum ClassModifier {
 
 #[derive(Debug, PartialEq, Display, EnumString)]
 #[strum(serialize_all="lowercase")]
-pub enum FunctionModifier {
+pub enum FunctionModifierType {
     Native,
     Private,
     Protected,
@@ -45,6 +45,7 @@ pub enum FunctionModifier {
     Iterator,
     Latent
 }
+
 #[derive(Debug, PartialEq, Display, EnumString)]
 #[strum(serialize_all="lowercase")]
 pub enum FunctionArgumentModifier {
@@ -107,7 +108,7 @@ pub enum ReplicationReliability {
 
 #[derive(Debug, PartialEq, Display, EnumString)]
 #[strum(serialize_all="lowercase")]
-pub enum FunctionType {
+pub enum FunctionTypeType {
     Function,
     Event,
     Delegate,
@@ -116,681 +117,384 @@ pub enum FunctionType {
     Operator
 }
 
-pub enum AstNode {
-    Program {
-        class_declaration: Box<AstNode>,
-        statements: Vec<Box<AstNode>>
-    },
-    IntegerLiteral(i32),
-    FloatLiteral(f32),
-    BooleanLiteral(bool),
-    StringLiteral(String),
-    NameLiteral(String),
-    ClassModifier {
-        type_: ClassModifier,
-        arguments: Vec<Box<AstNode>>
-    },
-    VectorLiteral {
-        x: Box<AstNode>,
-        y: Box<AstNode>,
-        z: Box<AstNode>
-    },
-    FunctionModifier {
-        type_: FunctionModifier,
-        arguments: Vec<Box<AstNode>>
-    },
-    FunctionArgument {
-        modifiers: Vec<FunctionArgumentModifier>,
-        type_: Box<AstNode>,
-        name: Box<AstNode>
-    },
-    FunctionDelaration {
-        types: Vec<Box<AstNode>>,
-        modifiers: Vec<Box<AstNode>>,
-        return_type: Option<Box<AstNode>>,
-        arguments: Vec<Box<AstNode>>,
-        name: String,
-        body: Option<Box<AstNode>>
-    },
-    ReplicationStatement {
-        reliability: ReplicationReliability,
-        condition: Box<AstNode>,
-        variables: Vec<String>
-    },
-    ReplicationBlock {
-        statements: Vec<Box<AstNode>>
-    },
-    CompilerDirective {
-        contents: String
-    },
-    RotatorLiteral {
-        pitch: Box<AstNode>,
-        yaw: Box<AstNode>,
-        roll: Box<AstNode>
-    },
-    None,
-    ObjectLiteral {
-        type_: String,
-        reference: String
-    },
-    ClassDeclaration {
-        name: String,
-        parent_class: Option<String>,
-        modifiers: Vec<Box<AstNode>>,
-        within: Option<String>
-    },
-    ConstDeclaration {
-        name: String,
-        value: Box<AstNode>
-    },
-    EnumDeclaration {
-        name: String,
-        values: Vec<String>
-    },
-    VarName {
-        name: String,
-        size: Option<Box<AstNode>>
-    },
-    StructVarDeclaration {
-        is_editable: bool,
-        modifiers: Vec<String>,
-        type_: Box<AstNode>,
-        names: Vec<Box<AstNode>>
-    },
-    StructDeclaration {
-        name: String,
-        parent: Option<String>,
-        modifiers: Vec<StructModifier>,
-        members: Vec<Box<AstNode>>
-    },
-    ArrayType(Box<AstNode>),
-    VarDeclaration {
-        category: Option<String>,
-        modifiers: Vec<VarModifier>,
-        type_: Box<AstNode>,
-        names: Vec<Box<AstNode>>
-    },
-    StateLabel {
-        label: String,
-        statements: Vec<Box<AstNode>>
-    },
-    StateDeclaration {
-        is_editable: bool,
-        modifiers: Vec<StateModifier>,
-        name: String,
-        parent: Option<String>,
-        ignores: Vec<String>,
-        statements: Vec<Box<AstNode>>,
-        labels: Vec<Box<AstNode>>
-    },
-    UnqualifiedIdentifier(String),
-    VarSize(Box<AstNode>),
-    ClassType(Box<AstNode>),
-    Identifier(String),
-
-    // FLOW
-    ForStatement {
-        init: Option<Box<AstNode>>,
-        predicate: Option<Box<AstNode>>,
-        post: Option<Box<AstNode>>,
-        body: Box<AstNode>
-    },
-    DoUntilStatement {
-        body: Box<AstNode>,
-        predicate: Option<Box<AstNode>>
-    },
-    New {
-        arguments: Vec<Option<Box<AstNode>>>,
-        type_: Box<AstNode>
-    },
-    WhileStatement {
-        predicate: Box<AstNode>,
-        body: Box<AstNode>
-    },
-    ForEachStatement {
-        predicate: Box<AstNode>,
-        body: Box<AstNode>
-    },
-    SwitchCase {
-        predicate: Box<AstNode>,
-        statements: Vec<Box<AstNode>>
-    },
-    SwitchDefaultCase {
-        statements: Vec<Box<AstNode>>
-    },
-    SwitchStatement {
-        predicate: Box<AstNode>,
-        cases: Vec<Box<AstNode>>
-    },
-    FunctionType {
-        type_: FunctionType,
-        arguments: Option<Vec<Box<AstNode>>>
-    },
-    FunctionBody {
-        locals: Vec<Box<AstNode>>,
-        statements: Vec<Box<AstNode>>
-    },
-    CodeBlock {
-        statements: Vec<Box<AstNode>>
-    },
-    CodeScope {
-        statements: Vec<Box<AstNode>>
-    },
-    ConditionalStatement {
-        if_statement: Box<AstNode>,
-        elif_statements: Vec<Box<AstNode>>,
-        else_statement: Option<Box<AstNode>>
-    },
-    IfStatement {
-        predicate: Box<AstNode>,
-        statements: Vec<Box<AstNode>>
-    },
-    ElifStatement {
-        predicate: Box<AstNode>,
-        statements: Vec<Box<AstNode>>
-    },
-    ElseStatement {
-        statements: Vec<Box<AstNode>>
-    },
-    LocalDeclaration {
-        type_: Box<AstNode>,
-        names: Vec<Box<AstNode>>
-    },
-    EmptyStatement,
-    BreakStatement,
-    ContinueStatement,
-    GotoStatement {
-        label: String
-    },
-    JumpLabel(String),
-    ReturnStatement {
-        expression: Option<Box<AstNode>>
-    },
-
-    // LOGIC
-    ParentheticalExpression {
-        expression: Box<AstNode>
-    },
-    Call {
-        operand: Box<AstNode>,
-        arguments: Vec<Option<Box<AstNode>>>
-    },
-    GlobalCall {
-        name: String,
-        arguments: Vec<Option<Box<AstNode>>>
-    },
-    ArrayAccess {
-        operand: Box<AstNode>,
-        argument: Box<AstNode>
-    },
-    DefaultAccess {
-        operand: Option<Box<AstNode>>,
-        target: String
-    },
-    StaticAccess {
-        operand: Option<Box<AstNode>>,
-        target: String
-    },
-    MemberAccess {
-        operand: Box<AstNode>,
-        target: String,
-    },
-    MonadicPostExpression {
-        operator: String,
-        target: Box<AstNode>
-    },
-    MonadicPreExpression {
-        operator: String,
-        target: Box<AstNode>
-    },
-    DyadicExpression {
-        lhs: Box<AstNode>,
-        operator: String,
-        rhs: Box<AstNode>
-    },
-    DefaultProperties {
-        statements: Vec<Box<AstNode>>
-    },
-    DefaultPropertiesAssignment {
-        target: Box<AstNode>,
-        value: Option<Box<AstNode>>
-    },
-    DefaultPropertiesTarget {
-        target: Box<AstNode>,
-        index: Option<Box<AstNode>>
-    },
-    DefaultPropertiesStruct {
-        assignments: Vec<Box<AstNode>>
-    },
-    DefaultPropertiesArray {
-        elements: Vec<Option<Box<AstNode>>>
-    },
-    DefaultPropertiesObject {
-        class: Box<AstNode>,
-        statements: Vec<Box<AstNode>>
-    },
-    Cast {
-        type_: Box<AstNode>,
-        operand: Box<AstNode>
-    },
-    CppText(String)
+pub struct FunctionType {
+    type_: FunctionTypeType,
+    arguments: Option<Vec<Literal>>
 }
 
-impl std::fmt::Debug for AstNode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        return match self {
-            AstNode::Program { class_declaration, statements } => {
-                f.debug_struct("Program")
-                    .field("class_declaration", class_declaration)
-                    .field("statements", statements)
-                    .finish()
-            }
-            AstNode::ClassDeclaration { name, parent_class, modifiers, within } => {
-                let mut d = f.debug_struct("ClassDeclaration");
-                d.field("name", name);
-                if let Some(parent_class) = parent_class {
-                    d.field("parent", parent_class);
-                }
-                if !modifiers.is_empty() {
-                    d.field("modifiers", modifiers);
-                }
-                if let Some(within) = within {
-                    d.field("within", within);
-                }
-                d.finish()
-            }
-            AstNode::ConstDeclaration { name, value } => {
-                f.debug_struct("ConstDeclaration")
-                    .field("name", name)
-                    .field("value", value)
-                    .finish()
-            }
-            AstNode::EnumDeclaration { name, values } => {
-                f.debug_struct("EnumDeclaration")
-                    .field("name", name)
-                    .field("values", values)
-                    .finish()
-            }
-            AstNode::VarName { name, size } => {
-                if let Some(size) = size {
-                    f.debug_struct("VarName")
-                        .field("name", name)
-                        .field("size", size)
-                        .finish()
-                } else {
-                    f.write_str(name)
-                }
-            }
-            AstNode::ClassModifier { type_, arguments } => {
-                if arguments.is_empty() {
-                    f.write_str(type_.to_string().as_str())
-                } else {
-                    f.debug_struct("ClassModifier")
-                        .field("type", type_)
-                        .field("arguments", arguments)
-                        .finish()
-                }
-            }
-            AstNode::ArrayType(type_) => {
-                f.debug_struct("ArrayType")
-                    .field("type", type_)
-                    .finish()
-            }
-            AstNode::ClassType(type_) => {
-                f.debug_struct("ClassType")
-                    .field("type", type_)
-                    .finish()
-            }
-            AstNode::VarDeclaration { names, type_, modifiers, category } => {
-                let mut d = f.debug_struct("VarDeclaration");
-                d.field("names", names);
-                d.field("type", type_);
-                if !modifiers.is_empty() {
-                    d.field("modifiers", modifiers);
-                }
-                if let Some(category) = category {
-                    d.field("category", category);
-                }
-                d.finish()
-            }
-            AstNode::StructVarDeclaration { is_editable, modifiers, type_, names } => {
-                let mut d = f.debug_struct("StructVarDeclaration");
-                d.field("type", type_);
-                d.field("names", names);
-                if *is_editable {
-                    d.field("is_editable", is_editable);
-                }
-                if !modifiers.is_empty() {
-                    d.field("modifiers", modifiers);
-                }
-                d.finish()
-            }
-            AstNode::StructDeclaration { name, modifiers, parent, members } => {
-                let mut d = f.debug_struct("StructDeclaration");
-                d.field("name", name);
-                if let Some(parent) = parent {
-                    d.field("parent", parent);
-                }
-                if !members.is_empty() {
-                    d.field("members", members);
-                }
-                if !modifiers.is_empty() {
-                    d.field("modifiers", modifiers);
-                }
-                d.finish()
-            }
-            AstNode::ReplicationStatement { reliability, condition, variables } => {
-                let mut d = f.debug_struct("ReplicationStatement");
-                d.field("reliability", reliability);
-                d.field("condition", condition);
-                if !variables.is_empty() {
-                    d.field("variables", variables);
-                }
-                d.finish()
-            }
-            AstNode::ReplicationBlock { statements } => {
-                let mut d = f.debug_struct("ReplicationBlock");
-                d.field("statements", statements);
-                d.finish()
-            }
-            AstNode::BooleanLiteral(value) => f.write_str(value.to_string().as_str()),
-            AstNode::IntegerLiteral(value) => f.write_str(value.to_string().as_str()),
-            AstNode::FloatLiteral(value) => f.write_str(value.to_string().as_str()),
-            AstNode::ObjectLiteral { type_, reference } => f.write_fmt(format_args!("{}'{}'", type_, reference)),
-            AstNode::CompilerDirective { contents } => {
-                f.debug_struct("CompilerDirective")
-                    .field("contents", contents)
-                    .finish()
-            }
-            AstNode::NameLiteral(name) => f.write_fmt(format_args!("'{}'", name)),
-            AstNode::StringLiteral(string) => f.write_fmt(format_args!("\"{}\"", string)),
-            AstNode::UnqualifiedIdentifier(value) => f.write_str(value.as_str()),
-            AstNode::Identifier(value) => f.write_str(value.as_str()),
-            AstNode::StateLabel { label, statements } => {
-                let mut d = f.debug_struct("StateLabel");
-                d.field("label", label);
-                if !statements.is_empty() {
-                    d.field("statements", statements);
-                }
-                d.finish()
-            }
-            AstNode::StateDeclaration { is_editable, modifiers, name, parent, ignores, statements, labels } => {
-                let mut d = f.debug_struct("StateDeclaration");
-                if *is_editable {
-                    d.field("is_editable", is_editable);
-                }
-                if !modifiers.is_empty() {
-                    d.field("modifiers", modifiers);
-                }
-                if let Some(parent) = parent {
-                    d.field("parent", parent);
-                }
-                d.field("name", name);
-                if !ignores.is_empty() {
-                    d.field("ignores", ignores);
-                }
-                if !statements.is_empty() {
-                    d.field("statements", statements);
-                }
-                if !labels.is_empty() {
-                    d.field("labels", labels);
-                }
-                d.finish()
-            }
-            AstNode::FunctionModifier { type_, arguments } => {
-                if arguments.is_empty() {
-                    return f.write_str(type_.to_string().as_str())
-                } else {
-                    let mut d = f.debug_struct("FunctionModifier");
-                    d.field("type", type_);
-                    d.field("arguments", arguments);
-                    d.finish()
-                }
-            }
-            AstNode::FunctionArgument { modifiers, type_, name } => {
-                let mut d = f.debug_struct("FunctionArgument");
-                if !modifiers.is_empty() {
-                    d.field("modifiers", modifiers);
-                }
-                d.field("type", type_);
-                d.field("name", name);
-                d.finish()
-            }
-            AstNode::FunctionType { type_, arguments } => {
-                let mut d = f.debug_struct("FunctionType");
-                d.field("type", type_);
-                if let Some(arguments) = arguments {
-                    d.field("arguments", arguments);
-                }
-                d.finish()
-            }
-            AstNode::FunctionDelaration { types, modifiers, return_type, name, arguments, body } => {
-                let mut d = f.debug_struct("FunctionDeclaration");
-                d.field("types", types);
-                d.field("name", name);
-                if let Some(return_type) = return_type {
-                    d.field("return_type", return_type);
-                }
-                if !arguments.is_empty() {
-                    d.field("arguments", arguments);
-                }
-                if !modifiers.is_empty() {
-                    d.field("modifiers", modifiers);
-                }
-                if let Some(body) = body {
-                    d.field("body", body);
-                }
-                d.finish()
-            }
-            AstNode::Call { operand, arguments } => {
-                let mut d = f.debug_struct("Call");
-                d.field("operand", operand);
-                if !arguments.is_empty() {
-                    d.field("arguments", arguments);
-                }
-                d.finish()
-            }
-            AstNode::MemberAccess { operand, target } => {
-                f.debug_struct("MemberAccess")
-                    .field("operand", operand)
-                    .field("target", target)
-                    .finish()
-            }
-            AstNode::DefaultAccess { operand, target } => {
-                f.debug_struct("DefaultAccess")
-                    .field("operand", operand)
-                    .field("target", target)
-                    .finish()
-            }
-            AstNode::StaticAccess { operand, target } => {
-                f.debug_struct("StaticAccess")
-                    .field("operand", operand)
-                    .field("target", target)
-                    .finish()
-            }
-            AstNode::GlobalCall { name, arguments } => {
-                f.debug_struct("GlobalCall")
-                    .field("name", name)
-                    .field("arguments", arguments)
-                    .finish()
-            }
-            AstNode::ArrayAccess { operand, argument } => {
-                f.debug_struct("ArrayAccess")
-                    .field("operand", operand)
-                    .field("argument", argument)
-                    .finish()
-            }
-            AstNode::MonadicPreExpression { operator, target } => {
-                f.debug_struct("MonadicPreExpression")
-                    .field("operator", operator)
-                    .field("target", target)
-                    .finish()
-            }
-            AstNode::MonadicPostExpression { operator, target } => {
-                f.debug_struct("MonadicPostExpression")
-                    .field("operator", operator)
-                    .field("target", target)
-                    .finish()
-            }
-            AstNode::DyadicExpression { lhs, operator, rhs } => {
-                f.debug_struct("DyadicExpression")
-                    .field("lhs", lhs)
-                    .field("operator", operator)
-                    .field("rhs", rhs)
-                    .finish()
-            }
-            AstNode::ParentheticalExpression { expression } => {
-                f.debug_struct("ParentheticalExpression")
-                    .field("expression", expression)
-                    .finish()
-            }
-            AstNode::ConditionalStatement { if_statement, elif_statements, else_statement } => {
-                let mut d = f.debug_struct("ConditionalStatement");
-                d.field("if_statement", if_statement);
-                if !elif_statements.is_empty() {
-                    d.field("elif_statements", elif_statements);
-                }
-                if let Some(else_statement) = else_statement {
-                    d.field("else_statement", else_statement);
-                }
-                d.finish()
-            }
-            AstNode::CodeScope { statements } => {
-                let mut d = f.debug_struct("CodeScope");
-                if !statements.is_empty() {
-                    d.field("statements", statements);
-                }
-                d.finish()
-            }
-            AstNode::IfStatement { predicate, statements } => {
-                f.debug_struct("IfStatement")
-                    .field("predicate", predicate)
-                    .field("statements", statements)
-                    .finish()
-            }
-            AstNode::ElifStatement { predicate, statements } => {
-                f.debug_struct("ElifStatement")
-                    .field("predicate", predicate)
-                    .field("statements", statements)
-                    .finish()
-            }
-            AstNode::ForStatement { init, predicate, post, body } => {
-                f.debug_struct("ForStatement")
-                    .field("init", init)
-                    .field("predicate", predicate)
-                    .field("post", post)
-                    .field("body", body)
-                    .finish()
-            }
-            AstNode::WhileStatement { predicate, body } => {
-                f.debug_struct("WhileStatement")
-                    .field("predicate", predicate)
-                    .field("body", body)
-                    .finish()
-            }
-            AstNode::DoUntilStatement { body, predicate } => {
-                f.debug_struct("DoUntilStatement")
-                    .field("body", body)
-                    .field("predicate", predicate)
-                    .finish()
-            }
-            AstNode::ForEachStatement { predicate, body } => {
-                f.debug_struct("ForEachStatement")
-                    .field("predicate", predicate)
-                    .field("body", body)
-                    .finish()
-            }
-            AstNode::BreakStatement => f.debug_struct("BreakStatement").finish(),
-            AstNode::ContinueStatement => f.debug_struct("ContinueStatement").finish(),
-            AstNode::GotoStatement { label } => {
-                f.debug_struct("GotoStatement")
-                    .field("label", label)
-                    .finish()
-            }
-            AstNode::JumpLabel(label) => {
-                f.debug_struct("JumpLabel")
-                    .field("label", label)
-                    .finish()
-            }
-            AstNode::ReturnStatement { expression } => {
-                let mut d = f.debug_struct("ReturnStatement");
-                if let Some(expression) = expression {
-                    d.field("expression", expression);
-                }
-                d.finish()
-            }
-            AstNode::SwitchDefaultCase { statements } => {
-                f.debug_struct("SwitchDefaultCase")
-                    .field("statements", statements)
-                    .finish()
-            }
-            AstNode::SwitchCase { predicate, statements } => {
-                f.debug_struct("SwitchCase")
-                    .field("predicate", predicate)
-                    .field("statements", statements)
-                    .finish()
-            }
-            AstNode::SwitchStatement { predicate, cases } => {
-                f.debug_struct("SwitchStatement")
-                    .field("predicate", predicate)
-                    .field("cases", cases)
-                    .finish()
-            }
-            AstNode::LocalDeclaration { type_, names } => {
-                f.debug_struct("LocalDeclaration")
-                    .field("type", type_)
-                    .field("names", names)
-                    .finish()
-            }
-            AstNode::FunctionBody { locals, statements } => {
-                let mut d = f.debug_struct("FunctionBody");
-                if !locals.is_empty() {
-                    d.field("locals", locals);
-                }
-                if !statements.is_empty() {
-                    d.field("statements", statements);
-                }
-                d.finish()
-            }
-            AstNode::New { arguments, type_ } => {
-                let mut d = f.debug_struct("New");
-                d.field("type", type_);
-                if !arguments.is_empty() {
-                    d.field("arguments", arguments);
-                }
-                d.finish()
-            }
-            AstNode::VectorLiteral { x, y, z } => {
-                f.debug_struct("VectorLiteral")
-                    .field("x", x)
-                    .field("y", y)
-                    .field("z", z)
-                    .finish()
-            }
-            AstNode::RotatorLiteral { pitch, yaw, roll } => {
-                f.debug_struct("RotatorLiteral")
-                    .field("pitch", pitch)
-                    .field("yaw", yaw)
-                    .field("roll", roll)
-                    .finish()
-            }
-            AstNode::DefaultProperties { statements } => {
-                f.debug_struct("DefaultProperties")
-                    .field("statements", statements)
-                    .finish()
-            }
-            AstNode::Cast { type_, operand } => {
-                f.debug_struct("Cast")
-                    .field("type", type_)
-                    .field("operand", operand)
-                    .finish()
-            }
-            AstNode::CppText(body) => {
-                f.debug_struct("CppText")
-                    .field("body", body)
-                    .finish()
-            }
-            _ => { f.debug_struct("Unknown").finish() }
-        }
+#[derive(Debug, PartialEq, Display, EnumString)]
+pub enum MonadicVerb {
+    #[strum(serialize="++")]
+    Increment,
+    #[strum(serialize="--")]
+    Decrement,
+    #[strum(serialize="~")]
+    BitwiseNot,
+    #[strum(serialize="-")]
+    Negate,
+    #[strum(serialize="!")]
+    Not
+}
+
+#[derive(Debug, PartialEq, Display, EnumString)]
+pub enum DyadicVerb {
+    #[strum(serialize="&&")]
+    LogicalAnd,
+    #[strum(serialize="^^")]
+    LogicalExclusiveOr,
+    #[strum(serialize="**")]
+    Exponentiate,
+    #[strum(serialize="+=")]
+    AddAssign,
+    #[strum(serialize="-=")]
+    SubtractAssign,
+    #[strum(serialize="*=")]
+    MultiplyAssign,
+    #[strum(serialize="/=")]
+    DivideAssign,
+    #[strum(serialize="*")]
+    Multiply,
+    #[strum(serialize="/")]
+    Divide,
+    #[strum(serialize="||")]
+    LogicalOr,
+    #[strum(serialize="%")]
+    Modulo,
+    #[strum(serialize="<<")]
+    ShiftLeft,
+    #[strum(serialize=">>>")]
+    DoubleShiftRight,
+    #[strum(serialize=">>")]
+    ShiftRight,
+    #[strum(serialize="<=")]
+    CompareLessThanOrEqual,
+    #[strum(serialize=">=")]
+    CompareGreaterThanOrEqual,
+    #[strum(serialize="==")]
+    CompareEqual,
+    #[strum(serialize="~=")]
+    CompareApproximatelyEqual,
+    #[strum(serialize="<")]
+    CompareLessThan,
+    #[strum(serialize=">")]
+    CompareGreaterThan,
+    #[strum(serialize="!=")]
+    CompareNotEqual,
+    #[strum(serialize="&")]
+    BitwiseAnd,
+    #[strum(serialize="|")]
+    BitwiseOr,
+    #[strum(serialize="^")]
+    BitwiseExclusiveOr,
+    #[strum(serialize="$=")]
+    ConcatenateAssign,
+    #[strum(serialize="@=")]
+    ConcatenateSpaceAssign,
+    #[strum(serialize="$")]
+    Concatenate,
+    #[strum(serialize="@")]
+    ConcatenateSpace,
+    #[strum(serialize="+")]
+    Add,
+    #[strum(serialize="-")]
+    Subtract,
+    #[strum(serialize="=")]
+    Assign,
+    #[strum(serialize="dot")]
+    VectorDot,
+    #[strum(serialize="cross")]
+    VectorCross,
+    #[strum(disabled)]
+    Custom(String),
+}
+
+pub struct Program {
+    class_declaration: ClassDeclaration,
+    statements: Vec<ProgramStatement>
+}
+
+pub enum ProgramStatement {
+    StructDeclaration(StructDeclaration),
+    EnumDeclaration(EnumDeclaration),
+    StateDeclaration(StateDeclaration),
+    FunctionDeclaration(FunctionDeclaration),
+    CompilerDirective(String),
+    CppText(String),
+    ReplicationBlock { statements: Vec<ReplicationStatement> }
+}
+
+pub struct VarName {
+    identifier: Identifier,
+    size: Option<Literal>
+}
+
+pub struct StructVarDeclaration {
+    is_editable: bool,
+    modifiers: Vec<StructVarModifier>,
+    type_: Type,
+    names: Vec<VarName>
+}
+
+pub struct StructDeclaration {
+    name: Identifier,
+    parent: Option<Identifier>,
+    modifiers: Vec<StructModifier>,
+    members: Vec<StructVarDeclaration>,
+    cpp: Option<String>
+}
+
+pub struct VarDeclaration {
+    category: Option<String>,
+    modifiers: Vec<VarModifier>,
+    type_: Type,
+    names: Vec<VarName>
+}
+
+pub enum Type {
+    Int,
+    Float,
+    String,
+    Name,
+    Bool,
+    Array(Type),
+    Class(Identifier),
+    Struct(StructDeclaration),
+    Enum(EnumDeclaration),
+    Identifier(Identifier)
+}
+
+pub enum Expression {
+    Identifier(Identifier),
+    Conditional,
+    Literal(Literal),
+    New { arguments: Vec<Option<Expression>>, type_: Expression },
+    MonadicPreExpression { operand: Expression, verb: MonadicVerb },
+    MonadicPostExpression { operand: Expression, verb: MonadicVerb },
+    DyadicExpression { lhs: Expression, verb: DyadicVerb, rhs: Expression },
+    Call { operand: Expression, arguments: Vec<Option<Expression>> },
+    GlobalCall { name: Identifier, arguments: Vec<Option<Expression>> },
+    ArrayAccess { operand: Expression, argument: Expression },
+    DefaultAccess { operand: Option<Expression>, target: Identifier },
+    StaticAccess { operand: Option<Expression>, target: Identifier },
+    MemberAccess { operand: Expression, target: Identifier },
+    Cast { type_: Literal, operand: Expression },
+    ParentheticalExpression(Expression)
+}
+
+pub enum CodeStatement {
+    Empty,
+    Scope(Vec<CodeStatement>),
+    Expression(Expression),
+    Return(Option<Expression>),
+    Break,
+    Continue,
+    Goto(String),
+    JumpLabel(Identifier),
+    ForEach(ForEach),
+    For(ForStatement),
+    Switch(SwitchStatement),
+    Conditional(ConditionalStatement)
+}
+
+pub struct ClassDeclaration {
+    name: Identifier,
+    parent_class: Option<Identifier>,
+    modifiers: Vec<ClassModifier>,
+    within: Option<Identifier>
+}
+
+#[derive(PartialEq)]
+pub enum NumericLiteral {
+    Integer(i32),
+    Float(f32)
+}
+
+#[derive(PartialEq)]
+pub enum Literal {
+    Numeric(NumericLiteral),
+    Boolean(bool),
+    String(String),
+    Name(String),
+    Rotator { pitch: NumericLiteral, yaw: NumericLiteral, roll: NumericLiteral },
+    Vector { x: NumericLiteral, y: NumericLiteral, z: NumericLiteral },
+    Object { type_: Type, reference: String }
+}
+
+pub struct Identifier {
+    string: String
+}
+
+impl PartialEq for Identifier {
+    fn eq(&self, other: &Self) -> bool {
+        self.string.eq_ignore_ascii_case(other.string.as_str())
     }
+}
+
+pub struct FunctionArgument {
+    pub modifiers: Vec<FunctionArgumentModifier>,
+    pub type_: Type,
+    pub name: Identifier
+}
+
+pub struct FunctionModifier {
+    type_: FunctionModifierType,
+    arguments: Vec<NumericLiteral>
+}
+
+pub struct FunctionDeclaration {
+    types: Vec<Type>,
+    modifiers: Vec<FunctionModifier>,
+    return_type: Option<Type>,
+    arguments: Vec<FunctionArgument>,
+    name: Identifier,
+    body: Option<FunctionBody>
+}
+
+pub struct ClassModifier {
+    type_: ClassModifierType,
+    arguments: Vec<Expression>
+}
+
+pub struct LocalDeclaration {
+    type_: Type,
+    names: Vec<VarName>
+}
+
+pub struct EnumDeclaration {
+    name: Identifier,
+    values: Vec<Identifier>
+}
+
+pub enum StateStatement {
+    FunctionDeclaration(FunctionDeclaration),
+    StateLabel(StateLabel)
+}
+
+pub struct StateLabel {
+    label: String,
+    statements: Vec<Statement>
+}
+
+pub struct StateDeclaration {
+    is_editable: bool,
+    modifiers: Vec<StateModifier>,
+    name: Identifier,
+    parent: Option<Identifier>,
+    ignores: Vec<String>,
+    statements: Vec<StateStatement>,
+    labels: Vec<StateLabel>
+}
+
+pub struct ReplicationStatement {
+    reliability: ReplicationReliability,
+    condition: Expression,
+    variables: Vec<Identifier>
+}
+
+pub struct FunctionBody {
+    locals: Vec<LocalDeclaration>,
+    statements: Vec<CodeStatement>
+}
+
+pub struct ConstDeclaration {
+    name: Identifier,
+    value: Literal
+}
+
+pub struct CodeBlock {
+    statements: Vec<CodeStatement>
+}
+
+pub enum CodeBlockOrStatement {
+    CodeBlock(CodeBlock),
+    CodeStatement(CodeStatement)
+}
+
+pub struct ForStatement {
+    init: Option<Expression>,
+    predicate: Option<Expression>,
+    post: Option<Expression>,
+    body: CodeBlockOrStatement
+}
+
+pub struct DoUntil {
+    body: CodeBlockOrStatement,
+    predicate: Option<Expression>
+}
+
+pub struct WhileStatement {
+    predicate: Expression,
+    body: CodeBlockOrStatement
+}
+
+pub struct ForEach {
+    predicate: Expression,
+    body: CodeBlockOrStatement
+}
+
+pub enum SwitchCaseType {
+    Expression(Expression),
+    Default
+}
+
+pub struct SwitchCase {
+    type_: SwitchCaseType,
+    statements: Vec<CodeStatement>
+}
+
+pub struct SwitchStatement {
+    predicate: Expression,
+    cases: Vec<SwitchCase>
+}
+
+pub struct ConditionalStatement {
+    if_statement: IfStatement,
+    elif_statements: Vec<ElifStatement>,
+    else_statement: Option<ElseStatement>
+}
+
+pub struct IfStatement {
+    predicate: Expression,
+    statements: Vec<CodeStatement>
+}
+
+pub struct ElifStatement {
+    predicate: Expression,
+    statements: Vec<CodeStatement>
+}
+
+pub struct ElseStatement {
+    statements: Vec<CodeStatement>
+}
+
+pub struct DefaultProperties {
+    statements: Vec<DefaultPropertiesStatement>
+}
+
+pub enum DefaultPropertiesStatement {
+    Assignment(DefaultPropertiesAssignment),
+    Object(DefaultPropertiesObject)
+}
+
+pub struct DefaultPropertiesAssignment {
+    target: DefaultPropertiesTarget,
+    value: Option<DefaultPropertiesValue>
+}
+
+pub struct DefaultPropertiesStruct {
+    assignments: Vec<DefaultPropertiesAssignment>
+}
+
+pub struct DefaultPropertiesTarget {
+    target: Identifier,
+    index: Option<Literal>
+}
+
+pub struct DefaultPropertiesArray {
+    elements: Vec<Option<DefaultPropertiesValue>>
+}
+
+pub struct DefaultPropertiesObject {
+    class: Identifier,
+    statements: Vec<DefaultPropertiesStatement>
 }
