@@ -67,6 +67,27 @@ pub enum StructModifier {
 
 #[derive(Debug, PartialEq, Display, EnumString)]
 #[strum(serialize_all="lowercase")]
+pub enum StructVarModifier {
+    Const,
+    Private,
+    Protected,
+    Public,
+    Config,
+    GlobalConfig,
+    Localized,
+    Transient,
+    EdFindable,
+    EditConst,
+    EditConstArray,
+    EditInline,
+    EditInlineUse,
+    EditInlineNotify,
+    Export,
+    NoExport
+}
+
+#[derive(Debug, PartialEq, Display, EnumString)]
+#[strum(serialize_all="lowercase")]
 pub enum StateModifier {
     Auto,
     Simulated
@@ -118,8 +139,8 @@ pub enum FunctionTypeType {
 }
 
 pub struct FunctionType {
-    type_: FunctionTypeType,
-    arguments: Option<Vec<Literal>>
+    pub type_: FunctionTypeType,
+    pub arguments: Option<Vec<NumericLiteral>>
 }
 
 #[derive(Debug, PartialEq, Display, EnumString)]
@@ -209,45 +230,63 @@ pub enum DyadicVerb {
 }
 
 pub struct Program {
-    class_declaration: ClassDeclaration,
-    statements: Vec<ProgramStatement>
+    pub statements: Vec<ProgramStatement>
 }
 
 pub enum ProgramStatement {
-    StructDeclaration(StructDeclaration),
+    Empty,
+    ClassDeclaration(ClassDeclaration),
+    CompilerDirective(CompilerDirective),
+    ConstDeclaration(ConstDeclaration),
+    VarDeclaration(VarDeclaration),
     EnumDeclaration(EnumDeclaration),
-    StateDeclaration(StateDeclaration),
+    StructDeclaration(StructDeclaration),
     FunctionDeclaration(FunctionDeclaration),
-    CompilerDirective(String),
+    ReplicationBlock(ReplicationBlock),
+    StateDeclaration(StateDeclaration),
+    DefaultProperties(DefaultProperties),
     CppText(String),
-    ReplicationBlock { statements: Vec<ReplicationStatement> }
+}
+
+pub struct CompilerDirective {
+    pub command: String
+}
+
+pub enum Constant {
+    Literal(Literal),
+    Identifier(Identifier)
+}
+
+pub enum VarSize {
+    IntegerLiteral(NumericLiteral),
+    Identifier(Identifier)
 }
 
 pub struct VarName {
-    identifier: Identifier,
-    size: Option<Literal>
+    pub identifier: Identifier,
+    pub size: Option<VarSize>
 }
 
 pub struct StructVarDeclaration {
-    is_editable: bool,
-    modifiers: Vec<StructVarModifier>,
-    type_: Type,
-    names: Vec<VarName>
+    pub is_editable: bool,
+    pub modifiers: Vec<StructVarModifier>,
+    pub type_: Type,
+    pub names: Vec<VarName>
 }
 
 pub struct StructDeclaration {
-    name: Identifier,
-    parent: Option<Identifier>,
-    modifiers: Vec<StructModifier>,
-    members: Vec<StructVarDeclaration>,
-    cpp: Option<String>
+    pub name: Identifier,
+    pub parent: Option<Identifier>,
+    pub modifiers: Vec<StructModifier>,
+    pub members: Vec<StructVarDeclaration>,
+    pub cpp: Option<String>
 }
 
 pub struct VarDeclaration {
-    category: Option<String>,
-    modifiers: Vec<VarModifier>,
-    type_: Type,
-    names: Vec<VarName>
+    pub category: Option<String>,
+    pub modifiers: Vec<VarModifier>,
+    pub type_: Type,
+    pub names: Vec<VarName>
 }
 
 pub enum Type {
@@ -256,7 +295,7 @@ pub enum Type {
     String,
     Name,
     Bool,
-    Array(Type),
+    Array(Box<Type>),
     Class(Identifier),
     Struct(StructDeclaration),
     Enum(EnumDeclaration),
@@ -267,40 +306,43 @@ pub enum Expression {
     Identifier(Identifier),
     Conditional,
     Literal(Literal),
-    New { arguments: Vec<Option<Expression>>, type_: Expression },
-    MonadicPreExpression { operand: Expression, verb: MonadicVerb },
-    MonadicPostExpression { operand: Expression, verb: MonadicVerb },
-    DyadicExpression { lhs: Expression, verb: DyadicVerb, rhs: Expression },
-    Call { operand: Expression, arguments: Vec<Option<Expression>> },
+    New { arguments: Vec<Option<Expression>>, type_: Box<Expression> },
+    MonadicPreExpression { operand: Box<Expression>, verb: MonadicVerb },
+    MonadicPostExpression { operand: Box<Expression>, verb: MonadicVerb },
+    DyadicExpression { lhs: Box<Expression>, verb: DyadicVerb, rhs: Box<Expression> },
+    Call { operand: Box<Expression>, arguments: Vec<Option<Expression>> },
     GlobalCall { name: Identifier, arguments: Vec<Option<Expression>> },
-    ArrayAccess { operand: Expression, argument: Expression },
-    DefaultAccess { operand: Option<Expression>, target: Identifier },
-    StaticAccess { operand: Option<Expression>, target: Identifier },
-    MemberAccess { operand: Expression, target: Identifier },
-    Cast { type_: Literal, operand: Expression },
-    ParentheticalExpression(Expression)
+    ArrayAccess { operand: Box<Expression>, argument: Box<Expression> },
+    DefaultAccess { operand: Option<Box<Expression>>, target: Identifier },
+    StaticAccess { operand: Option<Box<Expression>>, target: Identifier },
+    MemberAccess { operand: Box<Expression>, target: Identifier },
+    Cast { type_: Type, operand: Box<Expression> },
+    ParentheticalExpression(Box<Expression>)
 }
 
 pub enum CodeStatement {
     Empty,
-    Scope(Vec<CodeStatement>),
-    Expression(Expression),
-    Return(Option<Expression>),
+    Expression(Box<Expression>),
+    Return(Option<Box<Expression>>),
     Break,
     Continue,
-    Goto(String),
+    Goto(Identifier),
     JumpLabel(Identifier),
-    ForEach(ForEach),
-    For(ForStatement),
-    Switch(SwitchStatement),
-    Conditional(ConditionalStatement)
+    ForEach(Box<ForEach>),
+    For(Box<ForStatement>),
+    Switch(Box<SwitchStatement>),
+    Conditional(Box<ConditionalStatement>),
+    While(Box<WhileStatement>),
+    DoUntil(Box<DoUntil>),
+    CompilerDirective(CompilerDirective),
+    ConstDeclaration(ConstDeclaration)
 }
 
 pub struct ClassDeclaration {
-    name: Identifier,
-    parent_class: Option<Identifier>,
-    modifiers: Vec<ClassModifier>,
-    within: Option<Identifier>
+    pub name: Identifier,
+    pub parent_class: Option<Identifier>,
+    pub modifiers: Vec<ClassModifier>,
+    pub within: Option<Identifier>
 }
 
 #[derive(PartialEq)]
@@ -309,7 +351,6 @@ pub enum NumericLiteral {
     Float(f32)
 }
 
-#[derive(PartialEq)]
 pub enum Literal {
     Numeric(NumericLiteral),
     Boolean(bool),
@@ -321,7 +362,13 @@ pub enum Literal {
 }
 
 pub struct Identifier {
-    string: String
+    pub string: String
+}
+
+impl Identifier {
+    pub fn new(s: &str) -> Identifier {
+        Identifier { string: s.to_string() }
+    }
 }
 
 impl PartialEq for Identifier {
@@ -333,142 +380,151 @@ impl PartialEq for Identifier {
 pub struct FunctionArgument {
     pub modifiers: Vec<FunctionArgumentModifier>,
     pub type_: Type,
-    pub name: Identifier
+    pub name: VarName
 }
 
 pub struct FunctionModifier {
-    type_: FunctionModifierType,
-    arguments: Vec<NumericLiteral>
+    pub type_: FunctionModifierType,
+    pub arguments: Vec<NumericLiteral>
 }
 
 pub struct FunctionDeclaration {
-    types: Vec<Type>,
-    modifiers: Vec<FunctionModifier>,
-    return_type: Option<Type>,
-    arguments: Vec<FunctionArgument>,
-    name: Identifier,
-    body: Option<FunctionBody>
+    pub types: Vec<FunctionType>,
+    pub modifiers: Vec<FunctionModifier>,
+    pub return_type: Option<Type>,
+    pub arguments: Vec<FunctionArgument>,
+    pub name: Identifier,
+    pub body: Option<FunctionBody>
 }
 
 pub struct ClassModifier {
-    type_: ClassModifierType,
-    arguments: Vec<Expression>
+    pub type_: ClassModifierType,
+    pub arguments: Vec<Box<Expression>>
 }
 
 pub struct LocalDeclaration {
-    type_: Type,
-    names: Vec<VarName>
+    pub type_: Type,
+    pub names: Vec<VarName>
 }
 
 pub struct EnumDeclaration {
-    name: Identifier,
-    values: Vec<Identifier>
+    pub name: Identifier,
+    pub values: Vec<Identifier>
 }
 
 pub enum StateStatement {
-    FunctionDeclaration(FunctionDeclaration),
-    StateLabel(StateLabel)
+    ConstDeclaration(ConstDeclaration),
+    FunctionDeclaration(FunctionDeclaration)
 }
 
 pub struct StateLabel {
-    label: String,
-    statements: Vec<Statement>
+    pub label: Identifier,
+    pub statements: Vec<CodeStatement>
 }
 
 pub struct StateDeclaration {
-    is_editable: bool,
-    modifiers: Vec<StateModifier>,
-    name: Identifier,
-    parent: Option<Identifier>,
-    ignores: Vec<String>,
-    statements: Vec<StateStatement>,
-    labels: Vec<StateLabel>
+    pub is_editable: bool,
+    pub modifiers: Vec<StateModifier>,
+    pub name: Identifier,
+    pub parent: Option<Identifier>,
+    pub ignores: Vec<Identifier>,
+    pub statements: Vec<StateStatement>,
+    pub labels: Vec<StateLabel>
 }
 
 pub struct ReplicationStatement {
-    reliability: ReplicationReliability,
-    condition: Expression,
-    variables: Vec<Identifier>
+    pub reliability: ReplicationReliability,
+    pub condition: Box<Expression>,
+    pub variables: Vec<Identifier>
+}
+
+pub struct ReplicationBlock {
+    pub statements: Vec<ReplicationStatement>
+}
+
+pub enum FunctionBodyStatement {
+    ConstDeclaration(ConstDeclaration),
+    LocalDeclaration(LocalDeclaration),
+    CodeStatement(CodeStatement)
 }
 
 pub struct FunctionBody {
-    locals: Vec<LocalDeclaration>,
-    statements: Vec<CodeStatement>
+    pub statements: Vec<FunctionBodyStatement>
 }
 
 pub struct ConstDeclaration {
-    name: Identifier,
-    value: Literal
+    pub name: Identifier,
+    pub value: Literal
 }
 
 pub struct CodeBlock {
-    statements: Vec<CodeStatement>
+    pub statements: Vec<CodeStatement>
 }
 
-pub enum CodeBlockOrStatement {
+pub enum CodeStatementOrBlock {
     CodeBlock(CodeBlock),
     CodeStatement(CodeStatement)
 }
 
 pub struct ForStatement {
-    init: Option<Expression>,
-    predicate: Option<Expression>,
-    post: Option<Expression>,
-    body: CodeBlockOrStatement
+    pub init: Option<Box<Expression>>,
+    pub  predicate: Option<Box<Expression>>,
+    pub post: Option<Box<Expression>>,
+    pub body: CodeStatementOrBlock
 }
 
 pub struct DoUntil {
-    body: CodeBlockOrStatement,
-    predicate: Option<Expression>
+    pub body: CodeStatementOrBlock,
+    pub predicate: Option<Box<Expression>>
 }
 
 pub struct WhileStatement {
-    predicate: Expression,
-    body: CodeBlockOrStatement
+    pub predicate: Box<Expression>,
+    pub body: CodeStatementOrBlock
 }
 
 pub struct ForEach {
-    predicate: Expression,
-    body: CodeBlockOrStatement
+    pub predicate: Box<Expression>,
+    pub body: CodeStatementOrBlock
 }
 
 pub enum SwitchCaseType {
-    Expression(Expression),
+    Expression(Box<Expression>),
     Default
 }
 
 pub struct SwitchCase {
-    type_: SwitchCaseType,
-    statements: Vec<CodeStatement>
+    pub type_: SwitchCaseType,
+    pub statements: Vec<CodeStatement>
 }
 
 pub struct SwitchStatement {
-    predicate: Expression,
-    cases: Vec<SwitchCase>
+    pub predicate: Box<Expression>,
+    pub cases: Vec<SwitchCase>
 }
 
 pub struct ConditionalStatement {
-    if_statement: IfStatement,
-    elif_statements: Vec<ElifStatement>,
-    else_statement: Option<ElseStatement>
+    pub if_statement: IfStatement,
+    pub elif_statements: Vec<ElifStatement>,
+    pub else_statement: Option<ElseStatement>
 }
 
 pub struct IfStatement {
-    predicate: Expression,
-    statements: Vec<CodeStatement>
+    pub predicate: Box<Expression>,
+    pub body: Option<CodeStatementOrBlock>
 }
 
 pub struct ElifStatement {
-    predicate: Expression,
-    statements: Vec<CodeStatement>
+    pub predicate: Box<Expression>,
+    pub body: CodeStatementOrBlock
 }
 
 pub struct ElseStatement {
-    statements: Vec<CodeStatement>
+    pub body: CodeStatementOrBlock
 }
 
 pub struct DefaultProperties {
-    statements: Vec<DefaultPropertiesStatement>
+    pub statements: Vec<DefaultPropertiesStatement>
 }
 
 pub enum DefaultPropertiesStatement {
@@ -477,24 +533,36 @@ pub enum DefaultPropertiesStatement {
 }
 
 pub struct DefaultPropertiesAssignment {
-    target: DefaultPropertiesTarget,
-    value: Option<DefaultPropertiesValue>
+    pub target: DefaultPropertiesTarget,
+    pub value: Option<DefaultPropertiesValue>
+}
+
+pub enum DefaultPropertiesValue {
+    Literal(Literal),
+    Identifier(Identifier),
+    Struct(DefaultPropertiesStruct),
+    Array(DefaultPropertiesArray)
 }
 
 pub struct DefaultPropertiesStruct {
-    assignments: Vec<DefaultPropertiesAssignment>
+    pub assignments: Vec<DefaultPropertiesAssignment>
+}
+
+pub enum DefaultPropertiesArrayIndex {
+    Identifier(Identifier),
+    IntegerLiteral(NumericLiteral)
 }
 
 pub struct DefaultPropertiesTarget {
-    target: Identifier,
-    index: Option<Literal>
+    pub target: Identifier,
+    pub index: Option<DefaultPropertiesArrayIndex>
 }
 
 pub struct DefaultPropertiesArray {
-    elements: Vec<Option<DefaultPropertiesValue>>
+    pub elements: Vec<Option<DefaultPropertiesValue>>
 }
 
 pub struct DefaultPropertiesObject {
-    class: Identifier,
-    statements: Vec<DefaultPropertiesStatement>
+    pub class: Identifier,
+    pub statements: Vec<DefaultPropertiesStatement>
 }
