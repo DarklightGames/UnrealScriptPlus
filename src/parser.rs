@@ -1053,7 +1053,7 @@ impl UnrealScriptParser {
         Ok(Program { statements })
     }
 
-    fn expression_empty(input: Node) -> Result<()> {
+    fn expression_empty(_input: Node) -> Result<()> {
         Ok(())
     }
 

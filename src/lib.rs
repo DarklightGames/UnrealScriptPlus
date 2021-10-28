@@ -4,6 +4,8 @@ use pest::error::{ErrorVariant, LineColLocation, InputLocation};
 
 mod ast;
 mod parser;
+mod writer;
+mod test;
 
 use pest_consume;
 
