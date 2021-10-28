@@ -224,9 +224,9 @@ pub enum DyadicVerb {
     #[strum(serialize="=")]
     Assign,
     #[strum(serialize="dot")]
-    VectorDot,
+    Dot,
     #[strum(serialize="cross")]
-    VectorCross
+    Cross
 }
 
 pub struct Program {

@@ -23,13 +23,12 @@ integer_literal_hexadecimal = { ^"0x" ~ hex_digits }
 numeric_sign = { "-" | "+" }
 integer_literal = { numeric_sign? ~ (integer_literal_hexadecimal | integer_literal_decimal) }
 
-float_literal_decimal = @{ digit+ ~ "." ~ digit* ~ ^"f"? }
-float_literal_scientific = @{ digit+ ~ ("." ~ digit*)? ~ ^"e" ~ ("+" | "-")? ~ digit+ ~ ^"f"? }
+float_literal_decimal = @{ digit+ ~ "." ~ digit* }
+float_literal_scientific = @{ digit+ ~ ("." ~ digit*)? ~ ^"e" ~ ("+" | "-")? ~ digit+ }
 
 // has to have *either* the decimal or the E in order to be a float literal!
-float_literal = @{ ("-" | "+")? ~ (float_literal_scientific | float_literal_decimal) }
+float_literal = @{ ("-" | "+")? ~ (float_literal_scientific | float_literal_decimal) ~ ^"f"?}
 numeric_literal = { float_literal | integer_literal }
-
 
 string_literal_character = @{
     !("\\" | "\"") ~ !("\0" | NEWLINE) ~ ANY
@@ -285,10 +284,10 @@ expression = { expression_inner }
 for_init = { expression }
 for_predicate = { expression }
 for_post = { expression }
-for_statement_inner = { for_init? ~ WS* ~ ";" ~ WS* ~ for_predicate? ~ WS* ~ ";" ~ WS* ~ for_post? }
+for_statement_inner = _{ for_init? ~ WS* ~ ";" ~ WS* ~ for_predicate? ~ WS* ~ ";" ~ WS* ~ for_post? }
 for_statement = { ^"for" ~ WS* ~ "(" ~ WS* ~ for_statement_inner ~ WS* ~ ")" ~ WS* ~ code_statement_or_block }
 
-do_until_statement = { ^"do" ~ WS* ~ code_block ~ (WS* ~ ^"until" ~ WS* ~ "(" ~ WS* ~ expression ~ WS* ~ ")")? }
+do_until_statement = { ^"do" ~ WS* ~ code_statement_or_block ~ (WS* ~ ^"until" ~ WS* ~ "(" ~ WS* ~ expression ~ WS* ~ ")")? }
 
 foreach_expression_atom = _{ array_access | ("." ~ default_access) | ("." ~ static_access) | member_access | call }
 foreach_expression = { primary ~ WS* ~ (foreach_expression_atom ~ WS*)* }
