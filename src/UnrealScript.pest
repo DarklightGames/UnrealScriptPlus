@@ -28,7 +28,7 @@ float_literal_scientific = @{ digit+ ~ ("." ~ digit*)? ~ ^"e" ~ ("+" | "-")? ~ d
 
 // has to have *either* the decimal or the E in order to be a float literal!
 float_literal = @{ ("-" | "+")? ~ (float_literal_scientific | float_literal_decimal) }
-numeric_literal = _{ float_literal | integer_literal }
+numeric_literal = { float_literal | integer_literal }
 
 
 string_literal_character = @{
@@ -211,13 +211,12 @@ program_statement = { statement_empty | compiler_directive | const_declaration |
 program_statement_pre = _{ compiler_directive | const_declaration }
 program_statement_pres = _{ program_statement_pre ~ (WS* ~ program_statement_pre)* }
 program_statements = _{ program_statement ~ (WS* ~ program_statement)* }
-program = { SOI ~ WS* ~ program_statement_pres? ~ WS* ~ class_declaration ~ WS* ~ program_statements? ~ WS* }
+program = { SOI ~ WS* ~ program_statement_pres? ~ WS* ~ class_declaration ~ WS* ~ program_statements? ~ WS* ~ EOI}
 
 var_names = _{ var_name ~ (WS* ~ "," ~ WS* ~ var_name)* }
 local_declaration = { ^"local" ~ WS+ ~ type_ ~ WS+ ~ var_names ~ WS* ~ ";" }
 
 // LOGIC
-// build a straight LIST of what we see in front of us, we will shuffle the AST around in a separate pass!
 array_access = { "[" ~ WS* ~ expression ~ WS* ~ "]" }
 member_access = { "." ~ WS* ~ unqualified_identifier }
 default_access = { ^"default" ~ WS* ~ "." ~ WS* ~ unqualified_identifier }
@@ -244,7 +243,7 @@ primary = _{ cast | literal | default_access | static_access | global_call | unq
 target = _{
     (numeric_literal ~ (WS* ~ atom)* ~ WS* ~ monadic_post_verb?) |
     (monadic_pre_verb? ~ WS* ~ (new | primary ~ (WS* ~ atom)*) ~ WS* ~ monadic_post_verb?)
-    }
+}
 
 parenthetical_expression = { "(" ~ WS* ~ expression ~ WS* ~ ")" }
 expression_inner = _{ target | unqualified_identifier }   // TODO: monadic expression should be a target???
@@ -253,15 +252,16 @@ expression_inner = _{ target | unqualified_identifier }   // TODO: monadic expre
 new = { ^"new" ~ (WS* ~ "(" ~ WS* ~ expression_list ~ WS* ~ ")")? ~ WS* ~ expression } /// fuck this syntax
 
 expression_empty = { "," }
-expression_list = _{ (expression ~ WS* ~ "," ~ WS* | (expression_empty ~ WS*))* ~ expression? }
-constant_list = _{ (constant ~ "," | expression_empty)* ~ constant? }
+expression_list = { (expression ~ WS* ~ "," ~ WS* | (expression_empty ~ WS*))* ~ expression? }
+// constant_list = _{ (constant ~ "," | expression_empty)* ~ constant? }
 cast = { class_type ~ WS* ~ "(" ~ WS* ~ expression ~ WS* ~ ")" }
 // NOTE: certain casts (int, string) don't follow the cast grammar, this is only for explicit
 
 function_body_statement = _{ const_declaration | code_statement }
+function_body_statements = _{ function_body_statement ~ (WS* ~ function_body_statement)* }
 code_block = { "{" ~ WS* ~ code_statements? ~ WS* ~ "}" }
 function_body_or_semicolon = _{ ";" | ("{" ~ WS* ~ function_body ~ WS* ~ "}") }
-function_body = { const_declarations ~ WS* ~ local_declarations? ~ WS* ~ function_body_statement? }
+function_body = { const_declarations? ~ WS* ~ local_declarations? ~ WS* ~ function_body_statements? }
 local_declaration_outer = _{ local_declaration | statement_empty }
 local_declarations = _{ local_declaration_outer ~ (WS* ~ local_declaration_outer)* }
 code_statements = _{ code_statement ~ (WS* ~ code_statement)* }
@@ -269,7 +269,7 @@ code_statement_or_block = { code_statement | code_block }
 
 while_statement = { ^"while" ~ WS* ~ "(" ~ WS* ~ expression ~ WS* ~ ")" ~ WS* ~ code_statement_or_block }
 return_statement = { ^"return" ~ (WS+ ~ expression)? ~ WS* ~ ";" }
-constant = _{ literal | unqualified_identifier }
+// constant = _{ literal | unqualified_identifier }
 // For some reason unbeknownst to mere mortals, UnrealScript allows two default cases in switch statements.
 
 // CONTROL FLOW

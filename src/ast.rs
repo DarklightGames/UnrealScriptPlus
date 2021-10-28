@@ -1,4 +1,5 @@
 use strum_macros::{EnumString, Display};
+use std::fmt::{Debug, Formatter};
 
 #[derive(Debug, PartialEq, Display, EnumString)]
 #[strum(serialize_all="lowercase")]
@@ -138,6 +139,7 @@ pub enum FunctionTypeType {
     Operator
 }
 
+#[derive(Debug)]
 pub struct FunctionType {
     pub type_: FunctionTypeType,
     pub arguments: Option<Vec<NumericLiteral>>
@@ -224,15 +226,14 @@ pub enum DyadicVerb {
     #[strum(serialize="dot")]
     VectorDot,
     #[strum(serialize="cross")]
-    VectorCross,
-    #[strum(disabled)]
-    Custom(String),
+    VectorCross
 }
 
 pub struct Program {
     pub statements: Vec<ProgramStatement>
 }
 
+#[derive(Debug)]
 pub enum ProgramStatement {
     Empty,
     ClassDeclaration(ClassDeclaration),
@@ -248,25 +249,29 @@ pub enum ProgramStatement {
     CppText(String),
 }
 
+#[derive(Debug)]
 pub struct CompilerDirective {
     pub command: String
 }
 
-pub enum Constant {
-    Literal(Literal),
-    Identifier(Identifier)
-}
+// pub enum Constant {
+//     Literal(Literal),
+//     Identifier(Identifier)
+// }
 
+#[derive(Debug)]
 pub enum VarSize {
     IntegerLiteral(NumericLiteral),
     Identifier(Identifier)
 }
 
+#[derive(Debug)]
 pub struct VarName {
     pub identifier: Identifier,
     pub size: Option<VarSize>
 }
 
+#[derive(Debug)]
 pub struct StructVarDeclaration {
     pub is_editable: bool,
     pub modifiers: Vec<StructVarModifier>,
@@ -274,6 +279,7 @@ pub struct StructVarDeclaration {
     pub names: Vec<VarName>
 }
 
+#[derive(Debug)]
 pub struct StructDeclaration {
     pub name: Identifier,
     pub parent: Option<Identifier>,
@@ -282,6 +288,7 @@ pub struct StructDeclaration {
     pub cpp: Option<String>
 }
 
+#[derive(Debug)]
 pub struct VarDeclaration {
     pub category: Option<String>,
     pub modifiers: Vec<VarModifier>,
@@ -289,6 +296,7 @@ pub struct VarDeclaration {
     pub names: Vec<VarName>
 }
 
+#[derive(Debug)]
 pub enum Type {
     Int,
     Float,
@@ -302,16 +310,36 @@ pub enum Type {
     Identifier(Identifier)
 }
 
+impl From<Identifier> for Type {
+    fn from(identifier: Identifier) -> Self {
+        if identifier.string.eq_ignore_ascii_case("int") {
+            Type::Int
+        } else if identifier.string.eq_ignore_ascii_case("float") {
+            Type::Float
+        } else if identifier.string.eq_ignore_ascii_case("string") {
+            Type::String
+        }else if identifier.string.eq_ignore_ascii_case("name") {
+            Type::Name
+        } else if identifier.string.eq_ignore_ascii_case("bool") {
+            Type::Bool
+        } else {
+            Type::Identifier(identifier)
+        }
+    }
+}
+
+type ExpressionList = Vec<Option<Box<Expression>>>;
+
+#[derive(Debug)]
 pub enum Expression {
     Identifier(Identifier),
-    Conditional,
     Literal(Literal),
-    New { arguments: Vec<Option<Expression>>, type_: Box<Expression> },
+    New { arguments: Option<ExpressionList>, type_: Box<Expression> },
     MonadicPreExpression { operand: Box<Expression>, verb: MonadicVerb },
     MonadicPostExpression { operand: Box<Expression>, verb: MonadicVerb },
     DyadicExpression { lhs: Box<Expression>, verb: DyadicVerb, rhs: Box<Expression> },
-    Call { operand: Box<Expression>, arguments: Vec<Option<Expression>> },
-    GlobalCall { name: Identifier, arguments: Vec<Option<Expression>> },
+    Call { operand: Box<Expression>, arguments: ExpressionList },
+    GlobalCall { name: Identifier, arguments: ExpressionList },
     ArrayAccess { operand: Box<Expression>, argument: Box<Expression> },
     DefaultAccess { operand: Option<Box<Expression>>, target: Identifier },
     StaticAccess { operand: Option<Box<Expression>>, target: Identifier },
@@ -320,6 +348,7 @@ pub enum Expression {
     ParentheticalExpression(Box<Expression>)
 }
 
+#[derive(Debug)]
 pub enum CodeStatement {
     Empty,
     Expression(Box<Expression>),
@@ -338,6 +367,7 @@ pub enum CodeStatement {
     ConstDeclaration(ConstDeclaration)
 }
 
+#[derive(Debug)]
 pub struct ClassDeclaration {
     pub name: Identifier,
     pub parent_class: Option<Identifier>,
@@ -345,12 +375,13 @@ pub struct ClassDeclaration {
     pub within: Option<Identifier>
 }
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum NumericLiteral {
     Integer(i32),
     Float(f32)
 }
 
+#[derive(Debug)]
 pub enum Literal {
     Numeric(NumericLiteral),
     Boolean(bool),
@@ -358,11 +389,17 @@ pub enum Literal {
     Name(String),
     Rotator { pitch: NumericLiteral, yaw: NumericLiteral, roll: NumericLiteral },
     Vector { x: NumericLiteral, y: NumericLiteral, z: NumericLiteral },
-    Object { type_: Type, reference: String }
+    Object { type_: Identifier, reference: String }
 }
 
 pub struct Identifier {
     pub string: String
+}
+
+impl Debug for Identifier {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.string.as_str())
+    }
 }
 
 impl Identifier {
@@ -377,17 +414,20 @@ impl PartialEq for Identifier {
     }
 }
 
+#[derive(Debug)]
 pub struct FunctionArgument {
     pub modifiers: Vec<FunctionArgumentModifier>,
     pub type_: Type,
     pub name: VarName
 }
 
+#[derive(Debug)]
 pub struct FunctionModifier {
     pub type_: FunctionModifierType,
     pub arguments: Vec<NumericLiteral>
 }
 
+#[derive(Debug)]
 pub struct FunctionDeclaration {
     pub types: Vec<FunctionType>,
     pub modifiers: Vec<FunctionModifier>,
@@ -397,31 +437,37 @@ pub struct FunctionDeclaration {
     pub body: Option<FunctionBody>
 }
 
+#[derive(Debug)]
 pub struct ClassModifier {
     pub type_: ClassModifierType,
-    pub arguments: Vec<Box<Expression>>
+    pub arguments: Option<ExpressionList>
 }
 
+#[derive(Debug)]
 pub struct LocalDeclaration {
     pub type_: Type,
     pub names: Vec<VarName>
 }
 
+#[derive(Debug)]
 pub struct EnumDeclaration {
     pub name: Identifier,
     pub values: Vec<Identifier>
 }
 
+#[derive(Debug)]
 pub enum StateStatement {
     ConstDeclaration(ConstDeclaration),
     FunctionDeclaration(FunctionDeclaration)
 }
 
+#[derive(Debug)]
 pub struct StateLabel {
     pub label: Identifier,
     pub statements: Vec<CodeStatement>
 }
 
+#[derive(Debug)]
 pub struct StateDeclaration {
     pub is_editable: bool,
     pub modifiers: Vec<StateModifier>,
@@ -432,40 +478,48 @@ pub struct StateDeclaration {
     pub labels: Vec<StateLabel>
 }
 
+#[derive(Debug)]
 pub struct ReplicationStatement {
     pub reliability: ReplicationReliability,
     pub condition: Box<Expression>,
     pub variables: Vec<Identifier>
 }
 
+#[derive(Debug)]
 pub struct ReplicationBlock {
     pub statements: Vec<ReplicationStatement>
 }
 
+#[derive(Debug)]
 pub enum FunctionBodyStatement {
     ConstDeclaration(ConstDeclaration),
     LocalDeclaration(LocalDeclaration),
     CodeStatement(CodeStatement)
 }
 
+#[derive(Debug)]
 pub struct FunctionBody {
     pub statements: Vec<FunctionBodyStatement>
 }
 
+#[derive(Debug)]
 pub struct ConstDeclaration {
     pub name: Identifier,
     pub value: Literal
 }
 
+#[derive(Debug)]
 pub struct CodeBlock {
     pub statements: Vec<CodeStatement>
 }
 
+#[derive(Debug)]
 pub enum CodeStatementOrBlock {
     CodeBlock(CodeBlock),
     CodeStatement(CodeStatement)
 }
 
+#[derive(Debug)]
 pub struct ForStatement {
     pub init: Option<Box<Expression>>,
     pub  predicate: Option<Box<Expression>>,
@@ -473,70 +527,84 @@ pub struct ForStatement {
     pub body: CodeStatementOrBlock
 }
 
+#[derive(Debug)]
 pub struct DoUntil {
     pub body: CodeStatementOrBlock,
     pub predicate: Option<Box<Expression>>
 }
 
+#[derive(Debug)]
 pub struct WhileStatement {
     pub predicate: Box<Expression>,
     pub body: CodeStatementOrBlock
 }
 
+#[derive(Debug)]
 pub struct ForEach {
     pub predicate: Box<Expression>,
     pub body: CodeStatementOrBlock
 }
 
+#[derive(Debug)]
 pub enum SwitchCaseType {
     Expression(Box<Expression>),
     Default
 }
 
+#[derive(Debug)]
 pub struct SwitchCase {
     pub type_: SwitchCaseType,
     pub statements: Vec<CodeStatement>
 }
 
+#[derive(Debug)]
 pub struct SwitchStatement {
     pub predicate: Box<Expression>,
     pub cases: Vec<SwitchCase>
 }
 
+#[derive(Debug)]
 pub struct ConditionalStatement {
     pub if_statement: IfStatement,
     pub elif_statements: Vec<ElifStatement>,
     pub else_statement: Option<ElseStatement>
 }
 
+#[derive(Debug)]
 pub struct IfStatement {
     pub predicate: Box<Expression>,
     pub body: Option<CodeStatementOrBlock>
 }
 
+#[derive(Debug)]
 pub struct ElifStatement {
     pub predicate: Box<Expression>,
     pub body: CodeStatementOrBlock
 }
 
+#[derive(Debug)]
 pub struct ElseStatement {
     pub body: CodeStatementOrBlock
 }
 
+#[derive(Debug)]
 pub struct DefaultProperties {
     pub statements: Vec<DefaultPropertiesStatement>
 }
 
+#[derive(Debug)]
 pub enum DefaultPropertiesStatement {
     Assignment(DefaultPropertiesAssignment),
     Object(DefaultPropertiesObject)
 }
 
+#[derive(Debug)]
 pub struct DefaultPropertiesAssignment {
     pub target: DefaultPropertiesTarget,
     pub value: Option<DefaultPropertiesValue>
 }
 
+#[derive(Debug)]
 pub enum DefaultPropertiesValue {
     Literal(Literal),
     Identifier(Identifier),
@@ -544,24 +612,29 @@ pub enum DefaultPropertiesValue {
     Array(DefaultPropertiesArray)
 }
 
+#[derive(Debug)]
 pub struct DefaultPropertiesStruct {
     pub assignments: Vec<DefaultPropertiesAssignment>
 }
 
+#[derive(Debug)]
 pub enum DefaultPropertiesArrayIndex {
     Identifier(Identifier),
     IntegerLiteral(NumericLiteral)
 }
 
+#[derive(Debug)]
 pub struct DefaultPropertiesTarget {
     pub target: Identifier,
     pub index: Option<DefaultPropertiesArrayIndex>
 }
 
+#[derive(Debug)]
 pub struct DefaultPropertiesArray {
     pub elements: Vec<Option<DefaultPropertiesValue>>
 }
 
+#[derive(Debug)]
 pub struct DefaultPropertiesObject {
     pub class: Identifier,
     pub statements: Vec<DefaultPropertiesStatement>

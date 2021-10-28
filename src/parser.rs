@@ -10,8 +10,14 @@ use pest_consume::{Error, match_nodes};
 use std::str::FromStr;
 use std::collections::HashMap;
 
+use encoding::{DecoderTrap, Encoding};
+use std::fs::File;
+use std::io::Read;
+
 type Result<T> = std::result::Result<T, Error<Rule>>;
 type Node<'i> = pest_consume::Node<'i, Rule, ()>;
+
+pub type ParserRule = Rule;
 
 macro_rules! match_nodes_any {
     ($nodes:expr; $($f:ident($v:ident) => $e:expr),*) => (
@@ -116,10 +122,16 @@ impl UnrealScriptParser {
         Ok(Literal::String(input.as_str().to_string()))
     }
 
-    fn integer_literal_hexadecimal(input: Node) -> Result<i32> {
+    fn hex_digits(input: Node) -> Result<i32> {
         u32::from_str_radix(input.as_str(), 16)
             .map_err(|e| input.error(e))
             .and_then(|v| Ok(i32::from_be_bytes(v.to_be_bytes())))
+    }
+
+    fn integer_literal_hexadecimal(input: Node) -> Result<i32> {
+        match_nodes!(input.into_children();
+            [hex_digits(n)] => Ok(n)
+        )
     }
 
     fn integer_literal_decimal(input: Node) -> Result<i32> {
@@ -139,7 +151,7 @@ impl UnrealScriptParser {
             integer_literal_hexadecimal(s) => integer = s,
             integer_literal_decimal(s) => integer = s
         );
-        Ok(NumericLiteral::Integer(integer))
+        Ok(NumericLiteral::Integer(sign * integer))
     }
 
     fn unqualified_identifier(input: Node) -> Result<Identifier> {
@@ -162,7 +174,7 @@ impl UnrealScriptParser {
 
     fn object_literal(input: Node) -> Result<Literal> {
         match_nodes!(input.into_children();
-            [type_(type_), single_quoted_string(reference)] => {
+            [unqualified_identifier(type_), single_quoted_string(reference)] => {
                 return Ok(Literal::Object { type_, reference })
             }
         );
@@ -191,11 +203,13 @@ impl UnrealScriptParser {
         )
     }
 
+    fn compiler_directive_inner(input: Node) -> Result<String> {
+        Ok(input.as_str().to_string())
+    }
+
     fn compiler_directive(input: Node) -> Result<CompilerDirective> {
         match_nodes!(input.into_children();
-            [inner] => {
-                return Ok(CompilerDirective { command: inner.as_str().to_string() })
-            }
+            [compiler_directive_inner(command)] => Ok(CompilerDirective { command })
         )
     }
 
@@ -211,12 +225,8 @@ impl UnrealScriptParser {
 
     fn class_modifier(input: Node) -> Result<ClassModifier> {
         match_nodes!(input.into_children();
-            [class_modifier_type(type_), expression(arguments)..] => {
-                Ok(ClassModifier {
-                    type_,
-                    arguments: arguments.collect()
-                })
-            }
+            [class_modifier_type(type_), expression_list(arguments)] => Ok(ClassModifier { type_, arguments: Some(arguments) }),
+            [class_modifier_type(type_)] => Ok(ClassModifier { type_, arguments: None })
         )
     }
 
@@ -243,7 +253,7 @@ impl UnrealScriptParser {
         let mut type_: Option<Type> = None;
         let mut names: Vec<VarName> = Vec::new();
         match_nodes_any!(input.into_children();
-            struct_var_editable(e) => is_editable = true,
+            struct_var_editable(_e) => is_editable = true,
             struct_var_modifier(m) => modifiers.push(m),
             type_(t) => type_ = Some(t),
             var_name(n) => names.push(n)
@@ -311,16 +321,16 @@ impl UnrealScriptParser {
             [enum_declaration(e)] => Ok(Type::Enum(e)),
             [array_type(a)] => Ok(a),
             [class_type(c)] => Ok(c),
-            [identifier(i)] => Ok(Type::Identifier(i))
+            [identifier(i)] => Ok(Type::from(i))
         )
     }
 
-    fn constant(input: Node) -> Result<Constant> {
-        match_nodes!(input.into_children();
-            [literal(l)] => Ok(Constant::Literal(l)),
-            [identifier(id)] => Ok(Constant::Identifier(id))
-        )
-    }
+    // fn constant(input: Node) -> Result<Constant> {
+    //     match_nodes!(input.into_children();
+    //         [literal(l)] => Ok(Constant::Literal(l)),
+    //         [identifier(id)] => Ok(Constant::Identifier(id))
+    //     )
+    // }
 
     fn var_size(input: Node) -> Result<VarSize> {
         match_nodes!(input.into_children();
@@ -532,6 +542,7 @@ impl UnrealScriptParser {
     }
 
     fn foreach_expression(input: Node) -> Result<Box<Expression>> {
+        // TODO: we get an error here because the node rules don't match
         Self::expression(input)
     }
 
@@ -630,18 +641,16 @@ impl UnrealScriptParser {
     }
 
     fn switch_statement(input: Node) -> Result<SwitchStatement> {
-        let mut predicate = None;
-        let mut cases = Vec::new();
         match_nodes!(input.into_children();
-            [expression(e), nodes..] => {
-                predicate = Some(e);
+            [expression(predicate), nodes..] => {
+                let mut cases = Vec::new();
                 match_nodes_any!(nodes;
                     switch_case(c) => cases.push(c),
                     switch_default_case(c) => cases.push(c)
-                )
+                );
+                Ok(SwitchStatement { predicate, cases })
             }
-        );
-        Ok(SwitchStatement { predicate: predicate.unwrap(), cases })
+        )
     }
 
     fn code_block(input: Node) -> Result<CodeBlock> {
@@ -677,7 +686,7 @@ impl UnrealScriptParser {
             [switch_statement(v)] => Ok(CodeStatement::Switch(Box::new(v))),
             [const_declaration(v)] => Ok(CodeStatement::ConstDeclaration(v)),
             [expression(v)] => Ok(CodeStatement::Expression(v)),
-            [statement_empty(v)] => Ok(CodeStatement::Empty)
+            [statement_empty(_v)] => Ok(CodeStatement::Empty)
         )
     }
 
@@ -825,7 +834,7 @@ impl UnrealScriptParser {
     fn defaultproperties_array(input: Node) -> Result<DefaultPropertiesArray> {
         let mut elements = Vec::new();
         match_nodes_any!(input.into_children();
-            defaultproperties_array_comma(r) => elements.push(None),
+            defaultproperties_array_comma(_r) => elements.push(None),
             defaultproperties_value(v) => elements.push(Some(v))
         );
         Ok(DefaultPropertiesArray { elements })
@@ -887,7 +896,7 @@ impl UnrealScriptParser {
 
     fn program_statement(input: Node) -> Result<ProgramStatement> {
         Ok(match_nodes!(input.into_children();
-            [statement_empty] => ProgramStatement::Empty,
+            [statement_empty(_e)] => ProgramStatement::Empty,
             [compiler_directive(c)] => ProgramStatement::CompilerDirective(c),
             [const_declaration(c)] => ProgramStatement::ConstDeclaration(c),
             [var_declaration(v)] => ProgramStatement::VarDeclaration(v),
@@ -901,26 +910,120 @@ impl UnrealScriptParser {
         ))
     }
 
+    fn EOI(_input: Node) -> Result<()> {
+        Ok(())
+    }
+
     fn program(input: Node) -> Result<Program> {
         let mut statements = Vec::new();
         match_nodes_any!(input.into_children();
-            compiler_directive(c) => statements.push(ProgramStatement::CompilerDirective(c)),
-            const_declaration(c) => statements.push(ProgramStatement::ConstDeclaration(c)),
             class_declaration(c) => statements.push(ProgramStatement::ClassDeclaration(c)),
-            program_statement(s) => statements.push(s)
+            program_statement(s) => statements.push(s),
+            EOI(_e) => {}
         );
+        for statement in statements.iter() {
+            println!("{:?}", statement);
+        }
         Ok(Program { statements })
     }
 
+    fn expression_empty(input: Node) -> Result<()> {
+        Ok(())
+    }
+
+    fn expression_list(input: Node) -> Result<Vec<Option<Box<Expression>>>> {
+        let mut expressions = Vec::new();
+        match_nodes_any!(input.into_children();
+            expression(e) => expressions.push(Some(e)),
+            expression_empty(_e) => expressions.push(None)
+        );
+        Ok(expressions)
+    }
+
     fn expression(input: Node) -> Result<Box<Expression>> {
+
         fn parse_target(nodes: &[Node]) -> Result<Box<Expression>> {
             let (node, remaining) = nodes.split_last().unwrap();
             match node.as_rule() {
+                Rule::unqualified_identifier => {
+                    Ok(Box::new(Expression::Identifier(UnrealScriptParser::unqualified_identifier(Node::new(node.clone().into_pair()))?)))
+                }
+                Rule::new => {
+                    let mut inner_iter = node.clone().into_children().into_iter();
+                    let first = inner_iter.next().unwrap();
+                    if let Rule::expression_list = first.as_rule() {
+                        Ok(Box::new(Expression::New {
+                            arguments: Some(UnrealScriptParser::expression_list(first)?),
+                            type_: UnrealScriptParser::expression(Node::new(inner_iter.next().unwrap().clone().into_pair()))?
+                        }))
+                    } else {
+                        Ok(Box::new(Expression::New {
+                            arguments: None,
+                            type_: UnrealScriptParser::expression(Node::new(inner_iter.next().unwrap().clone().into_pair()))?
+                        }))
+                    }
+                }
+                Rule::cast => {
+                    let mut inner_iter = node.clone().into_children().into_iter();
+                    Ok(Box::new(Expression::Cast {
+                        type_: UnrealScriptParser::type_(inner_iter.next().unwrap())?,
+                        operand: UnrealScriptParser::expression(inner_iter.next().unwrap())?
+                    }))
+                }
+                // NOTE: these are required because integer_literal and float_literals can be captured
+                // before monadic prefix verbs.
+                Rule::numeric_literal => {
+                    Ok(Box::new(Expression::Literal(Literal::Numeric(UnrealScriptParser::numeric_literal(Node::new(node.clone().into_pair()))?))))
+                }
+                Rule::literal => {
+                    Ok(Box::new(Expression::Literal(UnrealScriptParser::literal(Node::new(node.clone().into_pair()))?)))
+                }
+                Rule::default_access => {
+                    Ok(Box::new(Expression::DefaultAccess {
+                        operand: match !remaining.is_empty() {
+                            true => None,
+                            false => Some(parse_expression(remaining)?)
+                        },
+                        target: UnrealScriptParser::unqualified_identifier(node.clone().into_children().single()?)?
+                    }))
+                }
+                Rule::static_access => {
+                    Ok(Box::new(Expression::StaticAccess {
+                        operand: match !remaining.is_empty() {
+                            true => None,
+                            false => Some(parse_expression(remaining)?)
+                        },
+                        target: UnrealScriptParser::unqualified_identifier(node.clone().into_children().single()?)?
+                    }))
+                }
+                Rule::global_call => {
+                    let mut inner_iter = node.clone().into_children().into_iter();
+                    let name = UnrealScriptParser::unqualified_identifier(inner_iter.next().unwrap())?;
+                    let arguments = UnrealScriptParser::expression_list(inner_iter.next().unwrap())?;
+                    Ok(Box::new(Expression::GlobalCall { name, arguments }))
+                }
                 Rule::parenthetical_expression => {
                     let children: Vec<Node> = node.clone().into_children().single()?.into_children().into_iter().collect();
                     Ok(Box::new(Expression::ParentheticalExpression(parse_expression(&children[..])?)))
-                },
-                _ => { todo!() }
+                }
+                Rule::call => {
+                    Ok(Box::new(Expression::Call {
+                        operand: parse_expression(remaining)?,
+                        arguments: UnrealScriptParser::expression_list(node.clone().into_children().single()?)? }))
+                }
+                Rule::array_access => {
+                    Ok(Box::new(Expression::ArrayAccess {
+                        operand: parse_expression(remaining)?,
+                        argument: UnrealScriptParser::expression(node.clone().into_children().single()?)?
+                    }))
+                }
+                Rule::member_access => {
+                    Ok(Box::new(Expression::MemberAccess {
+                        operand: parse_expression(remaining)?,
+                        target: UnrealScriptParser::unqualified_identifier(node.clone().into_children().single()?)?
+                    }))
+                }
+                _ => panic!("unhandled rule {:?}", node.as_pair())
             }
         }
 
@@ -959,22 +1062,54 @@ impl UnrealScriptParser {
                     operand: parse_target(&nodes[..nodes.len() - 1])?
                 }))
             }
-            match nodes.first().unwrap().as_rule() {
-                Rule::monadic_pre_verb => {
-                    return Ok(Box::new(Expression::MonadicPreExpression {
-                        verb: MonadicVerb::from_str(nodes.first().unwrap().as_str()).unwrap(),
-                        operand: parse_target(&nodes[1..])?
-                    }))
-                },
-                _ => {}
+            if let Rule::monadic_pre_verb = nodes.first().unwrap().as_rule() {
+                return Ok(Box::new(Expression::MonadicPreExpression {
+                    verb: MonadicVerb::from_str(nodes.first().unwrap().as_str()).unwrap(),
+                    operand: parse_target(&nodes[1..])?
+                }))
             }
             parse_target(nodes)
         }
+
         let nodes: Vec<Node> = input.into_children().collect();
         parse_expression(&nodes[..])
     }
 }
 
-pub fn parse_program(contents: &str) -> Result<Program> {
-    UnrealScriptParser::program(UnrealScriptParser::parse(Rule::program, contents)?.single()?)
+pub enum ParsingError {
+    IoError(std::io::Error),
+    EncodingError(String),
+    PestError(Error<Rule>)
+}
+
+impl From<std::io::Error> for ParsingError {
+    fn from(error: std::io::Error) -> Self {
+        ParsingError::IoError(error)
+    }
+}
+
+impl From<Error<Rule>> for ParsingError {
+    fn from(error: Error<Rule>) -> Self {
+        ParsingError::PestError(error)
+    }
+}
+
+fn read_file_to_string(path: &str) -> std::result::Result<String, ParsingError> {
+    let mut file = File::open(path)?;
+    let mut buffer: Vec<u8> = Vec::new();
+    file.read_to_end(&mut buffer)?;
+    encoding::all::WINDOWS_1252
+        .decode(&mut buffer, DecoderTrap::Strict)
+        .map_err(|e| ParsingError::EncodingError(e.to_string()))
+}
+
+pub fn parse_program(contents: &str) -> std::result::Result<Program, ParsingError> {
+    match UnrealScriptParser::program(UnrealScriptParser::parse(Rule::program, contents)?.single()?) {
+        Ok(p) => Ok(p),
+        Err(e) => Err(ParsingError::from(e))
+    }
+}
+
+pub fn parse_file(path: &str) -> std::result::Result<Program, ParsingError> {
+    parse_program(read_file_to_string(path)?.as_str())
 }
