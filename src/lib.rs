@@ -1,24 +1,21 @@
-extern crate pest;
-extern crate pest_derive;
-use pest::error::{ErrorVariant, LineColLocation, InputLocation};
-
 mod ast;
 mod parser;
-mod writer;
+mod visitor;
 mod test;
 
-use pest_consume;
-
-use crate::parser::{ParsingError, ParserRule};
-
 extern crate encoding;
-
 #[macro_use]
 extern crate lazy_static;
+extern crate pest;
+extern crate pest_derive;
+
+use pest::error::{ErrorVariant, LineColLocation, InputLocation};
+use pest_consume;
+use crate::parser::{ParsingError, ParserRule, ProgramResult};
 
 // PYTHON STUFF
 use pyo3::prelude::{pymodule};
-use pyo3::create_exception;
+use pyo3::{create_exception, PyErr};
 use pyo3::types::{PyDict};
 use pyo3::{Python, PyResult, exceptions, PyNativeType, ToPyObject, PyObject};
 use pyo3::prelude::PyModule;
@@ -27,6 +24,30 @@ create_exception!(unrealscriptplus, ScriptParseError, pyo3::exceptions::PyExcept
 
 #[pymodule]
 fn unrealscriptplus(py: Python, m: &PyModule) -> PyResult<()> {
+
+    fn parsing_error_to_py_err(module: &PyModule, error: ParsingError) -> PyErr {
+        match error {
+            ParsingError::PestError(e) => ScriptParseError::new_err(pest_error_to_py_object(module.py(), e)),
+            ParsingError::EncodingError(e) => exceptions::PyUnicodeEncodeError::new_err(e.to_string()),
+            ParsingError::IoError(e) => exceptions::PyIOError::new_err(e.to_string())
+        }
+    }
+
+    fn program_result_to_py_object(py: Python, result: &ProgramResult) -> PyObject {
+        let sequence = vec![
+            (
+                "errors".to_object(py),
+                result.errors.iter().map(|e| {
+                    PyDict::from_sequence(py, vec![
+                        ("span".to_object(py), (e.span.start, e.span.end).to_object(py)).to_object(py),
+                        ("message".to_object(py), e.message.to_object(py)).to_object(py),
+                        ("severity".to_object(py), format!("{:?}", e.severity).to_string().to_object(py)).to_object(py),
+                    ].to_object(py)).unwrap().to_object(py)
+                }).collect::<Vec<PyObject>>().to_object(py),
+            )
+        ].to_object(py);
+        PyDict::from_sequence(py,sequence).unwrap().to_object(py)
+    }
 
     fn pest_error_to_py_object(py: Python, e: pest_consume::Error<ParserRule>) -> PyObject {
         let sequence = vec![
@@ -70,16 +91,21 @@ fn unrealscriptplus(py: Python, m: &PyModule) -> PyResult<()> {
 
     #[pyfn(m)]
     #[pyo3(pass_module)]
-    fn parse_file(module: &PyModule, path: &str) -> PyResult<bool> {
+    fn parse_expression(module: &PyModule, path: &str) -> PyResult<String> {
+        match crate::parser::parse_expression(path) {
+            Ok(p) => { Ok(format!("{:?}", p)) }
+            Err(e) => { Err(parsing_error_to_py_err(module, e.into())) }
+        }
+    }
+
+    #[pyfn(m)]
+    #[pyo3(pass_module)]
+    fn parse_file(module: &PyModule, path: &str) -> PyResult<PyObject> {
         match crate::parser::parse_file(path) {
-            Ok(_) => Ok(true),
-            Err(e) => {
-                Err(match e {
-                    ParsingError::PestError(e) => ScriptParseError::new_err(pest_error_to_py_object(module.py(), e)),
-                    ParsingError::EncodingError(e) => exceptions::PyUnicodeEncodeError::new_err(e.to_string()),
-                    ParsingError::IoError(e) => exceptions::PyIOError::new_err(e.to_string())
-                })
+            Ok(result) => {
+                Ok(program_result_to_py_object(module.py(), &result))
             }
+            Err(e) => Err(parsing_error_to_py_err(module, e))
         }
     }
     m.add("ScriptParseError", py.get_type::<ScriptParseError>())?;

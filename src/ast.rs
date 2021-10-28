@@ -1,6 +1,18 @@
 use strum_macros::{EnumString, Display};
 use std::fmt::{Debug, Formatter};
 
+#[derive(Debug, Copy, Clone)]
+pub struct AstSpan {
+    pub start: usize,
+    pub end: usize
+}
+
+#[derive(Debug)]
+pub struct AstNode<Data> {
+    pub data: Data,
+    pub span: AstSpan
+}
+
 #[derive(Debug, PartialEq, Display, EnumString)]
 #[strum(serialize_all="lowercase")]
 pub enum ClassModifierType {
@@ -27,7 +39,7 @@ pub enum ClassModifierType {
     Intrinsic,
     NativeReplication,
     Native,
-    NoExport
+    NoExport,
 }
 
 #[derive(Debug, PartialEq, Display, EnumString)]
@@ -44,7 +56,7 @@ pub enum FunctionModifierType {
     Singular,
     Intrinsic,
     Iterator,
-    Latent
+    Latent,
 }
 
 #[derive(Debug, PartialEq, Display, EnumString)]
@@ -53,7 +65,7 @@ pub enum FunctionArgumentModifier {
     Coerce,
     Optional,
     Out,
-    Skip
+    Skip,
 }
 
 #[derive(Debug, PartialEq, Display, EnumString)]
@@ -63,7 +75,7 @@ pub enum StructModifier {
     Transient,
     Export,
     Init,
-    Native
+    Native,
 }
 
 #[derive(Debug, PartialEq, Display, EnumString)]
@@ -84,14 +96,14 @@ pub enum StructVarModifier {
     EditInlineUse,
     EditInlineNotify,
     Export,
-    NoExport
+    NoExport,
 }
 
 #[derive(Debug, PartialEq, Display, EnumString)]
 #[strum(serialize_all="lowercase")]
 pub enum StateModifier {
     Auto,
-    Simulated
+    Simulated,
 }
 
 #[derive(Debug, PartialEq, Display, EnumString)]
@@ -118,14 +130,14 @@ pub enum VarModifier {
     Cache,
     Export,
     Native,
-    NoExport
+    NoExport,
 }
 
 #[derive(Debug, PartialEq, Display, EnumString)]
 #[strum(serialize_all="lowercase")]
 pub enum ReplicationReliability {
     Reliable,
-    Unreliable
+    Unreliable,
 }
 
 #[derive(Debug, PartialEq, Display, EnumString)]
@@ -136,13 +148,13 @@ pub enum FunctionTypeType {
     Delegate,
     PreOperator,
     PostOperator,
-    Operator
+    Operator,
 }
 
 #[derive(Debug)]
 pub struct FunctionType {
     pub type_: FunctionTypeType,
-    pub arguments: Option<Vec<NumericLiteral>>
+    pub arguments: Option<Vec<NumericLiteral>>,
 }
 
 #[derive(Debug, PartialEq, Display, EnumString)]
@@ -156,7 +168,7 @@ pub enum MonadicVerb {
     #[strum(serialize="-")]
     Negate,
     #[strum(serialize="!")]
-    Not
+    Not,
 }
 
 #[derive(Debug, PartialEq, Display, EnumString)]
@@ -226,49 +238,44 @@ pub enum DyadicVerb {
     #[strum(serialize="dot")]
     Dot,
     #[strum(serialize="cross")]
-    Cross
+    Cross,
 }
 
 pub struct Program {
-    pub statements: Vec<ProgramStatement>
+    pub statements: Vec<AstNode<ProgramStatement>>,
 }
 
 #[derive(Debug)]
 pub enum ProgramStatement {
     Empty,
-    ClassDeclaration(ClassDeclaration),
+    ClassDeclaration(AstNode<ClassDeclaration>),
     CompilerDirective(CompilerDirective),
-    ConstDeclaration(ConstDeclaration),
-    VarDeclaration(VarDeclaration),
-    EnumDeclaration(EnumDeclaration),
-    StructDeclaration(StructDeclaration),
-    FunctionDeclaration(FunctionDeclaration),
-    ReplicationBlock(ReplicationBlock),
+    ConstDeclaration(AstNode<ConstDeclaration>),
+    VarDeclaration(AstNode<VarDeclaration>),
+    EnumDeclaration(AstNode<EnumDeclaration>),
+    StructDeclaration(AstNode<StructDeclaration>),
+    FunctionDeclaration(AstNode<FunctionDeclaration>),
+    ReplicationBlock(AstNode<ReplicationBlock>),
     StateDeclaration(StateDeclaration),
-    DefaultProperties(DefaultProperties),
+    DefaultProperties(AstNode<DefaultProperties>),
     CppText(String),
 }
 
 #[derive(Debug)]
 pub struct CompilerDirective {
-    pub command: String
+    pub command: String,
 }
-
-// pub enum Constant {
-//     Literal(Literal),
-//     Identifier(Identifier)
-// }
 
 #[derive(Debug)]
 pub enum VarSize {
     IntegerLiteral(NumericLiteral),
-    Identifier(Identifier)
+    Identifier(AstNode<Identifier>),
 }
 
 #[derive(Debug)]
 pub struct VarName {
-    pub identifier: Identifier,
-    pub size: Option<VarSize>
+    pub identifier: AstNode<Identifier>,
+    pub size: Option<AstNode<VarSize>>,
 }
 
 #[derive(Debug)]
@@ -276,24 +283,24 @@ pub struct StructVarDeclaration {
     pub is_editable: bool,
     pub modifiers: Vec<StructVarModifier>,
     pub type_: Type,
-    pub names: Vec<VarName>
+    pub names: Vec<AstNode<VarName>>,
 }
 
 #[derive(Debug)]
 pub struct StructDeclaration {
-    pub name: Identifier,
-    pub parent: Option<Identifier>,
-    pub modifiers: Vec<StructModifier>,
-    pub members: Vec<StructVarDeclaration>,
-    pub cpp: Option<String>
+    pub name: AstNode<Identifier>,
+    pub parent: Option<AstNode<Identifier>>,
+    pub modifiers: Vec<AstNode<StructModifier>>,
+    pub members: Vec<AstNode<StructVarDeclaration>>,
+    pub cpp: Option<String>,
 }
 
 #[derive(Debug)]
 pub struct VarDeclaration {
     pub category: Option<String>,
-    pub modifiers: Vec<VarModifier>,
+    pub modifiers: Vec<AstNode<VarModifier>>,
     pub type_: Type,
-    pub names: Vec<VarName>
+    pub names: Vec<AstNode<VarName>>,
 }
 
 #[derive(Debug)]
@@ -304,10 +311,10 @@ pub enum Type {
     Name,
     Bool,
     Array(Box<Type>),
-    Class(Identifier),
-    Struct(StructDeclaration),
-    Enum(EnumDeclaration),
-    Identifier(Identifier)
+    Class(AstNode<Identifier>),
+    Struct(AstNode<StructDeclaration>),
+    Enum(AstNode<EnumDeclaration>),
+    Identifier(Identifier),
 }
 
 impl From<Identifier> for Type {
@@ -332,20 +339,20 @@ type ExpressionList = Vec<Option<Box<Expression>>>;
 
 #[derive(Debug)]
 pub enum Expression {
-    Identifier(Identifier),
+    Identifier(AstNode<Identifier>),
     Literal(Literal),
     New { arguments: Option<ExpressionList>, type_: Box<Expression> },
     MonadicPreExpression { operand: Box<Expression>, verb: MonadicVerb },
     MonadicPostExpression { operand: Box<Expression>, verb: MonadicVerb },
     DyadicExpression { lhs: Box<Expression>, verb: DyadicVerb, rhs: Box<Expression> },
     Call { operand: Box<Expression>, arguments: ExpressionList },
-    GlobalCall { name: Identifier, arguments: ExpressionList },
+    GlobalCall { name: AstNode<Identifier>, arguments: ExpressionList },
     ArrayAccess { operand: Box<Expression>, argument: Box<Expression> },
-    DefaultAccess { operand: Option<Box<Expression>>, target: Identifier },
-    StaticAccess { operand: Option<Box<Expression>>, target: Identifier },
-    MemberAccess { operand: Box<Expression>, target: Identifier },
+    DefaultAccess { operand: Option<Box<Expression>>, target: AstNode<Identifier> },
+    StaticAccess { operand: Option<Box<Expression>>, target: AstNode<Identifier> },
+    MemberAccess { operand: Box<Expression>, target: AstNode<Identifier> },
     Cast { type_: Type, operand: Box<Expression> },
-    ParentheticalExpression(Box<Expression>)
+    ParentheticalExpression(Box<Expression>),
 }
 
 #[derive(Debug)]
@@ -355,8 +362,8 @@ pub enum CodeStatement {
     Return(Option<Box<Expression>>),
     Break,
     Continue,
-    Goto(Identifier),
-    JumpLabel(Identifier),
+    Goto(AstNode<Identifier>),
+    JumpLabel(AstNode<Identifier>),
     ForEach(Box<ForEach>),
     For(Box<ForStatement>),
     Switch(Box<SwitchStatement>),
@@ -364,21 +371,21 @@ pub enum CodeStatement {
     While(Box<WhileStatement>),
     DoUntil(Box<DoUntil>),
     CompilerDirective(CompilerDirective),
-    ConstDeclaration(ConstDeclaration)
+    ConstDeclaration(AstNode<ConstDeclaration>),
 }
 
 #[derive(Debug)]
 pub struct ClassDeclaration {
-    pub name: Identifier,
-    pub parent_class: Option<Identifier>,
-    pub modifiers: Vec<ClassModifier>,
-    pub within: Option<Identifier>
+    pub name: AstNode<Identifier>,
+    pub parent_class: Option<AstNode<Identifier>>,
+    pub modifiers: Vec<AstNode<ClassModifier>>,
+    pub within: Option<AstNode<Identifier>>,
 }
 
 #[derive(Debug, PartialEq)]
 pub enum NumericLiteral {
     Integer(i32),
-    Float(f32)
+    Float(f32),
 }
 
 #[derive(Debug)]
@@ -389,11 +396,11 @@ pub enum Literal {
     Name(String),
     Rotator { pitch: NumericLiteral, yaw: NumericLiteral, roll: NumericLiteral },
     Vector { x: NumericLiteral, y: NumericLiteral, z: NumericLiteral },
-    Object { type_: Identifier, reference: String }
+    Object { type_: AstNode<Identifier>, reference: String },
 }
 
 pub struct Identifier {
-    pub string: String
+    pub string: String,
 }
 
 impl Debug for Identifier {
@@ -418,13 +425,13 @@ impl PartialEq for Identifier {
 pub struct FunctionArgument {
     pub modifiers: Vec<FunctionArgumentModifier>,
     pub type_: Type,
-    pub name: VarName
+    pub name: AstNode<VarName>,
 }
 
 #[derive(Debug)]
 pub struct FunctionModifier {
     pub type_: FunctionModifierType,
-    pub arguments: Vec<NumericLiteral>
+    pub arguments: Vec<NumericLiteral>,
 }
 
 #[derive(Debug)]
@@ -434,89 +441,89 @@ pub struct FunctionDeclaration {
     pub return_type: Option<Type>,
     pub arguments: Vec<FunctionArgument>,
     pub name: Identifier,
-    pub body: Option<FunctionBody>
+    pub body: Option<FunctionBody>,
 }
 
 #[derive(Debug)]
 pub struct ClassModifier {
-    pub type_: ClassModifierType,
-    pub arguments: Option<ExpressionList>
+    pub type_: AstNode<ClassModifierType>,
+    pub arguments: Option<ExpressionList>,
 }
 
 #[derive(Debug)]
 pub struct LocalDeclaration {
     pub type_: Type,
-    pub names: Vec<VarName>
+    pub names: Vec<AstNode<VarName>>,
 }
 
 #[derive(Debug)]
 pub struct EnumDeclaration {
-    pub name: Identifier,
-    pub values: Vec<Identifier>
+    pub name: AstNode<Identifier>,
+    pub values: Vec<AstNode<Identifier>>,
 }
 
 #[derive(Debug)]
 pub enum StateStatement {
-    ConstDeclaration(ConstDeclaration),
-    FunctionDeclaration(FunctionDeclaration)
+    ConstDeclaration(AstNode<ConstDeclaration>),
+    FunctionDeclaration(AstNode<FunctionDeclaration>),
 }
 
 #[derive(Debug)]
 pub struct StateLabel {
-    pub label: Identifier,
-    pub statements: Vec<CodeStatement>
+    pub label: AstNode<Identifier>,
+    pub statements: Vec<AstNode<CodeStatement>>,
 }
 
 #[derive(Debug)]
 pub struct StateDeclaration {
     pub is_editable: bool,
     pub modifiers: Vec<StateModifier>,
-    pub name: Identifier,
-    pub parent: Option<Identifier>,
-    pub ignores: Vec<Identifier>,
+    pub name: AstNode<Identifier>,
+    pub parent: Option<AstNode<Identifier>>,
+    pub ignores: Vec<AstNode<Identifier>>,
     pub statements: Vec<StateStatement>,
-    pub labels: Vec<StateLabel>
+    pub labels: Vec<StateLabel>,
 }
 
 #[derive(Debug)]
 pub struct ReplicationStatement {
     pub reliability: ReplicationReliability,
     pub condition: Box<Expression>,
-    pub variables: Vec<Identifier>
+    pub variables: Vec<AstNode<Identifier>>,
 }
 
 #[derive(Debug)]
 pub struct ReplicationBlock {
-    pub statements: Vec<ReplicationStatement>
+    pub statements: Vec<ReplicationStatement>,
 }
 
 #[derive(Debug)]
 pub enum FunctionBodyStatement {
-    ConstDeclaration(ConstDeclaration),
-    LocalDeclaration(LocalDeclaration),
-    CodeStatement(CodeStatement)
+    ConstDeclaration(AstNode<ConstDeclaration>),
+    LocalDeclaration(AstNode<LocalDeclaration>),
+    CodeStatement(AstNode<CodeStatement>),
 }
 
 #[derive(Debug)]
 pub struct FunctionBody {
-    pub statements: Vec<FunctionBodyStatement>
+    pub statements: Vec<FunctionBodyStatement>,
 }
 
 #[derive(Debug)]
 pub struct ConstDeclaration {
-    pub name: Identifier,
-    pub value: Literal
+    pub name: AstNode<Identifier>,
+    pub value: Literal,
 }
 
 #[derive(Debug)]
 pub struct CodeBlock {
-    pub statements: Vec<CodeStatement>
+    pub statements: Vec<AstNode<CodeStatement>>,
 }
 
 #[derive(Debug)]
 pub enum CodeStatementOrBlock {
-    CodeBlock(CodeBlock),
-    CodeStatement(CodeStatement)
+    CodeBlock(AstNode<CodeBlock>),
+    CodeStatement(AstNode<CodeStatement>),
 }
 
 #[derive(Debug)]
@@ -524,118 +531,118 @@ pub struct ForStatement {
     pub init: Option<Box<Expression>>,
     pub  predicate: Option<Box<Expression>>,
     pub post: Option<Box<Expression>>,
-    pub body: CodeStatementOrBlock
+    pub body: AstNode<CodeStatementOrBlock>,
 }
 
 #[derive(Debug)]
 pub struct DoUntil {
-    pub body: CodeStatementOrBlock,
-    pub predicate: Option<Box<Expression>>
+    pub body: AstNode<CodeStatementOrBlock>,
+    pub predicate: Option<Box<Expression>>,
 }
 
 #[derive(Debug)]
 pub struct WhileStatement {
     pub predicate: Box<Expression>,
-    pub body: CodeStatementOrBlock
+    pub body: AstNode<CodeStatementOrBlock>,
 }
 
 #[derive(Debug)]
 pub struct ForEach {
     pub predicate: Box<Expression>,
-    pub body: CodeStatementOrBlock
+    pub body: AstNode<CodeStatementOrBlock>,
 }
 
 #[derive(Debug)]
 pub enum SwitchCaseType {
     Expression(Box<Expression>),
-    Default
+    Default,
 }
 
 #[derive(Debug)]
 pub struct SwitchCase {
     pub type_: SwitchCaseType,
-    pub statements: Vec<CodeStatement>
+    pub statements: Vec<AstNode<CodeStatement>>,
 }
 
 #[derive(Debug)]
 pub struct SwitchStatement {
     pub predicate: Box<Expression>,
-    pub cases: Vec<SwitchCase>
+    pub cases: Vec<SwitchCase>,
 }
 
 #[derive(Debug)]
 pub struct ConditionalStatement {
     pub if_statement: IfStatement,
     pub elif_statements: Vec<ElifStatement>,
-    pub else_statement: Option<ElseStatement>
+    pub else_statement: Option<ElseStatement>,
 }
 
 #[derive(Debug)]
 pub struct IfStatement {
     pub predicate: Box<Expression>,
-    pub body: Option<CodeStatementOrBlock>
+    pub body: Option<AstNode<CodeStatementOrBlock>>,
 }
 
 #[derive(Debug)]
 pub struct ElifStatement {
     pub predicate: Box<Expression>,
-    pub body: CodeStatementOrBlock
+    pub body: AstNode<CodeStatementOrBlock>,
 }
 
 #[derive(Debug)]
 pub struct ElseStatement {
-    pub body: CodeStatementOrBlock
+    pub body: AstNode<CodeStatementOrBlock>,
 }
 
 #[derive(Debug)]
 pub struct DefaultProperties {
-    pub statements: Vec<DefaultPropertiesStatement>
+    pub statements: Vec<AstNode<DefaultPropertiesStatement>>,
 }
 
 #[derive(Debug)]
 pub enum DefaultPropertiesStatement {
-    Assignment(DefaultPropertiesAssignment),
-    Object(DefaultPropertiesObject)
+    Assignment(AstNode<DefaultPropertiesAssignment>),
+    Object(AstNode<DefaultPropertiesObject>),
 }
 
 #[derive(Debug)]
 pub struct DefaultPropertiesAssignment {
-    pub target: DefaultPropertiesTarget,
-    pub value: Option<DefaultPropertiesValue>
+    pub target: AstNode<DefaultPropertiesTarget>,
+    pub value: Option<AstNode<DefaultPropertiesValue>>,
 }
 
 #[derive(Debug)]
 pub enum DefaultPropertiesValue {
     Literal(Literal),
-    Identifier(Identifier),
-    Struct(DefaultPropertiesStruct),
-    Array(DefaultPropertiesArray)
+    Identifier(AstNode<Identifier>),
+    Struct(AstNode<DefaultPropertiesStruct>),
+    Array(AstNode<DefaultPropertiesArray>),
 }
 
 #[derive(Debug)]
 pub struct DefaultPropertiesStruct {
-    pub assignments: Vec<DefaultPropertiesAssignment>
+    pub assignments: Vec<AstNode<DefaultPropertiesAssignment>>,
 }
 
 #[derive(Debug)]
 pub enum DefaultPropertiesArrayIndex {
-    Identifier(Identifier),
-    IntegerLiteral(NumericLiteral)
+    Identifier(AstNode<Identifier>),
+    IntegerLiteral(NumericLiteral),
 }
 
 #[derive(Debug)]
 pub struct DefaultPropertiesTarget {
-    pub target: Identifier,
-    pub index: Option<DefaultPropertiesArrayIndex>
+    pub target: AstNode<Identifier>,
+    pub index: Option<AstNode<DefaultPropertiesArrayIndex>>,
 }
 
 #[derive(Debug)]
 pub struct DefaultPropertiesArray {
-    pub elements: Vec<Option<DefaultPropertiesValue>>
+    pub elements: Vec<Option<AstNode<DefaultPropertiesValue>>>,
 }
 
 #[derive(Debug)]
 pub struct DefaultPropertiesObject {
-    pub class: Identifier,
-    pub statements: Vec<DefaultPropertiesStatement>
+    pub class: AstNode<Identifier>,
+    pub statements: Vec<AstNode<DefaultPropertiesStatement>>,
 }

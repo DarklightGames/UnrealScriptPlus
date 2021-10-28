@@ -14,10 +14,22 @@ use encoding::{DecoderTrap, Encoding};
 use std::fs::File;
 use std::io::Read;
 
+use crate::ast::*;
+use crate::visitor::{Visit, Visitor};
+
 type Result<T> = std::result::Result<T, Error<Rule>>;
 type Node<'i> = pest_consume::Node<'i, Rule, ()>;
 
 pub type ParserRule = Rule;
+
+impl From<&Node<'_>> for AstSpan {
+    fn from(node: &Node<'_>) -> Self {
+        AstSpan {
+            start: node.as_pair().as_span().start(),
+            end: node.as_pair().as_span().end()
+        }
+    }
+}
 
 macro_rules! match_nodes_any {
     ($nodes:expr; $($f:ident($v:ident) => $e:expr),*) => (
@@ -87,8 +99,6 @@ lazy_static! {
     };
 }
 
-use crate::ast::*;
-
 fn parse_target(nodes: &[Node]) -> Result<Box<Expression>> {
     let (node, remaining) = nodes.split_last().unwrap();
     match node.as_rule() {
@@ -103,7 +113,7 @@ fn parse_target(nodes: &[Node]) -> Result<Box<Expression>> {
                     arguments: Some(UnrealScriptParser::expression_list(first)?),
                     type_: UnrealScriptParser::expression(Node::new(inner_iter.next().unwrap().clone().into_pair()))?
                 }))
-            } else {
+            }  else {
                 Ok(Box::new(Expression::New {
                     arguments: None,
                     type_: UnrealScriptParser::expression(Node::new(first.clone().into_pair()))?
@@ -129,7 +139,7 @@ fn parse_target(nodes: &[Node]) -> Result<Box<Expression>> {
             Ok(Box::new(Expression::DefaultAccess {
                 operand: match remaining.is_empty() {
                     true => None,
-                    false => Some(parse_expression(remaining)?)
+                    false => Some(parse_expression_from_nodes(remaining)?)
                 },
                 target: UnrealScriptParser::unqualified_identifier(node.clone().into_children().single()?)?
             }))
@@ -138,7 +148,7 @@ fn parse_target(nodes: &[Node]) -> Result<Box<Expression>> {
             Ok(Box::new(Expression::StaticAccess {
                 operand: match remaining.is_empty() {
                     true => None,
-                    false => Some(parse_expression(remaining)?)
+                    false => Some(parse_expression_from_nodes(remaining)?)
                 },
                 target: UnrealScriptParser::unqualified_identifier(node.clone().into_children().single()?)?
             }))
@@ -151,22 +161,22 @@ fn parse_target(nodes: &[Node]) -> Result<Box<Expression>> {
         }
         Rule::parenthetical_expression => {
             let children: Vec<Node> = node.clone().into_children().single()?.into_children().into_iter().collect();
-            Ok(Box::new(Expression::ParentheticalExpression(parse_expression(&children[..])?)))
+            Ok(Box::new(Expression::ParentheticalExpression(parse_expression_from_nodes(&children[..])?)))
         }
         Rule::call => {
             Ok(Box::new(Expression::Call {
-                operand: parse_expression(remaining)?,
+                operand: parse_expression_from_nodes(remaining)?,
                 arguments: UnrealScriptParser::expression_list(node.clone().into_children().single()?)? }))
         }
         Rule::array_access => {
             Ok(Box::new(Expression::ArrayAccess {
-                operand: parse_expression(remaining)?,
+                operand: parse_expression_from_nodes(remaining)?,
                 argument: UnrealScriptParser::expression(node.clone().into_children().single()?)?
             }))
         }
         Rule::member_access => {
             Ok(Box::new(Expression::MemberAccess {
-                operand: parse_expression(remaining)?,
+                operand: parse_expression_from_nodes(remaining)?,
                 target: UnrealScriptParser::unqualified_identifier(node.clone().into_children().single()?)?
             }))
         }
@@ -174,7 +184,7 @@ fn parse_target(nodes: &[Node]) -> Result<Box<Expression>> {
     }
 }
 
-fn parse_expression(nodes: &[Node]) -> Result<Box<Expression>> {
+fn parse_expression_from_nodes(nodes: &[Node]) -> Result<Box<Expression>> {
     let mut dyadic_verbs = Vec::new();
     for (index, node) in nodes.into_iter().enumerate() {
         if let Rule::dyadic_verb = node.as_rule() {
@@ -193,9 +203,9 @@ fn parse_expression(nodes: &[Node]) -> Result<Box<Expression>> {
         // Split expression on either side of the verb and return a dyadic expression node
         if let Some((_, index, operator)) = dyadic_verbs.first() {
             return Ok(Box::new(Expression::DyadicExpression {
-                lhs: parse_expression(&nodes[..index - 0])?,
+                lhs: parse_expression_from_nodes(&nodes[..index - 0])?,
                 verb: DyadicVerb::from_str(operator.as_str()).unwrap(),
-                rhs: parse_expression(&nodes[index + 1..])?
+                rhs: parse_expression_from_nodes(&nodes[index + 1..])?
             }))
         }
     }
@@ -280,19 +290,19 @@ impl UnrealScriptParser {
         Ok(NumericLiteral::Integer(sign * integer))
     }
 
-    fn unqualified_identifier(input: Node) -> Result<Identifier> {
-        Ok(Identifier { string: input.as_str().to_string() })
+    fn unqualified_identifier(input: Node) -> Result<AstNode<Identifier>> {
+        Ok(AstNode { span: AstSpan::from(&input), data: Identifier { string: input.as_str().to_string() } })
     }
 
-    fn qualified_identifier(input: Node) -> Result<Identifier> {
-        Ok(Identifier { string: input.as_str().to_string() })
+    fn qualified_identifier(input: Node) -> Result<AstNode<Identifier>> {
+        Ok(AstNode { span: AstSpan::from(&input), data: Identifier { string: input.as_str().to_string() } })
     }
 
-    fn identifier(input: Node) -> Result<Identifier> {
-        Ok(Identifier { string: input.as_str().to_string() })
+    fn identifier(input: Node) -> Result<AstNode<Identifier>> {
+        Ok(AstNode { span: AstSpan::from(&input), data: Identifier { string: input.as_str().to_string() } })
     }
 
-    fn class_within(input: Node) -> Result<Identifier> {
+    fn class_within(input: Node) -> Result<AstNode<Identifier>> {
         match_nodes!(input.into_children();
             [identifier(id)] => Ok(id)
         )
@@ -339,26 +349,34 @@ impl UnrealScriptParser {
         )
     }
 
-    fn extends(input: Node) -> Result<Identifier> {
+    fn extends(input: Node) -> Result<AstNode<Identifier>> {
         match_nodes!(input.into_children();
             [identifier(id)] => Ok(id)
         )
     }
 
-    fn class_modifier_type(input: Node) -> Result<ClassModifierType> {
-        Ok(ClassModifierType::from_str(input.as_str().to_lowercase().as_str()).unwrap())
+    fn class_modifier_type(input: Node) -> Result<AstNode<ClassModifierType>> {
+        Ok(AstNode {
+            span: AstSpan::from(&input),
+            data: ClassModifierType::from_str(input.as_str().to_lowercase().as_str()).unwrap()
+        })
     }
 
-    fn class_modifier(input: Node) -> Result<ClassModifier> {
+    fn class_modifier(input: Node) -> Result<AstNode<ClassModifier>> {
+        let span = AstSpan::from(&input);
         match_nodes!(input.into_children();
-            [class_modifier_type(type_), expression_list(arguments)] => Ok(ClassModifier { type_, arguments: Some(arguments) }),
-            [class_modifier_type(type_)] => Ok(ClassModifier { type_, arguments: None })
+            [class_modifier_type(type_), expression_list(arguments)] => {
+                Ok(AstNode { span, data: ClassModifier { type_, arguments: Some(arguments) } })
+            },
+            [class_modifier_type(type_)] => {
+                Ok(AstNode { span, data: ClassModifier { type_, arguments: None } })
+            }
         )
     }
 
     fn var_category(input: Node) -> Result<String> {
         match_nodes!(input.into_children();
-            [unqualified_identifier(id)] => Ok(id.string),
+            [unqualified_identifier(id)] => Ok(id.data.string),
             // we still want to mark the category as present, even if it's empty
             [] => Ok(String::new())
         )
@@ -373,35 +391,40 @@ impl UnrealScriptParser {
         Ok(StructVarModifier::from_str(input.as_str()).unwrap())
     }
 
-    fn struct_var_declaration(input: Node) -> Result<StructVarDeclaration> {
+    fn struct_var_declaration(input: Node) -> Result<AstNode<StructVarDeclaration>> {
         let mut is_editable = false;
-        let mut modifiers: Vec<StructVarModifier> = Vec::new();
+        let mut modifiers = Vec::new();
         let mut type_: Option<Type> = None;
-        let mut names: Vec<VarName> = Vec::new();
+        let mut names = Vec::new();
+        let span = AstSpan::from(&input);
         match_nodes_any!(input.into_children();
             struct_var_editable(_e) => is_editable = true,
             struct_var_modifier(m) => modifiers.push(m),
             type_(t) => type_ = Some(t),
             var_name(n) => names.push(n)
         );
-        Ok(StructVarDeclaration {
-            names,
-            type_: type_.unwrap(),
-            modifiers,
-            is_editable
+        Ok(AstNode {
+            span,
+            data: StructVarDeclaration {
+                names,
+                type_: type_.unwrap(),
+                modifiers,
+                is_editable
+            }
         })
     }
 
-    fn struct_modifier(input: Node) -> Result<StructModifier> {
-        Ok(StructModifier::from_str(input.as_str()).unwrap())
+    fn struct_modifier(input: Node) -> Result<AstNode<StructModifier>> {
+        Ok(AstNode { span: AstSpan::from(&input), data: StructModifier::from_str(input.as_str()).unwrap() })
     }
 
-    fn struct_declaration(input: Node) -> Result<StructDeclaration> {
-        let mut modifiers: Vec<StructModifier> = Vec::new();
-        let mut parent: Option<Identifier> = None;
-        let mut name: Option<Identifier> = None;
-        let mut members: Vec<StructVarDeclaration> = Vec::new();
+    fn struct_declaration(input: Node) -> Result<AstNode<StructDeclaration>> {
+        let mut modifiers = Vec::new();
+        let mut parent: Option<AstNode<Identifier>> = None;
+        let mut name: Option<AstNode<Identifier>> = None;
+        let mut members = Vec::new();
         let mut cpp = None;
+        let span = AstSpan::from(&input);
         match_nodes_any!(input.into_children();
             struct_modifier(m) => modifiers.push(m),
             unqualified_identifier(id) => name = Some(id),
@@ -409,21 +432,28 @@ impl UnrealScriptParser {
             struct_var_declaration(v) => members.push(v),
             cppstruct(s) => cpp = Some(s)
         );
-        Ok(StructDeclaration {
-            modifiers,
-            name: name.unwrap(),
-            parent,
-            members,
-            cpp
+        Ok(AstNode {
+            span,
+            data: StructDeclaration {
+                modifiers,
+                name: name.unwrap(),
+                parent,
+                members,
+                cpp
+            }
         })
     }
 
-    fn enum_declaration(input: Node) -> Result<EnumDeclaration> {
+    fn enum_declaration(input: Node) -> Result<AstNode<EnumDeclaration>> {
+        let span = AstSpan::from(&input);
         match_nodes!(input.into_children();
             [unqualified_identifier(name), unqualified_identifier(values)..] => {
-                Ok(EnumDeclaration {
-                    name,
-                    values: values.collect()
+                Ok(AstNode {
+                    span,
+                    data: EnumDeclaration {
+                        name,
+                        values: values.collect()
+                    }
                 })
             }
         )
@@ -447,7 +477,7 @@ impl UnrealScriptParser {
             [enum_declaration(e)] => Ok(Type::Enum(e)),
             [array_type(a)] => Ok(a),
             [class_type(c)] => Ok(c),
-            [identifier(i)] => Ok(Type::from(i))
+            [identifier(i)] => Ok(Type::from(i.data))
         )
     }
 
@@ -458,47 +488,61 @@ impl UnrealScriptParser {
     //     )
     // }
 
-    fn var_size(input: Node) -> Result<VarSize> {
+    fn var_size(input: Node) -> Result<AstNode<VarSize>> {
+        let span = AstSpan::from(&input);
         match_nodes!(input.into_children();
-            [unqualified_identifier(id)] => Ok(VarSize::Identifier(id)),
-            [integer_literal(n)] => Ok(VarSize::IntegerLiteral(n))
+            [unqualified_identifier(id)] => Ok(AstNode { span, data: VarSize::Identifier(id) }),
+            [integer_literal(n)] => Ok(AstNode { span, data: VarSize::IntegerLiteral(n) })
         )
     }
 
-    fn var_name(input: Node) -> Result<VarName> {
+    fn var_name(input: Node) -> Result<AstNode<VarName>> {
+        let span = AstSpan::from(&input);
         match_nodes!(input.into_children();
-            [unqualified_identifier(identifier)] => Ok(VarName { identifier, size: None }),
-            [unqualified_identifier(identifier), var_size(size)] => Ok(VarName { identifier, size: Some(size) })
+            [unqualified_identifier(identifier)] => {
+                Ok(AstNode { span, data: VarName { identifier, size: None } })
+            },
+            [unqualified_identifier(identifier), var_size(size)] => {
+                Ok(AstNode { span, data: VarName { identifier, size: Some(size) } })
+            }
         )
     }
 
-    fn var_modifier(input: Node) -> Result<VarModifier> {
-        Ok(VarModifier::from_str(input.as_str()).unwrap())
+    fn var_modifier(input: Node) -> Result<AstNode<VarModifier>> {
+        Ok(AstNode {
+            span: AstSpan::from(&input),
+            data: VarModifier::from_str(input.as_str()).unwrap()
+        })
     }
 
-    fn var_declaration(input: Node) -> Result<VarDeclaration> {
+    fn var_declaration(input: Node) -> Result<AstNode<VarDeclaration>> {
         let mut category: Option<String> = None;
-        let mut modifiers: Vec<VarModifier> = Vec::new();
+        let mut modifiers = Vec::new();
         let mut type_: Option<Type> = None;
-        let mut names: Vec<VarName> = Vec::new();
+        let mut names = Vec::new();
+        let span = AstSpan::from(&input);
         match_nodes_any!(input.into_children();
             var_category(c) => category = Some(c),
             var_modifier(m) => modifiers.push(m),
             type_(t) => type_ = Some(t),
             var_name(n) => names.push(n)
         );
-        Ok(VarDeclaration {
-            category,
-            modifiers,
-            type_: type_.unwrap(),
-            names
+        Ok(AstNode {
+            span,
+            data: VarDeclaration {
+                category,
+                modifiers,
+                type_: type_.unwrap(),
+                names
+            },
         })
     }
 
-    fn class_declaration(input: Node) -> Result<ClassDeclaration> {
-        let mut parent_class: Option<Identifier> = None;
-        let mut modifiers: Vec<ClassModifier> = Vec::new();
-        let mut within: Option<Identifier> = None;
+    fn class_declaration(input: Node) -> Result<AstNode<ClassDeclaration>> {
+        let mut parent_class: Option<AstNode<Identifier>> = None;
+        let mut modifiers: Vec<AstNode<ClassModifier>> = Vec::new();
+        let mut within: Option<AstNode<Identifier>> = None;
+        let span = AstSpan::from(&input);
         match_nodes!(input.into_children();
             [unqualified_identifier(name), nodes..] => {
                 match_nodes_any!(nodes;
@@ -506,7 +550,10 @@ impl UnrealScriptParser {
                     class_within(w) => within = Some(w),
                     class_modifier(m) => modifiers.push(m)
                 );
-                Ok(ClassDeclaration { name, parent_class, modifiers, within })
+                Ok(AstNode {
+                    span,
+                    data: ClassDeclaration { name, parent_class, modifiers, within }
+                })
             }
         )
     }
@@ -536,12 +583,16 @@ impl UnrealScriptParser {
         )
     }
 
-    fn const_declaration(input: Node) -> Result<ConstDeclaration> {
+    fn const_declaration(input: Node) -> Result<AstNode<ConstDeclaration>> {
+        let span = AstSpan::from(&input);
         match_nodes!(input.into_children();
             [unqualified_identifier(name), const_value(value)] => {
-                Ok(ConstDeclaration {
-                    name,
-                    value
+                Ok(AstNode {
+                    span,
+                    data: ConstDeclaration {
+                        name,
+                        value
+                    }
                 })
             }
         )
@@ -593,7 +644,7 @@ impl UnrealScriptParser {
     fn function_argument(input: Node) -> Result<FunctionArgument> {
         let mut modifiers = Vec::new();
         let mut type_: Option<Type> = None;
-        let mut name: Option<VarName> = None;
+        let mut name = None;
         match_nodes_any!(input.into_children();
             function_argument_modifier(m) => modifiers.push(m),
             type_(t) => type_ = Some(t),
@@ -606,17 +657,18 @@ impl UnrealScriptParser {
         })
     }
 
-    fn local_declaration(input: Node) -> Result<LocalDeclaration> {
+    fn local_declaration(input: Node) -> Result<AstNode<LocalDeclaration>> {
+        let span = AstSpan::from(&input);
         match_nodes!(input.into_children();
             [type_(type_), var_name(names)..] => {
-                Ok(LocalDeclaration { type_, names: names.collect() })
+                Ok(AstNode { span, data: LocalDeclaration { type_, names: names.collect() } })
             }
         )
     }
 
-    fn jump_label(input: Node) -> Result<CodeStatement> {
+    fn jump_label(input: Node) -> Result<AstNode<Identifier>> {
         match_nodes!(input.into_children();
-            [unqualified_identifier(identifier)] => Ok(CodeStatement::JumpLabel(identifier))
+            [unqualified_identifier(identifier)] => Ok(identifier)
         )
     }
 
@@ -670,7 +722,7 @@ impl UnrealScriptParser {
     fn foreach_expression(input: Node) -> Result<Box<Expression>> {
         // TODO: we get an error here because the node rules don't match
         let nodes: Vec<Node> = input.into_children().collect();
-        parse_expression(&nodes[..])
+        parse_expression_from_nodes(&nodes[..])
     }
 
     fn foreach_statement(input: Node) -> Result<ForEach> {
@@ -782,16 +834,18 @@ impl UnrealScriptParser {
         )
     }
 
-    fn code_block(input: Node) -> Result<CodeBlock> {
+    fn code_block(input: Node) -> Result<AstNode<CodeBlock>> {
+        let span = AstSpan::from(&input);
         match_nodes!(input.into_children();
-            [code_statement(statements)..] => Ok(CodeBlock { statements: statements.collect() })
+            [code_statement(statements)..] => Ok(AstNode { span, data: CodeBlock { statements: statements.collect() }})
         )
     }
 
-    fn code_statement_or_block(input: Node) -> Result<CodeStatementOrBlock> {
+    fn code_statement_or_block(input: Node) -> Result<AstNode<CodeStatementOrBlock>> {
+        let span = AstSpan::from(&input);
         match_nodes!(input.into_children();
-            [code_statement(s)] => Ok(CodeStatementOrBlock::CodeStatement(s)),
-            [code_block(b)] => Ok(CodeStatementOrBlock::CodeBlock(b))
+            [code_statement(s)] => Ok(AstNode { span, data: CodeStatementOrBlock::CodeStatement(s) }),
+            [code_block(b)] => Ok(AstNode { span, data: CodeStatementOrBlock::CodeBlock(b) })
         )
     }
 
@@ -799,24 +853,27 @@ impl UnrealScriptParser {
         Ok(CodeStatement::Empty)
     }
 
-    fn code_statement(input: Node) -> Result<CodeStatement> {
-        match_nodes!(input.into_children();
-            [jump_label(v)] => Ok(v),
-            [conditional_statement(v)] => Ok(CodeStatement::Conditional(Box::new(v))),
-            [foreach_statement(v)] => Ok(CodeStatement::ForEach(Box::new(v))),
-            [for_statement(v)] => Ok(v),
-            [while_statement(v)] => Ok(v),
-            [do_until_statement(v)] => Ok(CodeStatement::DoUntil(Box::new(v))),
-            [return_statement(v)] => Ok(v),
-            [break_statement(v)] => Ok(v),
-            [continue_statement(v)] => Ok(v),
-            [goto_statement(v)] => Ok(v),
-            [compiler_directive(v)] => Ok(CodeStatement::CompilerDirective(v)),
-            [switch_statement(v)] => Ok(CodeStatement::Switch(Box::new(v))),
-            [const_declaration(v)] => Ok(CodeStatement::ConstDeclaration(v)),
-            [expression(v)] => Ok(CodeStatement::Expression(v)),
-            [statement_empty(_v)] => Ok(CodeStatement::Empty)
-        )
+    fn code_statement(input: Node) -> Result<AstNode<CodeStatement>> {
+        Ok(AstNode {
+            span: AstSpan::from(&input),
+            data: match_nodes!(input.into_children();
+                [jump_label(v)] => CodeStatement::JumpLabel(v),
+                [conditional_statement(v)] => CodeStatement::Conditional(Box::new(v)),
+                [foreach_statement(v)] => CodeStatement::ForEach(Box::new(v)),
+                [for_statement(v)] => v,
+                [while_statement(v)] => v,
+                [do_until_statement(v)] => CodeStatement::DoUntil(Box::new(v)),
+                [return_statement(v)] => v,
+                [break_statement(v)] => v,
+                [continue_statement(v)] => v,
+                [goto_statement(v)] => v,
+                [compiler_directive(v)] => CodeStatement::CompilerDirective(v),
+                [switch_statement(v)] => CodeStatement::Switch(Box::new(v)),
+                [const_declaration(v)] => CodeStatement::ConstDeclaration(v),
+                [expression(v)] => CodeStatement::Expression(v),
+                [statement_empty(_v)] => CodeStatement::Empty
+            )
+        })
     }
 
     fn function_body(input: Node) -> Result<FunctionBody> {
@@ -829,13 +886,14 @@ impl UnrealScriptParser {
         Ok(FunctionBody { statements })
     }
 
-    fn function_declaration(input: Node) -> Result<FunctionDeclaration> {
+    fn function_declaration(input: Node) -> Result<AstNode<FunctionDeclaration>> {
         let mut modifiers = Vec::new();
         let mut types = Vec::new();
         let mut return_type = None;
         let mut arguments = Vec::new();
         let mut name = None;
         let mut body = None;
+        let span = AstSpan::from(&input);
         match_nodes_any!(input.into_children();
             function_modifier(m) => modifiers.push(m),
             function_type(t) => types.push(t),
@@ -844,13 +902,16 @@ impl UnrealScriptParser {
             function_argument(a) => arguments.push(a),
             function_body(b) => body = Some(b)
         );
-        Ok(FunctionDeclaration {
-            types,
-            modifiers,
-            return_type,
-            arguments,
-            name: name.unwrap(),
-            body
+        Ok(AstNode {
+            span,
+            data: FunctionDeclaration {
+                types,
+                modifiers,
+                return_type,
+                arguments,
+                name: name.unwrap(),
+                body
+            }
         })
     }
 
@@ -866,10 +927,11 @@ impl UnrealScriptParser {
         )
     }
 
-    fn replication_block(input: Node) -> Result<ReplicationBlock> {
+    fn replication_block(input: Node) -> Result<AstNode<ReplicationBlock>> {
+        let span = AstSpan::from(&input);
         match_nodes!(input.into_children();
             [replication_statement(statements)..] => {
-                Ok(ReplicationBlock { statements: statements.collect() })
+                Ok(AstNode { span, data: ReplicationBlock { statements: statements.collect() } })
             }
         )
     }
@@ -882,7 +944,7 @@ impl UnrealScriptParser {
         Ok(true)
     }
 
-    fn state_ignores(input: Node) -> Result<Vec<Identifier>> {
+    fn state_ignores(input: Node) -> Result<Vec<AstNode<Identifier>>> {
         match_nodes!(input.into_children();
             [unqualified_identifier(ids)..] => {
                 Ok(ids.collect())
@@ -933,26 +995,34 @@ impl UnrealScriptParser {
         })
     }
 
-    fn defaultproperties_object(input: Node) -> Result<DefaultPropertiesObject> {
+    fn defaultproperties_object(input: Node) -> Result<AstNode<DefaultPropertiesObject>> {
+        let span = AstSpan::from(&input);
         match_nodes!(input.into_children();
             [identifier(class), defaultproperties_statement(statements)..] => {
-                Ok(DefaultPropertiesObject { class, statements: statements.collect() })
+                Ok(AstNode { span, data: DefaultPropertiesObject { class, statements: statements.collect() } })
             }
         )
     }
 
-    fn defaultproperties_statement(input: Node) -> Result<DefaultPropertiesStatement> {
-        match_nodes!(input.into_children();
-            [defaultproperties_assignment(a)] => Ok(DefaultPropertiesStatement::Assignment(a)),
-            [defaultproperties_object(a)] => Ok(DefaultPropertiesStatement::Object(a)),
-        )
+    fn defaultproperties_statement(input: Node) -> Result<AstNode<DefaultPropertiesStatement>> {
+        let span = AstSpan::from(&input);
+        Ok(AstNode { span, data: match_nodes!(input.into_children();
+            [defaultproperties_assignment(a)] => DefaultPropertiesStatement::Assignment(a),
+            [defaultproperties_object(a)] => DefaultPropertiesStatement::Object(a),
+        )})
     }
 
-    fn defaultproperties_struct(input: Node) -> Result<DefaultPropertiesStruct> {
+    fn defaultproperties_struct(input: Node) -> Result<AstNode<DefaultPropertiesStruct>> {
+        let span = AstSpan::from(&input);
         match_nodes!(input.into_children();
-            [defaultproperties_assignment(assignments)..] => Ok(DefaultPropertiesStruct {
-                assignments: assignments.collect()
-            })
+            [defaultproperties_assignment(assignments)..] => {
+                Ok(AstNode {
+                    span,
+                    data: DefaultPropertiesStruct {
+                        assignments: assignments.collect()
+                    }
+                })
+            }
         )
     }
 
@@ -960,50 +1030,64 @@ impl UnrealScriptParser {
         Ok(())
     }
 
-    fn defaultproperties_array(input: Node) -> Result<DefaultPropertiesArray> {
+    fn defaultproperties_array(input: Node) -> Result<AstNode<DefaultPropertiesArray>> {
+        let span = AstSpan::from(&input);
         let mut elements = Vec::new();
         match_nodes_any!(input.into_children();
             defaultproperties_array_comma(_r) => elements.push(None),
             defaultproperties_value(v) => elements.push(Some(v))
         );
-        Ok(DefaultPropertiesArray { elements })
+        Ok(AstNode { span, data: DefaultPropertiesArray { elements } })
     }
 
-    fn defaultproperties_value(input: Node) -> Result<DefaultPropertiesValue> {
+    fn defaultproperties_value(input: Node) -> Result<AstNode<DefaultPropertiesValue>> {
+        Ok(AstNode {
+            span: AstSpan::from(&input),
+            data: match_nodes!(input.into_children();
+                [literal(l)] => DefaultPropertiesValue::Literal(l),
+                [identifier(l)] => DefaultPropertiesValue::Identifier(l),
+                [defaultproperties_struct(s)] => DefaultPropertiesValue::Struct(s),
+                [defaultproperties_array(a)] => DefaultPropertiesValue::Array(a)
+            )
+        })
+    }
+
+    fn defaultproperties_array_index(input: Node) -> Result<AstNode<DefaultPropertiesArrayIndex>> {
+        let span = AstSpan::from(&input);
         match_nodes!(input.into_children();
-            [literal(l)] => Ok(DefaultPropertiesValue::Literal(l)),
-            [identifier(l)] => Ok(DefaultPropertiesValue::Identifier(l)),
-            [defaultproperties_struct(s)] => Ok(DefaultPropertiesValue::Struct(s)),
-            [defaultproperties_array(a)] => Ok(DefaultPropertiesValue::Array(a))
+            [integer_literal(l)] => Ok(AstNode { span, data: DefaultPropertiesArrayIndex::IntegerLiteral(l) }),
+            [unqualified_identifier(id)] => Ok(AstNode { span, data: DefaultPropertiesArrayIndex::Identifier(id) })
         )
     }
 
-    fn defaultproperties_array_index(input: Node) -> Result<DefaultPropertiesArrayIndex> {
-        match_nodes!(input.into_children();
-            [integer_literal(l)] => Ok(DefaultPropertiesArrayIndex::IntegerLiteral(l)),
-            [unqualified_identifier(id)] => Ok(DefaultPropertiesArrayIndex::Identifier(id))
-        )
-    }
-
-    fn defaultproperties_target(input: Node) -> Result<DefaultPropertiesTarget> {
+    fn defaultproperties_target(input: Node) -> Result<AstNode<DefaultPropertiesTarget>> {
+        let span = AstSpan::from(&input);
         match_nodes!(input.into_children();
             [unqualified_identifier(target), defaultproperties_array_index(index)] => {
-                Ok(DefaultPropertiesTarget { target, index: Some(index)})
+                Ok(AstNode { span, data: DefaultPropertiesTarget { target, index: Some(index) } })
             },
-            [unqualified_identifier(target)] => Ok(DefaultPropertiesTarget { target, index: None })
-        )
-    }
-    
-    fn defaultproperties_assignment(input: Node) -> Result<DefaultPropertiesAssignment> {
-        match_nodes!(input.into_children();
-            [defaultproperties_target(target)] => Ok(DefaultPropertiesAssignment { target, value: None }),
-            [defaultproperties_target(target), defaultproperties_value(value)] => Ok(DefaultPropertiesAssignment { target, value: Some(value) })
+            [unqualified_identifier(target)] => {
+                Ok(AstNode { span, data: DefaultPropertiesTarget { target, index: None } })
+            }
         )
     }
 
-    fn defaultproperties(input: Node) -> Result<DefaultProperties> {
+    fn defaultproperties_assignment(input: Node) -> Result<AstNode<DefaultPropertiesAssignment>> {
+        let span = AstSpan::from(&input);
+        Ok(AstNode { span, data: match_nodes!(input.into_children();
+            [defaultproperties_target(target)] => DefaultPropertiesAssignment { target, value: None },
+            [defaultproperties_target(target), defaultproperties_value(value)] => {
+                DefaultPropertiesAssignment { target, value: Some(value) }
+            },
+        )})
+    }
+
+    fn defaultproperties(input: Node) -> Result<AstNode<DefaultProperties>> {
+        let span = AstSpan::from(&input);
         match_nodes!(input.into_children();
-            [defaultproperties_statement(statements)..] => Ok(DefaultProperties { statements: statements.collect() })
+            [defaultproperties_statement(statements)..] => {
+                Ok(AstNode { span, data: DefaultProperties { statements: statements.collect() } })
+            }
         )
     }
 
@@ -1023,20 +1107,23 @@ impl UnrealScriptParser {
         )
     }
 
-    fn program_statement(input: Node) -> Result<ProgramStatement> {
-        Ok(match_nodes!(input.into_children();
-            [statement_empty(_e)] => ProgramStatement::Empty,
-            [compiler_directive(c)] => ProgramStatement::CompilerDirective(c),
-            [const_declaration(c)] => ProgramStatement::ConstDeclaration(c),
-            [var_declaration(v)] => ProgramStatement::VarDeclaration(v),
-            [enum_declaration(e)] => ProgramStatement::EnumDeclaration(e),
-            [struct_declaration(s)] => ProgramStatement::StructDeclaration(s),
-            [function_declaration(f)] => ProgramStatement::FunctionDeclaration(f),
-            [replication_block(r)] => ProgramStatement::ReplicationBlock(r),
-            [state_declaration(s)] => ProgramStatement::StateDeclaration(s),
-            [defaultproperties(d)] => ProgramStatement::DefaultProperties(d),
-            [cpptext(c)] => ProgramStatement::CppText(c),
-        ))
+    fn program_statement(input: Node) -> Result<AstNode<ProgramStatement>> {
+        Ok(AstNode {
+            span: AstSpan::from(&input),
+            data: match_nodes!(input.into_children();
+                [statement_empty(_e)] => ProgramStatement::Empty,
+                [compiler_directive(c)] => ProgramStatement::CompilerDirective(c),
+                [const_declaration(c)] => ProgramStatement::ConstDeclaration(c),
+                [var_declaration(v)] => ProgramStatement::VarDeclaration(v),
+                [enum_declaration(e)] => ProgramStatement::EnumDeclaration(e),
+                [struct_declaration(s)] => ProgramStatement::StructDeclaration(s),
+                [function_declaration(f)] => ProgramStatement::FunctionDeclaration(f),
+                [replication_block(r)] => ProgramStatement::ReplicationBlock(r),
+                [state_declaration(s)] => ProgramStatement::StateDeclaration(s),
+                [defaultproperties(d)] => ProgramStatement::DefaultProperties(d),
+                [cpptext(c)] => ProgramStatement::CppText(c),
+            ),
+        })
     }
 
     fn EOI(_input: Node) -> Result<()> {
@@ -1045,9 +1132,13 @@ impl UnrealScriptParser {
 
     fn program(input: Node) -> Result<Program> {
         let mut statements = Vec::new();
+        let span = AstSpan::from(&input);
         match_nodes_any!(input.into_children();
-            class_declaration(c) => statements.push(ProgramStatement::ClassDeclaration(c)),
             program_statement(s) => statements.push(s),
+            class_declaration(c) => statements.push(AstNode {
+                span,
+                data: ProgramStatement::ClassDeclaration(c)
+            }),
             EOI(_e) => {}
         );
         Ok(Program { statements })
@@ -1068,7 +1159,7 @@ impl UnrealScriptParser {
 
     fn expression(input: Node) -> Result<Box<Expression>> {
         let nodes: Vec<Node> = input.into_children().collect();
-        parse_expression(&nodes[..])
+        parse_expression_from_nodes(&nodes[..])
     }
 }
 
@@ -1099,13 +1190,45 @@ fn read_file_to_string(path: &str) -> std::result::Result<String, ParsingError> 
         .map_err(|e| ParsingError::EncodingError(e.to_string()))
 }
 
-pub fn parse_program(contents: &str) -> std::result::Result<Program, ParsingError> {
+#[derive(Debug, Clone)]
+pub enum ProgramErrorSeverity {
+    Warning,
+    Error
+}
+
+#[derive(Debug, Clone)]
+pub struct ProgramError {
+    pub message: String,
+    pub span: AstSpan,
+    pub severity: ProgramErrorSeverity,
+}
+
+pub struct ProgramResult {
+    pub program: Program,
+    pub errors: Vec<ProgramError>
+}
+
+pub fn parse_program(contents: &str) -> std::result::Result<ProgramResult, ParsingError> {
     match UnrealScriptParser::program(UnrealScriptParser::parse(Rule::program, contents)?.single()?) {
-        Ok(p) => Ok(p),
+        Ok(program) => {
+            let mut visitor = Visitor::new();
+            program.visit(&mut visitor);
+            Ok(ProgramResult {
+                program,
+                errors: visitor.get_errors().to_vec()
+            })
+        },
         Err(e) => Err(ParsingError::from(e))
     }
 }
 
-pub fn parse_file(path: &str) -> std::result::Result<Program, ParsingError> {
+pub fn parse_expression(contents: &str) -> std::result::Result<Box<Expression>, ParsingError> {
+    match UnrealScriptParser::expression(UnrealScriptParser::parse(Rule::expression, contents)?.single()?) {
+        Ok(e) => Ok(e),
+        Err(e) => Err(ParsingError::from(e))
+    }
+}
+
+pub fn parse_file(path: &str) -> std::result::Result<ProgramResult, ParsingError> {
     parse_program(read_file_to_string(path)?.as_str())
 }
