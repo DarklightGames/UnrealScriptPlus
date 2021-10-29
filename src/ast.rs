@@ -335,31 +335,31 @@ impl From<Identifier> for Type {
     }
 }
 
-type ExpressionList = Vec<Option<Box<Expression>>>;
+type ExpressionList = Vec<Option<Box<AstNode<Expression>>>>;
 
 #[derive(Debug)]
 pub enum Expression {
     Identifier(AstNode<Identifier>),
     Literal(Literal),
-    New { arguments: Option<ExpressionList>, type_: Box<Expression> },
-    MonadicPreExpression { operand: Box<Expression>, verb: MonadicVerb },
-    MonadicPostExpression { operand: Box<Expression>, verb: MonadicVerb },
-    DyadicExpression { lhs: Box<Expression>, verb: DyadicVerb, rhs: Box<Expression> },
-    Call { operand: Box<Expression>, arguments: ExpressionList },
+    New { arguments: Option<ExpressionList>, type_: Box<AstNode<Expression>> },
+    MonadicPreExpression { operand: Box<AstNode<Expression>>, verb: MonadicVerb },
+    MonadicPostExpression { operand: Box<AstNode<Expression>>, verb: MonadicVerb },
+    DyadicExpression { lhs: Box<AstNode<Expression>>, verb: DyadicVerb, rhs: Box<AstNode<Expression>> },
+    Call { operand: Box<AstNode<Expression>>, arguments: ExpressionList },
     GlobalCall { name: AstNode<Identifier>, arguments: ExpressionList },
-    ArrayAccess { operand: Box<Expression>, argument: Box<Expression> },
-    DefaultAccess { operand: Option<Box<Expression>>, target: AstNode<Identifier> },
-    StaticAccess { operand: Option<Box<Expression>>, target: AstNode<Identifier> },
-    MemberAccess { operand: Box<Expression>, target: AstNode<Identifier> },
-    Cast { type_: Type, operand: Box<Expression> },
-    ParentheticalExpression(Box<Expression>),
+    ArrayAccess { operand: Box<AstNode<Expression>>, argument: Box<AstNode<Expression>> },
+    DefaultAccess { operand: Option<Box<AstNode<Expression>>>, target: AstNode<Identifier> },
+    StaticAccess { operand: Option<Box<AstNode<Expression>>>, target: AstNode<Identifier> },
+    MemberAccess { operand: Box<AstNode<Expression>>, target: AstNode<Identifier> },
+    Cast { type_: Type, operand: Box<AstNode<Expression>> },
+    ParentheticalExpression(Box<AstNode<Expression>>),
 }
 
 #[derive(Debug)]
 pub enum CodeStatement {
     Empty,
-    Expression(Box<Expression>),
-    Return(Option<Box<Expression>>),
+    Expression(Box<AstNode<Expression>>),
+    Return(Option<Box<AstNode<Expression>>>),
     Break,
     Continue,
     Goto(AstNode<Identifier>),
@@ -488,7 +488,7 @@ pub struct StateDeclaration {
 #[derive(Debug)]
 pub struct ReplicationStatement {
     pub reliability: ReplicationReliability,
-    pub condition: Box<Expression>,
+    pub condition: Box<AstNode<Expression>>,
     pub variables: Vec<AstNode<Identifier>>,
 }
 
@@ -528,33 +528,33 @@ pub enum CodeStatementOrBlock {
 
 #[derive(Debug)]
 pub struct ForStatement {
-    pub init: Option<Box<Expression>>,
-    pub  predicate: Option<Box<Expression>>,
-    pub post: Option<Box<Expression>>,
+    pub init: Option<Box<AstNode<Expression>>>,
+    pub  predicate: Option<Box<AstNode<Expression>>>,
+    pub post: Option<Box<AstNode<Expression>>>,
     pub body: AstNode<CodeStatementOrBlock>,
 }
 
 #[derive(Debug)]
 pub struct DoUntil {
     pub body: AstNode<CodeStatementOrBlock>,
-    pub predicate: Option<Box<Expression>>,
+    pub predicate: Option<Box<AstNode<Expression>>>,
 }
 
 #[derive(Debug)]
 pub struct WhileStatement {
-    pub predicate: Box<Expression>,
+    pub predicate: Box<AstNode<Expression>>,
     pub body: AstNode<CodeStatementOrBlock>,
 }
 
 #[derive(Debug)]
 pub struct ForEach {
-    pub predicate: Box<Expression>,
+    pub predicate: Box<AstNode<Expression>>,
     pub body: AstNode<CodeStatementOrBlock>,
 }
 
 #[derive(Debug)]
 pub enum SwitchCaseType {
-    Expression(Box<Expression>),
+    Expression(Box<AstNode<Expression>>),
     Default,
 }
 
@@ -566,7 +566,7 @@ pub struct SwitchCase {
 
 #[derive(Debug)]
 pub struct SwitchStatement {
-    pub predicate: Box<Expression>,
+    pub predicate: Box<AstNode<Expression>>,
     pub cases: Vec<SwitchCase>,
 }
 
@@ -579,13 +579,13 @@ pub struct ConditionalStatement {
 
 #[derive(Debug)]
 pub struct IfStatement {
-    pub predicate: Box<Expression>,
+    pub predicate: Box<AstNode<Expression>>,
     pub body: Option<AstNode<CodeStatementOrBlock>>,
 }
 
 #[derive(Debug)]
 pub struct ElifStatement {
-    pub predicate: Box<Expression>,
+    pub predicate: Box<AstNode<Expression>>,
     pub body: AstNode<CodeStatementOrBlock>,
 }
 

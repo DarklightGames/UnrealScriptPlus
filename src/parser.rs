@@ -31,6 +31,15 @@ impl From<&Node<'_>> for AstSpan {
     }
 }
 
+impl From<&[Node<'_>]> for AstSpan {
+    fn from(nodes: &[Node<'_>]) -> Self {
+        AstSpan {
+            start: nodes.iter().map(|n| n.as_pair().as_span().start()).min().unwrap(),
+            end: nodes.iter().map(|n| n.as_pair().as_span().end()).max().unwrap()
+        }
+    }
+}
+
 macro_rules! match_nodes_any {
     ($nodes:expr; $($f:ident($v:ident) => $e:expr),*) => (
         for node in $nodes {
@@ -99,92 +108,133 @@ lazy_static! {
     };
 }
 
-fn parse_target(nodes: &[Node]) -> Result<Box<Expression>> {
+fn parse_target(nodes: &[Node]) -> Result<Box<AstNode<Expression>>> {
     let (node, remaining) = nodes.split_last().unwrap();
+    let span = AstSpan::from(node);
     match node.as_rule() {
         Rule::unqualified_identifier => {
-            Ok(Box::new(Expression::Identifier(UnrealScriptParser::unqualified_identifier(Node::new(node.clone().into_pair()))?)))
+            Ok(Box::new(AstNode {
+                span,
+                data: Expression::Identifier(UnrealScriptParser::unqualified_identifier(Node::new(node.clone().into_pair()))?)
+            }))
         }
         Rule::new => {
             let mut inner_iter = node.clone().into_children().into_iter();
             let first = inner_iter.next().unwrap();
             if let Rule::expression_list = first.as_rule() {
-                Ok(Box::new(Expression::New {
-                    arguments: Some(UnrealScriptParser::expression_list(first)?),
-                    type_: UnrealScriptParser::expression(Node::new(inner_iter.next().unwrap().clone().into_pair()))?
+                Ok(Box::new(AstNode {
+                    span,
+                    data: Expression::New {
+                        arguments: Some(UnrealScriptParser::expression_list(first)?),
+                        type_: UnrealScriptParser::expression(Node::new(inner_iter.next().unwrap().clone().into_pair()))?
+                    }
                 }))
-            }  else {
-                Ok(Box::new(Expression::New {
-                    arguments: None,
-                    type_: UnrealScriptParser::expression(Node::new(first.clone().into_pair()))?
+            } else {
+                Ok(Box::new(AstNode {
+                    span,
+                    data: Expression::New {
+                        arguments: None,
+                        type_: UnrealScriptParser::expression(Node::new(first.clone().into_pair()))?
+                    }
                 }))
             }
         }
         Rule::cast => {
             let mut inner_iter = node.clone().into_children().into_iter();
-            Ok(Box::new(Expression::Cast {
-                type_: UnrealScriptParser::class_type(inner_iter.next().unwrap())?,
-                operand: UnrealScriptParser::expression(inner_iter.next().unwrap())?
+            Ok(Box::new(AstNode {
+                span,
+                data: Expression::Cast {
+                    type_: UnrealScriptParser::class_type(inner_iter.next().unwrap())?,
+                    operand: UnrealScriptParser::expression(inner_iter.next().unwrap())?
+                }
             }))
         }
         // NOTE: these are required because integer_literal and float_literals can be captured
         // before monadic prefix verbs.
         Rule::numeric_literal => {
-            Ok(Box::new(Expression::Literal(Literal::Numeric(UnrealScriptParser::numeric_literal(Node::new(node.clone().into_pair()))?))))
+            Ok(Box::new(AstNode {
+                span,
+                data: Expression::Literal(Literal::Numeric(UnrealScriptParser::numeric_literal(Node::new(node.clone().into_pair()))?))
+            }))
         }
         Rule::literal => {
-            Ok(Box::new(Expression::Literal(UnrealScriptParser::literal(Node::new(node.clone().into_pair()))?)))
+            Ok(Box::new(AstNode {
+                span,
+                data: Expression::Literal(UnrealScriptParser::literal(Node::new(node.clone().into_pair()))?)
+            }))
         }
         Rule::default_access => {
-            Ok(Box::new(Expression::DefaultAccess {
-                operand: match remaining.is_empty() {
-                    true => None,
-                    false => Some(parse_expression_from_nodes(remaining)?)
-                },
-                target: UnrealScriptParser::unqualified_identifier(node.clone().into_children().single()?)?
+            Ok(Box::new(AstNode {
+                span,
+                data: Expression::DefaultAccess {
+                    operand: match remaining.is_empty() {
+                        true => None,
+                        false => Some(parse_expression_from_nodes(remaining)?)
+                    },
+                    target: UnrealScriptParser::unqualified_identifier(node.clone().into_children().single()?)?
+                }
             }))
         }
         Rule::static_access => {
-            Ok(Box::new(Expression::StaticAccess {
-                operand: match remaining.is_empty() {
-                    true => None,
-                    false => Some(parse_expression_from_nodes(remaining)?)
-                },
-                target: UnrealScriptParser::unqualified_identifier(node.clone().into_children().single()?)?
+            Ok(Box::new(AstNode {
+                span,
+                data: Expression::StaticAccess {
+                    operand: match remaining.is_empty() {
+                        true => None,
+                        false => Some(parse_expression_from_nodes(remaining)?)
+                    },
+                    target: UnrealScriptParser::unqualified_identifier(node.clone().into_children().single()?)?
+                }
             }))
         }
         Rule::global_call => {
             let mut inner_iter = node.clone().into_children().into_iter();
             let name = UnrealScriptParser::unqualified_identifier(inner_iter.next().unwrap())?;
             let arguments = UnrealScriptParser::expression_list(inner_iter.next().unwrap())?;
-            Ok(Box::new(Expression::GlobalCall { name, arguments }))
+            Ok(Box::new(AstNode {
+                span,
+                data: Expression::GlobalCall { name, arguments }
+            }))
         }
         Rule::parenthetical_expression => {
             let children: Vec<Node> = node.clone().into_children().single()?.into_children().into_iter().collect();
-            Ok(Box::new(Expression::ParentheticalExpression(parse_expression_from_nodes(&children[..])?)))
+            Ok(Box::new(AstNode {
+                span,
+                data: Expression::ParentheticalExpression(parse_expression_from_nodes(&children[..])?)
+            }))
         }
         Rule::call => {
-            Ok(Box::new(Expression::Call {
-                operand: parse_expression_from_nodes(remaining)?,
-                arguments: UnrealScriptParser::expression_list(node.clone().into_children().single()?)? }))
+            Ok(Box::new(AstNode {
+                span,
+                data: Expression::Call {
+                    operand: parse_expression_from_nodes(remaining)?,
+                    arguments: UnrealScriptParser::expression_list(node.clone().into_children().single()?)?
+                }
+            }))
         }
         Rule::array_access => {
-            Ok(Box::new(Expression::ArrayAccess {
-                operand: parse_expression_from_nodes(remaining)?,
-                argument: UnrealScriptParser::expression(node.clone().into_children().single()?)?
+            Ok(Box::new(AstNode {
+                span,
+                data: Expression::ArrayAccess {
+                    operand: parse_expression_from_nodes(remaining)?,
+                    argument: UnrealScriptParser::expression(node.clone().into_children().single()?)?
+                }
             }))
         }
         Rule::member_access => {
-            Ok(Box::new(Expression::MemberAccess {
-                operand: parse_expression_from_nodes(remaining)?,
-                target: UnrealScriptParser::unqualified_identifier(node.clone().into_children().single()?)?
+            Ok(Box::new(AstNode {
+                span,
+                data: Expression::MemberAccess {
+                    operand: parse_expression_from_nodes(remaining)?,
+                    target: UnrealScriptParser::unqualified_identifier(node.clone().into_children().single()?)?
+                }
             }))
         }
         _ => panic!("unhandled rule {:?}", node.as_pair())
     }
 }
 
-fn parse_expression_from_nodes(nodes: &[Node]) -> Result<Box<Expression>> {
+fn parse_expression_from_nodes(nodes: &[Node]) -> Result<Box<AstNode<Expression>>> {
     let mut dyadic_verbs = Vec::new();
     for (index, node) in nodes.into_iter().enumerate() {
         if let Rule::dyadic_verb = node.as_rule() {
@@ -202,24 +252,33 @@ fn parse_expression_from_nodes(nodes: &[Node]) -> Result<Box<Expression>> {
         dyadic_verbs.sort_by(|a, b| b.0.cmp(a.0));
         // Split expression on either side of the verb and return a dyadic expression node
         if let Some((_, index, operator)) = dyadic_verbs.first() {
-            return Ok(Box::new(Expression::DyadicExpression {
-                lhs: parse_expression_from_nodes(&nodes[..index - 0])?,
-                verb: DyadicVerb::from_str(operator.as_str()).unwrap(),
-                rhs: parse_expression_from_nodes(&nodes[index + 1..])?
+            return Ok(Box::new(AstNode {
+                span: AstSpan::from(nodes),
+                data: Expression::DyadicExpression {
+                    lhs: parse_expression_from_nodes(&nodes[..index - 0])?,
+                    verb: DyadicVerb::from_str(operator.as_str()).unwrap(),
+                    rhs: parse_expression_from_nodes(&nodes[index + 1..])?
+                }
             }))
         }
     }
     // Next, search for monadic verbs at the beginning and end of the expression
     if let Rule::monadic_post_verb = nodes.last().unwrap().as_rule() {
-        return Ok(Box::new(Expression::MonadicPostExpression {
-            verb: MonadicVerb::from_str(nodes.last().unwrap().as_str()).unwrap(),
-            operand: parse_target(&nodes[..nodes.len() - 1])?
+        return Ok(Box::new(AstNode {
+            span: AstSpan::from(nodes),
+            data: Expression::MonadicPostExpression {
+                verb: MonadicVerb::from_str(nodes.last().unwrap().as_str()).unwrap(),
+                operand: parse_target(&nodes[..nodes.len() - 1])?
+            }
         }))
     }
     if let Rule::monadic_pre_verb = nodes.first().unwrap().as_rule() {
-        return Ok(Box::new(Expression::MonadicPreExpression {
-            verb: MonadicVerb::from_str(nodes.first().unwrap().as_str()).unwrap(),
-            operand: parse_target(&nodes[1..])?
+        return Ok(Box::new(AstNode {
+            span: AstSpan::from(nodes),
+            data: Expression::MonadicPreExpression {
+                verb: MonadicVerb::from_str(nodes.first().unwrap().as_str()).unwrap(),
+                operand: parse_target(&nodes[1..])?
+            }
         }))
     }
     parse_target(nodes)
@@ -719,7 +778,7 @@ impl UnrealScriptParser {
         })
     }
 
-    fn foreach_expression(input: Node) -> Result<Box<Expression>> {
+    fn foreach_expression(input: Node) -> Result<Box<AstNode<Expression>>> {
         // TODO: we get an error here because the node rules don't match
         let nodes: Vec<Node> = input.into_children().collect();
         parse_expression_from_nodes(&nodes[..])
@@ -733,15 +792,15 @@ impl UnrealScriptParser {
         )
     }
 
-    fn for_init(input: Node) -> Result<Box<Expression>> {
+    fn for_init(input: Node) -> Result<Box<AstNode<Expression>>> {
         match_nodes!(input.into_children(); [expression(e)] => Ok(e) )
     }
 
-    fn for_predicate(input: Node) -> Result<Box<Expression>> {
+    fn for_predicate(input: Node) -> Result<Box<AstNode<Expression>>> {
         match_nodes!(input.into_children(); [expression(e)] => Ok(e) )
     }
 
-    fn for_post(input: Node) -> Result<Box<Expression>> {
+    fn for_post(input: Node) -> Result<Box<AstNode<Expression>>> {
         match_nodes!(input.into_children(); [expression(e)] => Ok(e) )
     }
 
@@ -1148,7 +1207,7 @@ impl UnrealScriptParser {
         Ok(())
     }
 
-    fn expression_list(input: Node) -> Result<Vec<Option<Box<Expression>>>> {
+    fn expression_list(input: Node) -> Result<Vec<Option<Box<AstNode<Expression>>>>> {
         let mut expressions = Vec::new();
         match_nodes_any!(input.into_children();
             expression(e) => expressions.push(Some(e)),
@@ -1157,7 +1216,7 @@ impl UnrealScriptParser {
         Ok(expressions)
     }
 
-    fn expression(input: Node) -> Result<Box<Expression>> {
+    fn expression(input: Node) -> Result<Box<AstNode<Expression>>> {
         let nodes: Vec<Node> = input.into_children().collect();
         parse_expression_from_nodes(&nodes[..])
     }
@@ -1222,7 +1281,7 @@ pub fn parse_program(contents: &str) -> std::result::Result<ProgramResult, Parsi
     }
 }
 
-pub fn parse_expression(contents: &str) -> std::result::Result<Box<Expression>, ParsingError> {
+pub fn parse_expression(contents: &str) -> std::result::Result<Box<AstNode<Expression>>, ParsingError> {
     match UnrealScriptParser::expression(UnrealScriptParser::parse(Rule::expression, contents)?.single()?) {
         Ok(e) => Ok(e),
         Err(e) => Err(ParsingError::from(e))
