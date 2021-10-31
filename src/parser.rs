@@ -26,7 +26,8 @@ impl From<&Node<'_>> for AstSpan {
     fn from(node: &Node<'_>) -> Self {
         AstSpan {
             start: node.as_pair().as_span().start(),
-            end: node.as_pair().as_span().end()
+            end: node.as_pair().as_span().end(),
+            line: None,
         }
     }
 }
@@ -35,7 +36,8 @@ impl From<&[Node<'_>]> for AstSpan {
     fn from(nodes: &[Node<'_>]) -> Self {
         AstSpan {
             start: nodes.iter().map(|n| n.as_pair().as_span().start()).min().unwrap(),
-            end: nodes.iter().map(|n| n.as_pair().as_span().end()).max().unwrap()
+            end: nodes.iter().map(|n| n.as_pair().as_span().end()).max().unwrap(),
+            line: None,
         }
     }
 }
@@ -310,7 +312,8 @@ impl UnrealScriptParser {
     }
 
     fn name_literal(input: Node) -> Result<Literal> {
-        Ok(Literal::Name(input.as_str().to_string()))
+        // TODO: get INNER and save that!
+        Ok(Literal::Name(input.into_children().single()?.as_str().to_string()))
     }
 
     fn string_literal(input: Node) -> Result<Literal> {
@@ -692,27 +695,31 @@ impl UnrealScriptParser {
         )
     }
 
-    fn function_name(input: Node) -> Result<Identifier> {
-        Ok(Identifier::new(input.as_str()))
+    fn function_name(input: Node) -> Result<AstNode<Identifier>> {
+        Ok(AstNode { span: AstSpan::from(&input), data: Identifier::new(input.as_str()) })
     }
 
     fn function_argument_modifier(input: Node) -> Result<FunctionArgumentModifier> {
         Ok(FunctionArgumentModifier::from_str(input.as_str()).unwrap())
     }
 
-    fn function_argument(input: Node) -> Result<FunctionArgument> {
+    fn function_argument(input: Node) -> Result<AstNode<FunctionArgument>> {
         let mut modifiers = Vec::new();
         let mut type_: Option<Type> = None;
         let mut name = None;
+        let span = AstSpan::from(&input);
         match_nodes_any!(input.into_children();
             function_argument_modifier(m) => modifiers.push(m),
             type_(t) => type_ = Some(t),
             var_name(n) => name = Some(n)
         );
-        Ok(FunctionArgument {
-            modifiers,
-            type_: type_.unwrap(),
-            name: name.unwrap()
+        Ok(AstNode {
+            span,
+            data: FunctionArgument {
+                modifiers,
+                type_: type_.unwrap(),
+                name: name.unwrap()
+            }
         })
     }
 
@@ -935,14 +942,15 @@ impl UnrealScriptParser {
         })
     }
 
-    fn function_body(input: Node) -> Result<FunctionBody> {
+    fn function_body(input: Node) -> Result<AstNode<FunctionBody>> {
         let mut statements = Vec::new();
+        let span = AstSpan::from(&input);
         match_nodes_any!(input.into_children();
             const_declaration(c) => statements.push(FunctionBodyStatement::ConstDeclaration(c)),
             local_declaration(l) => statements.push(FunctionBodyStatement::LocalDeclaration(l)),
             code_statement(c) => statements.push(FunctionBodyStatement::CodeStatement(c))
         );
-        Ok(FunctionBody { statements })
+        Ok(AstNode { span, data: FunctionBody { statements } })
     }
 
     fn function_declaration(input: Node) -> Result<AstNode<FunctionDeclaration>> {
@@ -1207,13 +1215,14 @@ impl UnrealScriptParser {
         Ok(())
     }
 
-    fn expression_list(input: Node) -> Result<Vec<Option<Box<AstNode<Expression>>>>> {
+    fn expression_list(input: Node) -> Result<AstNode<ExpressionList>> {
         let mut expressions = Vec::new();
+        let span = AstSpan::from(&input);
         match_nodes_any!(input.into_children();
             expression(e) => expressions.push(Some(e)),
             expression_empty(_e) => expressions.push(None)
         );
-        Ok(expressions)
+        Ok(AstNode { span, data: ExpressionList { expressions }})
     }
 
     fn expression(input: Node) -> Result<Box<AstNode<Expression>>> {
@@ -1267,14 +1276,42 @@ pub struct ProgramResult {
     pub errors: Vec<ProgramError>
 }
 
+fn calculate_lines(contents: &str) -> Vec<usize> {
+    let mut columns = Vec::new();
+    let mut chars = contents.chars();
+    for index in 0.. {
+        match chars.next() {
+            Some(char) => {
+                if char == '\n' {
+                    columns.push(index)
+                }
+            }
+            None => {
+                break;
+            }
+        }
+    }
+    return columns
+}
+
 pub fn parse_program(contents: &str) -> std::result::Result<ProgramResult, ParsingError> {
     match UnrealScriptParser::program(UnrealScriptParser::parse(Rule::program, contents)?.single()?) {
         Ok(program) => {
             let mut visitor = Visitor::new();
             program.visit(&mut visitor);
+            if !visitor.errors.is_empty() {
+                // calculate position of line breaks and attach it to the AstSpan error (hacky and bad!!!)
+                let lines = calculate_lines(contents);
+                for error in &mut visitor.errors {
+                    error.span.line = Some(match lines.binary_search(&error.span.start) {
+                        Ok(line) => line,
+                        Err(line) => line + 1
+                    })
+                }
+            }
             Ok(ProgramResult {
                 program,
-                errors: visitor.get_errors().to_vec()
+                errors: visitor.errors.to_vec()
             })
         },
         Err(e) => Err(ParsingError::from(e))

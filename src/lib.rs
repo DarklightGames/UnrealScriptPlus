@@ -39,7 +39,7 @@ fn unrealscriptplus(py: Python, m: &PyModule) -> PyResult<()> {
                 "errors".to_object(py),
                 result.errors.iter().map(|e| {
                     PyDict::from_sequence(py, vec![
-                        ("span".to_object(py), (e.span.start, e.span.end).to_object(py)).to_object(py),
+                        ("line".to_object(py), e.span.line.to_object(py)).to_object(py),
                         ("message".to_object(py), e.message.to_object(py)).to_object(py),
                         ("severity".to_object(py), format!("{:?}", e.severity).to_string().to_object(py)).to_object(py),
                     ].to_object(py)).unwrap().to_object(py)

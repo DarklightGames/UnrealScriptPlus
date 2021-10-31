@@ -4,59 +4,60 @@ use std::fmt::{Debug, Formatter};
 #[derive(Debug, Copy, Clone)]
 pub struct AstSpan {
     pub start: usize,
-    pub end: usize
+    pub end: usize,
+    pub line: Option<usize>,
 }
 
 #[derive(Debug)]
 pub struct AstNode<Data> {
     pub data: Data,
-    pub span: AstSpan
+    pub span: AstSpan,
 }
 
-#[derive(Debug, PartialEq, Display, EnumString)]
+#[derive(Debug, Eq, PartialEq, Hash, Clone, Display, EnumString)]
 #[strum(serialize_all="lowercase")]
 pub enum ClassModifierType {
     Abstract,
     CacheExempt,
+    CollapseCategories,
     Config,
     DependsOn,
-    Guid,
-    Instanced,
-    ParseConfig,
-    PerObjectConfig,
-    SafeReplace,
-    Transient,
-    CollapseCategories,
     DontCollapseCategories,
     EditInlineNew,
-    NotEditInlineNew,
-    HideCategories,
-    ShowCategories,
-    HideDropDown,
-    Placeable,
-    NotPlaceable,
     ExportStructs,
+    Guid,
+    HideCategories,
+    HideDropDown,
+    Instanced,
     Intrinsic,
-    NativeReplication,
     Native,
+    NativeReplication,
     NoExport,
+    NotEditInlineNew,
+    NotPlaceable,
+    ParseConfig,
+    PerObjectConfig,
+    Placeable,
+    SafeReplace,
+    ShowCategories,
+    Transient,
 }
 
-#[derive(Debug, PartialEq, Display, EnumString)]
+#[derive(Debug, PartialEq, Eq, Clone, Ord, PartialOrd, Display, EnumString, Hash)]
 #[strum(serialize_all="lowercase")]
 pub enum FunctionModifierType {
+    Exec,
+    Final,
+    Intrinsic,
+    Iterator,
+    Latent,
     Native,
     Private,
     Protected,
     Public,
-    Static,
-    Final,
-    Exec,
     Simulated,
     Singular,
-    Intrinsic,
-    Iterator,
-    Latent,
+    Static,
 }
 
 #[derive(Debug, PartialEq, Display, EnumString)]
@@ -71,32 +72,32 @@ pub enum FunctionArgumentModifier {
 #[derive(Debug, PartialEq, Display, EnumString)]
 #[strum(serialize_all="lowercase")]
 pub enum StructModifier {
-    Long,
-    Transient,
     Export,
     Init,
+    Long,
     Native,
+    Transient,
 }
 
 #[derive(Debug, PartialEq, Display, EnumString)]
 #[strum(serialize_all="lowercase")]
 pub enum StructVarModifier {
-    Const,
-    Private,
-    Protected,
-    Public,
     Config,
-    GlobalConfig,
-    Localized,
-    Transient,
+    Const,
     EdFindable,
     EditConst,
     EditConstArray,
     EditInline,
-    EditInlineUse,
     EditInlineNotify,
+    EditInlineUse,
     Export,
+    GlobalConfig,
+    Localized,
     NoExport,
+    Private,
+    Protected,
+    Public,
+    Transient,
 }
 
 #[derive(Debug, PartialEq, Display, EnumString)]
@@ -109,28 +110,28 @@ pub enum StateModifier {
 #[derive(Debug, PartialEq, Display, EnumString)]
 #[strum(serialize_all="lowercase")]
 pub enum VarModifier {
+    Automated,
+    Cache,
+    Config,
     Const,
     Deprecated,
-    Private,
-    Protected,
-    Public,
-    Automated,
-    Config,
+    EdFindable,
+    EditConst,
+    EditConstArray,
+    EditInline,
+    EditInlineNotify,
+    EditInlineUse,
+    Export,
     GlobalConfig,
     Input,
     Localized,
-    Transient,
-    Travel,
-    EdFindable,
-    EditConstArray,
-    EditConst,
-    EditInlineNotify,
-    EditInlineUse,
-    EditInline,
-    Cache,
-    Export,
     Native,
     NoExport,
+    Private,
+    Protected,
+    Public,
+    Transient,
+    Travel,
 }
 
 #[derive(Debug, PartialEq, Display, EnumString)]
@@ -143,12 +144,12 @@ pub enum ReplicationReliability {
 #[derive(Debug, PartialEq, Display, EnumString)]
 #[strum(serialize_all="lowercase")]
 pub enum FunctionTypeType {
-    Function,
-    Event,
     Delegate,
-    PreOperator,
-    PostOperator,
+    Event,
+    Function,
     Operator,
+    PostOperator,
+    PreOperator,
 }
 
 #[derive(Debug)]
@@ -239,6 +240,21 @@ pub enum DyadicVerb {
     Dot,
     #[strum(serialize="cross")]
     Cross,
+}
+
+impl DyadicVerb {
+    pub fn assigns(&self) -> bool {
+        match self {
+            DyadicVerb::AddAssign => true,
+            DyadicVerb::SubtractAssign => true,
+            DyadicVerb::MultiplyAssign => true,
+            DyadicVerb::DivideAssign => true,
+            DyadicVerb::ConcatenateAssign => true,
+            DyadicVerb::ConcatenateSpaceAssign => true,
+            DyadicVerb::Assign => true,
+            _ => false,
+        }
+    }
 }
 
 pub struct Program {
@@ -335,18 +351,21 @@ impl From<Identifier> for Type {
     }
 }
 
-type ExpressionList = Vec<Option<Box<AstNode<Expression>>>>;
+#[derive(Debug)]
+pub struct ExpressionList {
+    pub expressions: Vec<Option<Box<AstNode<Expression>>>>,
+}
 
 #[derive(Debug)]
 pub enum Expression {
     Identifier(AstNode<Identifier>),
     Literal(Literal),
-    New { arguments: Option<ExpressionList>, type_: Box<AstNode<Expression>> },
+    New { arguments: Option<AstNode<ExpressionList>>, type_: Box<AstNode<Expression>> },
     MonadicPreExpression { operand: Box<AstNode<Expression>>, verb: MonadicVerb },
     MonadicPostExpression { operand: Box<AstNode<Expression>>, verb: MonadicVerb },
     DyadicExpression { lhs: Box<AstNode<Expression>>, verb: DyadicVerb, rhs: Box<AstNode<Expression>> },
-    Call { operand: Box<AstNode<Expression>>, arguments: ExpressionList },
-    GlobalCall { name: AstNode<Identifier>, arguments: ExpressionList },
+    Call { operand: Box<AstNode<Expression>>, arguments: AstNode<ExpressionList> },
+    GlobalCall { name: AstNode<Identifier>, arguments: AstNode<ExpressionList> },
     ArrayAccess { operand: Box<AstNode<Expression>>, argument: Box<AstNode<Expression>> },
     DefaultAccess { operand: Option<Box<AstNode<Expression>>>, target: AstNode<Identifier> },
     StaticAccess { operand: Option<Box<AstNode<Expression>>>, target: AstNode<Identifier> },
@@ -439,15 +458,15 @@ pub struct FunctionDeclaration {
     pub types: Vec<FunctionType>,
     pub modifiers: Vec<FunctionModifier>,
     pub return_type: Option<Type>,
-    pub arguments: Vec<FunctionArgument>,
-    pub name: Identifier,
-    pub body: Option<FunctionBody>,
+    pub arguments: Vec<AstNode<FunctionArgument>>,
+    pub name: AstNode<Identifier>,
+    pub body: Option<AstNode<FunctionBody>>,
 }
 
 #[derive(Debug)]
 pub struct ClassModifier {
     pub type_: AstNode<ClassModifierType>,
-    pub arguments: Option<ExpressionList>,
+    pub arguments: Option<AstNode<ExpressionList>>,
 }
 
 #[derive(Debug)]
@@ -529,7 +548,7 @@ pub enum CodeStatementOrBlock {
 #[derive(Debug)]
 pub struct ForStatement {
     pub init: Option<Box<AstNode<Expression>>>,
-    pub  predicate: Option<Box<AstNode<Expression>>>,
+    pub predicate: Option<Box<AstNode<Expression>>>,
     pub post: Option<Box<AstNode<Expression>>>,
     pub body: AstNode<CodeStatementOrBlock>,
 }
