@@ -46,7 +46,9 @@ single_quoted_string = { "'" ~ single_quoted_string_inner  ~ "'"}
 object_literal = { unqualified_identifier ~ WS* ~ single_quoted_string }
 vector_literal = { ^"vect" ~ WS* ~ "(" ~ WS* ~ numeric_literal ~ WS* ~ "," ~ WS* ~ numeric_literal ~ WS* ~ "," ~ WS* ~ numeric_literal ~ WS* ~ ")" }
 rotator_literal = { ^"rot" ~ WS* ~ "(" ~ WS* ~ numeric_literal ~ WS* ~ "," ~ WS* ~ numeric_literal ~ WS* ~ "," ~ WS* ~ numeric_literal ~ WS* ~ ")" }
+boolean_literal = { (^"true" | ^"false") ~ !ASCII_ALPHANUMERIC ~ !"_" ~ !WS ~ !WHITESPACE }    // used only in special cases
 literal = {
+    boolean_literal |
     vector_literal |
     rotator_literal |
     numeric_literal |
@@ -142,9 +144,7 @@ array_type = { ^"array" ~ WS* ~ "<" ~ WS* ~ type_ ~ WS* ~ ">" }
 class_type = { ^"class" ~ WS* ~ "<" ~ WS* ~ identifier ~ WS* ~ ">" }
 type_ = { struct_declaration | enum_declaration | array_type | class_type | identifier }
 
-boolean_literal = { ^"true" | ^"false" }    // used only in special cases
-const_value = { literal | boolean_literal }
-const_declaration = { ^"const" ~ WS+ ~ unqualified_identifier ~ WS* ~ "=" ~ WS* ~ const_value ~ WS* ~ ";" }
+const_declaration = { ^"const" ~ WS+ ~ unqualified_identifier ~ WS* ~ "=" ~ WS* ~ literal ~ WS* ~ ";" }
 const_declarations = _{ const_declaration ~ (WS* ~ const_declaration)* }
 enum_declaration = { ^"enum" ~ WS+ ~ unqualified_identifier ~ WS* ~ "{" ~ WS* ~ unqualified_identifier_list ~ WS* ~ ","? ~ WS* ~ "}"}
 enum_statement = { enum_declaration ~ ";" }

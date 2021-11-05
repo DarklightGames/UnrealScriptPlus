@@ -1,4 +1,5 @@
 extern crate pest;
+extern crate if_chain;
 
 use pest_consume::Parser;
 
@@ -13,6 +14,8 @@ use std::collections::HashMap;
 use encoding::{DecoderTrap, Encoding};
 use std::fs::File;
 use std::io::Read;
+
+use std::rc::Rc;
 
 use crate::ast::*;
 use crate::visitor::{Visit, Visitor};
@@ -156,7 +159,10 @@ fn parse_target(nodes: &[Node]) -> Result<Box<AstNode<Expression>>> {
         Rule::numeric_literal => {
             Ok(Box::new(AstNode {
                 span,
-                data: Expression::Literal(Literal::Numeric(UnrealScriptParser::numeric_literal(Node::new(node.clone().into_pair()))?))
+                data: Expression::Literal(AstNode {
+                    span,
+                    data: Literal::Numeric(UnrealScriptParser::numeric_literal(Node::new(node.clone().into_pair()))?)
+                })
             }))
         }
         Rule::literal => {
@@ -301,10 +307,10 @@ impl UnrealScriptParser {
         )
     }
 
-    fn float_literal(input: Node) -> Result<NumericLiteral> {
+    fn float_literal(input: Node) -> Result<AstNode<NumericLiteral>> {
         input.as_str().to_lowercase().trim_end_matches("f").to_string().as_str().parse::<f32>()
             .map_err(|e| input.error(e))
-            .and_then(|v| Ok(NumericLiteral::Float(v)))
+            .and_then(|v| Ok(AstNode { span: AstSpan::from(&input), data: NumericLiteral::Float(v) }))
     }
 
     fn single_quoted_string(input: Node) -> Result<String> {
@@ -341,15 +347,16 @@ impl UnrealScriptParser {
         return if input.as_str() == "-" { Ok(-1) } else { Ok(1) }
     }
 
-    fn integer_literal(input: Node) -> Result<NumericLiteral> {
+    fn integer_literal(input: Node) -> Result<AstNode<NumericLiteral>> {
         let mut sign = 1;
         let mut integer = 0;
+        let span = AstSpan::from(&input);
         match_nodes_any!(input.into_children();
             numeric_sign(s) => sign = s,
             integer_literal_hexadecimal(s) => integer = s,
             integer_literal_decimal(s) => integer = s
         );
-        Ok(NumericLiteral::Integer(sign * integer))
+        Ok(AstNode { span, data: NumericLiteral::Integer(sign * integer) })
     }
 
     fn unqualified_identifier(input: Node) -> Result<AstNode<Identifier>> {
@@ -378,7 +385,7 @@ impl UnrealScriptParser {
         );
     }
 
-    fn numeric_literal(input: Node) -> Result<NumericLiteral> {
+    fn numeric_literal(input: Node) -> Result<AstNode<NumericLiteral>> {
         match_nodes!(input.into_children();
             [integer_literal(n)] => return Ok(n),
             [float_literal(f)] => return Ok(f)
@@ -388,7 +395,7 @@ impl UnrealScriptParser {
     fn vector_literal(input: Node) -> Result<Literal> {
         match_nodes!(input.into_children();
             [numeric_literal(x), numeric_literal(y), numeric_literal(z)] => {
-                return Ok(Literal::Vector { x, y, z })
+                return Ok(Literal::Vector([x, y, z]))
             }
         )
     }
@@ -396,7 +403,7 @@ impl UnrealScriptParser {
     fn rotator_literal(input: Node) -> Result<Literal> {
         match_nodes!(input.into_children();
             [numeric_literal(pitch), numeric_literal(yaw), numeric_literal(roll)] => {
-                return Ok(Literal::Rotator { pitch, yaw, roll })
+                return Ok(Literal::Rotator([pitch, yaw, roll]))
             }
         )
     }
@@ -620,35 +627,31 @@ impl UnrealScriptParser {
         )
     }
 
-    fn literal(input: Node) -> Result<Literal> {
-        match_nodes!(input.into_children();
-            [vector_literal(v)] => Ok(v),
-            [rotator_literal(r)] => Ok(r),
-            [numeric_literal(n)] => Ok(Literal::Numeric(n)),
-            [string_literal(s)] => Ok(s),
-            [name_literal(n)] => Ok(n),
-            [object_literal(o)] => Ok(o),
-        )
+    fn literal(input: Node) -> Result<AstNode<Literal>> {
+        Ok(AstNode {
+            span: AstSpan::from(&input),
+            data: match_nodes!(input.into_children();
+                [boolean_literal(b)] => b,
+                [vector_literal(v)] => v,
+                [rotator_literal(r)] => r,
+                [numeric_literal(n)] => Literal::Numeric(n),
+                [string_literal(s)] => s,
+                [name_literal(n)] => n,
+                [object_literal(o)] => o,
+            )
+        })
     }
 
     fn boolean_literal(input: Node) -> Result<Literal> {
-        bool::from_str(input.as_str())
+        bool::from_str(input.as_str().to_lowercase().as_str())
             .map_err(|e| input.error(e))
             .and_then(|v| Ok(Literal::Boolean(v)))
-    }
-
-    // TODO: once we get everything functioning, revisit why boolean literal is not just included in literal rule
-    fn const_value(input: Node) -> Result<Literal> {
-        match_nodes!(input.into_children();
-            [literal(l)] => Ok(l),
-            [boolean_literal(l)] => Ok(l),
-        )
     }
 
     fn const_declaration(input: Node) -> Result<AstNode<ConstDeclaration>> {
         let span = AstSpan::from(&input);
         match_nodes!(input.into_children();
-            [unqualified_identifier(name), const_value(value)] => {
+            [unqualified_identifier(name), literal(value)] => {
                 Ok(AstNode {
                     span,
                     data: ConstDeclaration {
@@ -1062,11 +1065,11 @@ impl UnrealScriptParser {
         })
     }
 
-    fn defaultproperties_object(input: Node) -> Result<AstNode<DefaultPropertiesObject>> {
+    fn defaultproperties_object(input: Node) -> Result<Rc<AstNode<DefaultPropertiesObject>>> {
         let span = AstSpan::from(&input);
         match_nodes!(input.into_children();
             [identifier(class), defaultproperties_statement(statements)..] => {
-                Ok(AstNode { span, data: DefaultPropertiesObject { class, statements: statements.collect() } })
+                Ok(Rc::new(AstNode { span, data: DefaultPropertiesObject { class, statements: statements.collect() } }))
             }
         )
     }
@@ -1181,7 +1184,7 @@ impl UnrealScriptParser {
                 [statement_empty(_e)] => ProgramStatement::Empty,
                 [compiler_directive(c)] => ProgramStatement::CompilerDirective(c),
                 [const_declaration(c)] => ProgramStatement::ConstDeclaration(c),
-                [var_declaration(v)] => ProgramStatement::VarDeclaration(v),
+                [var_declaration(v)] => ProgramStatement::VarDeclaration(Rc::new(v)),
                 [enum_declaration(e)] => ProgramStatement::EnumDeclaration(e),
                 [struct_declaration(s)] => ProgramStatement::StructDeclaration(s),
                 [function_declaration(f)] => ProgramStatement::FunctionDeclaration(f),
@@ -1297,7 +1300,7 @@ fn calculate_lines(contents: &str) -> Vec<usize> {
 pub fn parse_program(contents: &str) -> std::result::Result<ProgramResult, ParsingError> {
     match UnrealScriptParser::program(UnrealScriptParser::parse(Rule::program, contents)?.single()?) {
         Ok(program) => {
-            let mut visitor = Visitor::new();
+            let mut visitor = Visitor::new(contents);
             program.visit(&mut visitor);
             if !visitor.errors.is_empty() {
                 // calculate position of line breaks and attach it to the AstSpan error (hacky and bad!!!)

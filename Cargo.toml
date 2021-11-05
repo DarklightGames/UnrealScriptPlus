@@ -20,6 +20,7 @@ strum_macros = "0.22"
 pest_consume = "1.1.1"
 pest_consume_macros = "1.1.0"
 convert_case = "0.4.0"
+if_chain = "1.0.2"
 
 [dependencies.pyo3]
 version = "0.14.1"

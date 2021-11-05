@@ -1,5 +1,8 @@
 use strum_macros::{EnumString, Display};
 use std::fmt::{Debug, Formatter};
+use std::ops::Deref;
+use std::rc::Rc;
+use std::hash::{Hash, Hasher};
 
 #[derive(Debug, Copy, Clone)]
 pub struct AstSpan {
@@ -12,6 +15,20 @@ pub struct AstSpan {
 pub struct AstNode<Data> {
     pub data: Data,
     pub span: AstSpan,
+}
+
+impl<T> Deref for AstNode<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
+}
+
+impl<T: PartialEq> PartialEq for AstNode<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.data.eq(&other.data)
+    }
 }
 
 #[derive(Debug, Eq, PartialEq, Hash, Clone, Display, EnumString)]
@@ -41,6 +58,15 @@ pub enum ClassModifierType {
     SafeReplace,
     ShowCategories,
     Transient,
+}
+
+impl ClassModifierType {
+    pub fn is_unique(&self) -> bool {
+        return match self {
+            ClassModifierType::DependsOn => false,
+            _ => true
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Ord, PartialOrd, Display, EnumString, Hash)]
@@ -107,7 +133,7 @@ pub enum StateModifier {
     Simulated,
 }
 
-#[derive(Debug, PartialEq, Display, EnumString)]
+#[derive(Debug, PartialEq, Eq, Clone, PartialOrd, Ord, Copy, Display, EnumString)]
 #[strum(serialize_all="lowercase")]
 pub enum VarModifier {
     Automated,
@@ -155,7 +181,7 @@ pub enum FunctionTypeType {
 #[derive(Debug)]
 pub struct FunctionType {
     pub type_: FunctionTypeType,
-    pub arguments: Option<Vec<NumericLiteral>>,
+    pub arguments: Option<Vec<AstNode<NumericLiteral>>>,
 }
 
 #[derive(Debug, PartialEq, Display, EnumString)]
@@ -243,14 +269,14 @@ pub enum DyadicVerb {
 }
 
 impl DyadicVerb {
-    pub fn assigns(&self) -> bool {
+    pub fn is_assignment(&self) -> bool {
         match self {
-            DyadicVerb::AddAssign => true,
-            DyadicVerb::SubtractAssign => true,
-            DyadicVerb::MultiplyAssign => true,
-            DyadicVerb::DivideAssign => true,
-            DyadicVerb::ConcatenateAssign => true,
-            DyadicVerb::ConcatenateSpaceAssign => true,
+            DyadicVerb::AddAssign |
+            DyadicVerb::SubtractAssign |
+            DyadicVerb::MultiplyAssign |
+            DyadicVerb::DivideAssign |
+            DyadicVerb::ConcatenateAssign |
+            DyadicVerb::ConcatenateSpaceAssign |
             DyadicVerb::Assign => true,
             _ => false,
         }
@@ -267,7 +293,7 @@ pub enum ProgramStatement {
     ClassDeclaration(AstNode<ClassDeclaration>),
     CompilerDirective(CompilerDirective),
     ConstDeclaration(AstNode<ConstDeclaration>),
-    VarDeclaration(AstNode<VarDeclaration>),
+    VarDeclaration(Rc<AstNode<VarDeclaration>>),
     EnumDeclaration(AstNode<EnumDeclaration>),
     StructDeclaration(AstNode<StructDeclaration>),
     FunctionDeclaration(AstNode<FunctionDeclaration>),
@@ -282,19 +308,19 @@ pub struct CompilerDirective {
     pub command: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum VarSize {
-    IntegerLiteral(NumericLiteral),
+    IntegerLiteral(AstNode<NumericLiteral>),
     Identifier(AstNode<Identifier>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct VarName {
     pub identifier: AstNode<Identifier>,
     pub size: Option<AstNode<VarSize>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct StructVarDeclaration {
     pub is_editable: bool,
     pub modifiers: Vec<StructVarModifier>,
@@ -302,7 +328,7 @@ pub struct StructVarDeclaration {
     pub names: Vec<AstNode<VarName>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct StructDeclaration {
     pub name: AstNode<Identifier>,
     pub parent: Option<AstNode<Identifier>>,
@@ -319,13 +345,19 @@ pub struct VarDeclaration {
     pub names: Vec<AstNode<VarName>>,
 }
 
-#[derive(Debug)]
-pub enum Type {
+#[derive(Debug, PartialEq)]
+pub enum PodType {
+    Byte,
     Int,
     Float,
     String,
     Name,
     Bool,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Type {
+    Pod(PodType),
     Array(Box<Type>),
     Class(AstNode<Identifier>),
     Struct(AstNode<StructDeclaration>),
@@ -336,30 +368,32 @@ pub enum Type {
 impl From<Identifier> for Type {
     fn from(identifier: Identifier) -> Self {
         if identifier.string.eq_ignore_ascii_case("int") {
-            Type::Int
+            Type::Pod(PodType::Int)
+        } else if identifier.string.eq_ignore_ascii_case("byte") {
+            Type::Pod(PodType::Byte)
         } else if identifier.string.eq_ignore_ascii_case("float") {
-            Type::Float
+            Type::Pod(PodType::Float)
         } else if identifier.string.eq_ignore_ascii_case("string") {
-            Type::String
+            Type::Pod(PodType::String)
         }else if identifier.string.eq_ignore_ascii_case("name") {
-            Type::Name
+            Type::Pod(PodType::Name)
         } else if identifier.string.eq_ignore_ascii_case("bool") {
-            Type::Bool
+            Type::Pod(PodType::Bool)
         } else {
             Type::Identifier(identifier)
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct ExpressionList {
     pub expressions: Vec<Option<Box<AstNode<Expression>>>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Expression {
     Identifier(AstNode<Identifier>),
-    Literal(Literal),
+    Literal(AstNode<Literal>),
     New { arguments: Option<AstNode<ExpressionList>>, type_: Box<AstNode<Expression>> },
     MonadicPreExpression { operand: Box<AstNode<Expression>>, verb: MonadicVerb },
     MonadicPostExpression { operand: Box<AstNode<Expression>>, verb: MonadicVerb },
@@ -407,19 +441,34 @@ pub enum NumericLiteral {
     Float(f32),
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Literal {
-    Numeric(NumericLiteral),
+    Numeric(AstNode<NumericLiteral>),
     Boolean(bool),
     String(String),
     Name(String),
-    Rotator { pitch: NumericLiteral, yaw: NumericLiteral, roll: NumericLiteral },
-    Vector { x: NumericLiteral, y: NumericLiteral, z: NumericLiteral },
+    Rotator([AstNode<NumericLiteral>; 3]),
+    Vector([AstNode<NumericLiteral>; 3]),
     Object { type_: AstNode<Identifier>, reference: String },
 }
 
+#[derive(Eq, Clone)]
 pub struct Identifier {
     pub string: String,
+}
+
+impl Deref for Identifier {
+    type Target = String;
+
+    fn deref(&self) -> &Self::Target {
+        &self.string
+    }
+}
+
+impl Hash for Identifier {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.string.to_lowercase().hash(state)
+    }
 }
 
 impl Debug for Identifier {
@@ -450,7 +499,7 @@ pub struct FunctionArgument {
 #[derive(Debug)]
 pub struct FunctionModifier {
     pub type_: FunctionModifierType,
-    pub arguments: Vec<NumericLiteral>,
+    pub arguments: Vec<AstNode<NumericLiteral>>,
 }
 
 #[derive(Debug)]
@@ -475,7 +524,7 @@ pub struct LocalDeclaration {
     pub names: Vec<AstNode<VarName>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct EnumDeclaration {
     pub name: AstNode<Identifier>,
     pub values: Vec<AstNode<Identifier>>,
@@ -531,7 +580,7 @@ pub struct FunctionBody {
 #[derive(Debug)]
 pub struct ConstDeclaration {
     pub name: AstNode<Identifier>,
-    pub value: Literal,
+    pub value: AstNode<Literal>,
 }
 
 #[derive(Debug)]
@@ -621,7 +670,7 @@ pub struct DefaultProperties {
 #[derive(Debug)]
 pub enum DefaultPropertiesStatement {
     Assignment(AstNode<DefaultPropertiesAssignment>),
-    Object(AstNode<DefaultPropertiesObject>),
+    Object(Rc<AstNode<DefaultPropertiesObject>>),
 }
 
 #[derive(Debug)]
@@ -630,9 +679,15 @@ pub struct DefaultPropertiesAssignment {
     pub value: Option<AstNode<DefaultPropertiesValue>>,
 }
 
+impl DefaultPropertiesAssignment {
+    pub fn is_array_assignment(&self) -> bool {
+        self.value.is_some()
+    }
+}
+
 #[derive(Debug)]
 pub enum DefaultPropertiesValue {
-    Literal(Literal),
+    Literal(AstNode<Literal>),
     Identifier(AstNode<Identifier>),
     Struct(AstNode<DefaultPropertiesStruct>),
     Array(AstNode<DefaultPropertiesArray>),
@@ -646,7 +701,7 @@ pub struct DefaultPropertiesStruct {
 #[derive(Debug)]
 pub enum DefaultPropertiesArrayIndex {
     Identifier(AstNode<Identifier>),
-    IntegerLiteral(NumericLiteral),
+    IntegerLiteral(AstNode<NumericLiteral>),
 }
 
 #[derive(Debug)]
