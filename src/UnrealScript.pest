@@ -83,7 +83,6 @@ class_modifier_type = @{
     ^"native" |
     ^"noexport"
 }
-// TODO: WITHIN rule!
 class_modifier = { class_modifier_type ~ (WS* ~ "(" ~ WS* ~ expression_list ~ WS* ~ ")")? }
 class_within = { ^"within" ~ WS+ ~ identifier }
 class_declaration = { ^"class" ~ WS+ ~ unqualified_identifier ~ (WS+ ~ extends)? ~ (WS+ ~ class_within)? ~ (WS+ ~ class_modifier)* ~ WS* ~ ";" }
@@ -299,7 +298,7 @@ switch_case = { switch_case_label ~ WS* ~ code_statements? }
 switch_default_case = { switch_default_case_label ~ WS* ~ code_statements? }
 continue_statement = { ^"continue" ~ WS* ~ ";" }
 break_statement = { ^"break" ~ WS* ~ ";" }
-goto_statement = { ^"goto" ~ WS+ ~ unqualified_identifier ~ WS* ~ ";" }
+goto_statement = { ^"goto" ~ WS+ ~ (("'" ~ unqualified_identifier ~ "'") | unqualified_identifier) ~ WS* ~ ";" }
 
 // STATES
 state_modifier = { ^"auto" | ^"simulated" }

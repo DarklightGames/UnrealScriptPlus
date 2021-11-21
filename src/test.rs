@@ -789,6 +789,30 @@ mod test {
     }
 
     #[test]
+    fn bool_literal_false_as_expression() {
+        parses_to!(
+            parser: UnrealScriptParser,
+            input: "false",
+            rule: Rule::expression,
+            tokens: [
+                expression(0, 5, [ literal (0, 5, [ boolean_literal(0, 5) ]) ])
+            ]
+        )
+    }
+
+    #[test]
+    fn bool_literal_true_as_expression() {
+        parses_to!(
+            parser: UnrealScriptParser,
+            input: "true",
+            rule: Rule::expression,
+            tokens: [
+                expression(0, 4, [ literal (0, 4, [ boolean_literal(0, 4) ]) ])
+            ]
+        )
+    }
+
+    #[test]
     fn const_declaration() {
         parses_to!(
             parser: UnrealScriptParser,
@@ -797,7 +821,7 @@ mod test {
             tokens: [
                 const_declaration(0, 15, [
                     unqualified_identifier(6, 9),
-                    const_value(12, 14, [ literal(12, 14, [ numeric_literal(12, 14, [ integer_literal(12, 14, [integer_literal_decimal(12, 14)]) ]) ]) ])
+                    literal(12, 14, [ numeric_literal(12, 14, [ integer_literal(12, 14, [integer_literal_decimal(12, 14)]) ]) ])
                 ])
             ]
         )
@@ -1176,6 +1200,36 @@ mod test {
     }
 
     #[test]
+    fn goto_statement_as_code_statement() {
+        parses_to! {
+            parser: UnrealScriptParser,
+            input: "goto 'Foo';",
+            rule: Rule::code_statement,
+            tokens: [ code_statement(0, 11, [ goto_statement(0, 11, [ unqualified_identifier(6, 9) ]) ]) ]
+        }
+    }
+
+    #[test]
+    fn goto_statement_no_quotes() {
+        parses_to! {
+            parser: UnrealScriptParser,
+            input: "goto Foo;",
+            rule: Rule::goto_statement,
+            tokens: [ goto_statement(0, 9, [ unqualified_identifier(5, 8) ]) ]
+        }
+    }
+
+    #[test]
+    fn goto_statement_with_quotes() {
+        parses_to! {
+            parser: UnrealScriptParser,
+            input: "goto 'Foo';",
+            rule: Rule::goto_statement,
+            tokens: [ goto_statement(0, 11, [ unqualified_identifier(6, 9) ]) ]
+        }
+    }
+
+    #[test]
     fn replication_statement_multiple_variables() {
         parses_to! {
             parser: UnrealScriptParser,
@@ -1192,9 +1246,6 @@ mod test {
         }
     }
 
-    // TODO: operator tests!
-
-    // TODO: compiler directive tests
     #[test]
     fn compiler_directive_start_of_line() {
         parses_to! {
@@ -1204,4 +1255,6 @@ mod test {
             tokens: [ compiler_directive(0, 34, [ compiler_directive_inner(1, 34), EOI(34, 34) ]) ]
         }
     }
+
+    // TODO: operator tests!
 }
