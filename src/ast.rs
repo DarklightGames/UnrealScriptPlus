@@ -443,6 +443,7 @@ pub enum NumericLiteral {
 
 #[derive(Debug, PartialEq)]
 pub enum Literal {
+    None,
     Numeric(AstNode<NumericLiteral>),
     Boolean(bool),
     String(String),
@@ -681,7 +682,7 @@ pub struct DefaultPropertiesAssignment {
 
 impl DefaultPropertiesAssignment {
     pub fn is_array_assignment(&self) -> bool {
-        self.value.is_some()
+        self.target.index.is_some()
     }
 }
 

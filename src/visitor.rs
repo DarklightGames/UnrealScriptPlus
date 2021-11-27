@@ -2,30 +2,48 @@ use crate::ast::*;
 use crate::parser::{ProgramError, ProgramErrorSeverity};
 
 use convert_case::{Case, Casing};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
 use std::rc::Rc;
 use if_chain::if_chain;
 
-pub struct VisitorContext<'a> {
-    pub default_properties_object: Option<Rc<AstNode<DefaultPropertiesObject>>>,
-    pub function: Option<&'a AstNode<FunctionDeclaration>>,
+pub enum VisitorState {
+    DefaultPropertiesObject,
+    DefaultProperties,
+    Function,
+    State,
 }
 
-impl VisitorContext<'_> {
-    pub fn new<'a>() -> VisitorContext<'a> {
-        VisitorContext {
-            default_properties_object: None,
-            function: None
-        }
+pub struct VisitorContext {
+    pub state_stack: Vec<VisitorState>,
+}
+
+impl VisitorContext {
+    pub fn new() -> VisitorContext {
+        VisitorContext { state_stack: vec![] }
+    }
+}
+
+impl VisitorContext {
+    pub fn push_state(&mut self, state: VisitorState) {
+        self.state_stack.push(state)
+    }
+
+    pub fn pop_state(&mut self) -> Option<VisitorState> {
+        self.state_stack.pop()
+    }
+
+    pub fn top_state(&self) -> Option<&VisitorState> {
+        self.state_stack.last()
     }
 }
 
 pub struct Visitor<'a> {
     pub errors: Vec<ProgramError>,
     contents: &'a str,
-    context: VisitorContext<'a>,
+    context: VisitorContext,
     variables: HashMap<Identifier, Rc<AstNode<VarDeclaration>>>,
+    types: HashSet<Identifier>,
 }
 
 impl Visitor<'_> {
@@ -35,6 +53,7 @@ impl Visitor<'_> {
             errors: vec![],
             context: VisitorContext::new(),
             variables: HashMap::new(),
+            types: HashSet::new()
         }
     }
 
@@ -106,80 +125,87 @@ impl Visit for AstNode<DefaultPropertiesValue> {
 
 impl Visit for Rc<AstNode<DefaultPropertiesObject>> {
     fn visit(&self, visitor: &mut Visitor) {
-        visitor.context.default_properties_object = Some(self.clone());
+        visitor.context.push_state(VisitorState::DefaultPropertiesObject);
         self.statements.iter().for_each(|statement| statement.visit(visitor));
-        visitor.context.default_properties_object = None
+        visitor.context.pop_state();
     }
 }
 
 impl Visit for AstNode<DefaultPropertiesTarget> {
-    fn visit(&self, visitor: &mut Visitor) {
+    fn visit(&self, _visitor: &mut Visitor) {
     }
 }
 
 impl Visit for AstNode<DefaultPropertiesAssignment> {
     fn visit(&self, visitor: &mut Visitor) {
-        if_chain! {
-            if visitor.context.default_properties_object.is_none();
-            if let Some(value) = &self.value;
-            if let Some(variable) = visitor.variables.get(&self.target.target);
-            if let Type::Pod(pod_type) = &variable.type_;
-            then {
-                match pod_type {
-                    PodType::Byte => {
-                        if let DefaultPropertiesValue::Literal(literal) = &value.data {
-                            if let Literal::Numeric(numeric) = &literal.data {
-                                match numeric.data {
-                                    NumericLiteral::Integer(i) => {
-                                        if i == 0 {
-                                            visitor.warn("redundant specification of default value", self.span)
-                                        } else if i < u8::MIN as i32 || i > u8::MAX as i32 {
-                                            let bytes: [u8; 1] = [i.to_le_bytes()[0]];
-                                            let effective_value = u8::from_le_bytes(bytes);
-                                            visitor.warn(
-                                                format!("value {} is outside the range of [{}..{}]; effective value: {}", i, u8::MIN, u8::MAX, effective_value).as_str(),
-                                                self.span
-                                            )
-                                        }
-                                    },
-                                    _ => { visitor.warn("incorrect literal type", self.span) }
+        if let Some(VisitorState::DefaultPropertiesObject) = visitor.context.top_state() {
+        } else {
+            if_chain! {
+                if let Some(value) = &self.value;
+                if let Some(variable) = visitor.variables.get(&self.target.target);
+                if let Type::Pod(pod_type) = &variable.type_;
+                then {
+                    match pod_type {
+                        PodType::Byte => {
+                            if let DefaultPropertiesValue::Literal(literal) = &value.data {
+                                if let Literal::Numeric(numeric) = &literal.data {
+                                    match numeric.data {
+                                        NumericLiteral::Integer(i) => {
+                                            if !self.is_array_assignment() && i == 0 {
+                                                visitor.warn("redundant specification of default value", self.span)
+                                            }
+                                            if i < u8::MIN as i32 || i > u8::MAX as i32 {
+                                                let bytes: [u8; 1] = [i.to_le_bytes()[0]];
+                                                let effective_value = u8::from_le_bytes(bytes);
+                                                visitor.warn(
+                                                    format!("value {} is outside the range of [{}..{}]; effective value: {}", i, u8::MIN, u8::MAX, effective_value).as_str(),
+                                                    self.span
+                                                )
+                                            }
+                                        },
+                                        _ => { visitor.warn("incorrect literal type", self.span) }
+                                    }
                                 }
                             }
                         }
-                    }
-                    PodType::Int | PodType::Float => {
-                        if let DefaultPropertiesValue::Literal(literal) = &value.data {
-                            if let Literal::Numeric(numeric) = &literal.data {
-                                match numeric.data {
-                                    NumericLiteral::Integer(i) => {
-                                        if i == 0 {
-                                            visitor.warn("redundant specification of default value", self.span)
+                        PodType::Int | PodType::Float => {
+                            if_chain! {
+                                if !self.is_array_assignment();
+                                if let DefaultPropertiesValue::Literal(literal) = &value.data;
+                                if let Literal::Numeric(numeric) = &literal.data;
+                                then {
+                                    match numeric.data {
+                                        NumericLiteral::Integer(i) => {
+                                            if i == 0 {
+                                                visitor.warn("redundant specification of default value", self.span)
+                                            }
+                                        }
+                                        NumericLiteral::Float(f) => {
+                                            if f == 0.0 {
+                                                visitor.warn("redundant specification of default value", self.span)
+                                            }
                                         }
                                     }
-                                    NumericLiteral::Float(f) => {
-                                        if f == 0.0 {
-                                            visitor.warn("redundant specification of default value", self.span)
-                                        }
-                                    }
-                                    _ => {}
                                 }
                             }
                         }
-                    }
-                    PodType::String | PodType::Name => {
-                        if_chain! {
-                            if let DefaultPropertiesValue::Literal(literal) = &value.data;
-                            if let Literal::String(s) = &literal.data;
-                            if s.is_empty();
-                            then { visitor.warn("redundant specification of default value", self.span) }
+                        PodType::String | PodType::Name => {
+                            if_chain! {
+                                if !self.is_array_assignment();
+                                if let DefaultPropertiesValue::Literal(literal) = &value.data;
+                                if let Literal::String(s) = &literal.data;
+                                if s.is_empty();
+                                then { visitor.warn("redundant specification of default value", self.span) }
+                            }
                         }
-                    }
-                    PodType::Bool => {
-                        if_chain! {
-                            if let DefaultPropertiesValue::Literal(literal) = &value.data;
-                            if let Literal::Boolean(b) = literal.data;
-                            if b == false;
-                            then { visitor.warn("redundant specification of default value", self.span) }
+                        PodType::Bool => {
+                            if_chain! {
+                                if !self.is_array_assignment();
+                                if let DefaultPropertiesValue::Literal(literal) = &value.data;
+                                if let Literal::Boolean(b) = literal.data;
+                                if b == false;
+                                then { visitor.warn("redundant specification of default value", self.span) }
+                            }
                         }
                     }
                 }
@@ -195,6 +221,7 @@ impl Visit for AstNode<DefaultPropertiesAssignment> {
 impl Visit for AstNode<Literal> {
     fn visit(&self, visitor: &mut Visitor) {
         match &self.data {
+            Literal::None => {},
             Literal::Numeric(_) => {},
             Literal::Boolean(_) => {
                 let contents = &visitor.contents[self.span.start..self.span.end];
@@ -234,7 +261,33 @@ impl Visit for AstNode<Literal> {
                 }
             }
             Literal::Vector(_) => {}
-            Literal::Object { .. } => {}
+            Literal::Object { type_, .. } => {
+                match type_.to_lowercase().as_str() {
+                    "class" | "enum" => {
+                        if type_.to_lowercase().as_str() != type_.as_str() {
+                            visitor.warn(
+                                format!("type specifier for class and enum object literals should be lowercase (e.g., {} instead of {})",
+                                    type_.to_lowercase(),
+                                    type_.as_str()
+                                ).as_str(),
+                                type_.span
+                            )
+                        }
+                    },
+                    _ => {
+                        // TODO: the correct thing to do here is check that the capitalization matches the capitalization the type was defined with
+                        let first_letter_in_type = type_.chars().nth(0).unwrap();
+                        if !first_letter_in_type.is_uppercase() {
+                            visitor.warn(
+                                format!("non-pod object literal types should begin with a capital letter (e.g., {})",
+                                        type_.to_case(Case::Pascal)
+                                ).as_str(),
+                                type_.span
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -294,7 +347,12 @@ impl Visit for AstNode<Expression> {
         match self.deref() {
             Expression::Identifier(_) => {}
             Expression::Literal(l) => l.visit(visitor),
-            Expression::New { .. } => {}
+            Expression::New { type_, arguments } => {
+                type_.visit(visitor);
+                if let Some(arguments) = arguments {
+                    arguments.visit(visitor);
+                }
+            }
             Expression::MonadicPreExpression { operand, verb: _ } => {
                 operand.visit(visitor)
             }
@@ -612,10 +670,14 @@ impl Visit for Type {
         match self {
             Type::Pod(_) => {},
             Type::Array(t) => t.visit(visitor),
-            Type::Class(_) => {}
+            Type::Class(c) => {
+                visitor.types.insert(c.data.clone());
+            }
             Type::Struct(e) => e.visit(visitor),
             Type::Enum(e) => e.visit(visitor),
-            Type::Identifier(_) => {}
+            Type::Identifier(id) => {
+                visitor.types.insert(id.clone());
+            }
         }
     }
 }
@@ -641,7 +703,6 @@ impl Visit for Rc<AstNode<VarDeclaration>> {
         if !is_sorted {
             visitor.warn(format!("var modifiers should be in alphabetical order (e.g., {:?})", sorted_modifiers).as_str(), self.span)
         }
-        // TODO: ensure that the ordering is correct and there are no duplicate modifiers
     }
 }
 

@@ -46,8 +46,11 @@ single_quoted_string = { "'" ~ single_quoted_string_inner  ~ "'"}
 object_literal = { unqualified_identifier ~ WS* ~ single_quoted_string }
 vector_literal = { ^"vect" ~ WS* ~ "(" ~ WS* ~ numeric_literal ~ WS* ~ "," ~ WS* ~ numeric_literal ~ WS* ~ "," ~ WS* ~ numeric_literal ~ WS* ~ ")" }
 rotator_literal = { ^"rot" ~ WS* ~ "(" ~ WS* ~ numeric_literal ~ WS* ~ "," ~ WS* ~ numeric_literal ~ WS* ~ "," ~ WS* ~ numeric_literal ~ WS* ~ ")" }
-boolean_literal = { (^"true" | ^"false") ~ !ASCII_ALPHANUMERIC ~ !"_" ~ !WS ~ !WHITESPACE }    // used only in special cases
+keyword_suffix = _{ !ASCII_ALPHANUMERIC ~ !"_" ~ !WS ~ !WHITESPACE }
+boolean_literal = { (^"true" | ^"false") ~ keyword_suffix }    // used only in special cases
+none_literal = { ^"none" ~ keyword_suffix }
 literal = {
+    none_literal |
     boolean_literal |
     vector_literal |
     rotator_literal |

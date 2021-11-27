@@ -307,6 +307,10 @@ impl UnrealScriptParser {
         )
     }
 
+    fn none_literal(input: Node) -> Result<Literal> {
+        Ok(Literal::None)
+    }
+
     fn float_literal(input: Node) -> Result<AstNode<NumericLiteral>> {
         input.as_str().to_lowercase().trim_end_matches("f").to_string().as_str().parse::<f32>()
             .map_err(|e| input.error(e))
@@ -318,7 +322,6 @@ impl UnrealScriptParser {
     }
 
     fn name_literal(input: Node) -> Result<Literal> {
-        // TODO: get INNER and save that!
         Ok(Literal::Name(input.into_children().single()?.as_str().to_string()))
     }
 
@@ -631,6 +634,7 @@ impl UnrealScriptParser {
         Ok(AstNode {
             span: AstSpan::from(&input),
             data: match_nodes!(input.into_children();
+                [none_literal(n)] => n,
                 [boolean_literal(b)] => b,
                 [vector_literal(v)] => v,
                 [rotator_literal(r)] => r,
