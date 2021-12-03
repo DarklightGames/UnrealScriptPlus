@@ -2,6 +2,7 @@
 mod test {
     use pest::{parses_to, consumes_to, fails_with};
     use crate::parser::{UnrealScriptParser, Rule};
+    use crate::transform::{ScriptBuilder, ScriptFormattingOptions};
 
     #[test]
     fn comment_single_line() {
@@ -23,11 +24,8 @@ mod test {
         )
     }
 
-    // TODO: jump_label
-
     #[test]
     fn comment_multi_line_nested() {
-        // TODO:
         parses_to!(
             parser: UnrealScriptParser,
             input: "/* /* This is a multi-line comment! */ Foo */",
@@ -42,11 +40,7 @@ mod test {
             parser: UnrealScriptParser,
             input: "1234567",
             rule: Rule::integer_literal,
-            tokens: [
-                integer_literal(0, 7, [
-                    integer_literal_decimal(0, 7)
-                ])
-            ]
+            tokens: [ integer_literal(0, 7, [ integer_literal_decimal(0, 7) ]) ]
         )
     }
 
@@ -56,11 +50,7 @@ mod test {
             parser: UnrealScriptParser,
             input: "-1234567",
             rule: Rule::integer_literal,
-            tokens: [ integer_literal(0, 8, [
-                numeric_sign(0, 1),
-                integer_literal_decimal(1, 8)
-                ])
-            ]
+            tokens: [ integer_literal(0, 8, [ numeric_sign(0, 1), integer_literal_decimal(1, 8) ]) ]
         )
     }
 
@@ -71,10 +61,7 @@ mod test {
             input: "+1234567",
             rule: Rule::integer_literal,
             tokens: [
-                integer_literal(0, 8, [
-                    numeric_sign(0, 1),
-                    integer_literal_decimal(1, 8)
-                ])
+                integer_literal(0, 8, [ numeric_sign(0, 1), integer_literal_decimal(1, 8) ])
             ]
         )
     }
@@ -87,9 +74,7 @@ mod test {
             rule: Rule::integer_literal,
             tokens: [
                 integer_literal(0, 18, [
-                    integer_literal_hexadecimal(0, 18, [
-                        hex_digits(2, 18)
-                    ])
+                    integer_literal_hexadecimal(0, 18, [ hex_digits(2, 18) ])
                 ])
             ]
         )
@@ -101,12 +86,11 @@ mod test {
             parser: UnrealScriptParser,
             input: "-0x0123456789ABCDEF",
             rule: Rule::integer_literal,
-            tokens: [ integer_literal(0, 19, [
-                numeric_sign(0, 1),
-                integer_literal_hexadecimal(1, 19, [
-                    hex_digits(3, 19)
+            tokens: [
+                integer_literal(0, 19, [
+                    numeric_sign(0, 1),
+                    integer_literal_hexadecimal(1, 19, [ hex_digits(3, 19) ]),
                 ])
-            ])
             ]
         )
     }
@@ -257,9 +241,7 @@ mod test {
             parser: UnrealScriptParser,
             input: "'0123456789_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'",
             rule: Rule::name_literal,
-            tokens: [ name_literal(0, 65, [
-                name_inner(1, 64)
-            ])]
+            tokens: [ name_literal(0, 65, [ name_inner(1, 64) ])]
         )
     }
 
@@ -269,11 +251,7 @@ mod test {
             parser: UnrealScriptParser,
             input: "''",
             rule: Rule::name_literal,
-            tokens: [
-                name_literal(0, 2, [
-                    name_inner(1, 1)
-                ])
-            ]
+            tokens: [ name_literal(0, 2, [ name_inner(1, 1) ]) ]
         )
     }
 
@@ -298,9 +276,7 @@ mod test {
             tokens: [
                 object_literal(0, 23, [
                     unqualified_identifier(0, 10),
-                    single_quoted_string(10, 23, [
-                        single_quoted_string_inner(11, 22)
-                    ])
+                    single_quoted_string(10, 23, [ single_quoted_string_inner(11, 22) ]),
                 ])
             ]
         )
@@ -314,7 +290,7 @@ mod test {
             rule: Rule::object_literal,
             tokens: [ object_literal(0, 14, [
                 unqualified_identifier(0, 5),
-                single_quoted_string(5, 14, [ single_quoted_string_inner(6, 13) ])
+                single_quoted_string(5, 14, [ single_quoted_string_inner(6, 13) ]),
             ]) ]
         )
     }
@@ -329,7 +305,7 @@ mod test {
                 vector_literal(0, 13, [
                     numeric_literal(5, 6, [ integer_literal(5, 6, [ integer_literal_decimal(5, 6) ]) ]),
                     numeric_literal(8, 9, [ integer_literal(8, 9, [ integer_literal_decimal(8, 9) ]) ]),
-                    numeric_literal(11, 12, [ integer_literal(11, 12, [ integer_literal_decimal(11, 12) ]) ])
+                    numeric_literal(11, 12, [ integer_literal(11, 12, [ integer_literal_decimal(11, 12) ]) ]),
                 ])
             ]
         )
@@ -365,7 +341,7 @@ mod test {
                 vector_literal(0, 19, [
                     numeric_literal(5, 8, [ float_literal(5, 8) ]),
                     numeric_literal(10, 13, [ float_literal(10, 13) ]),
-                    numeric_literal(15, 18, [ float_literal(15, 18) ])
+                    numeric_literal(15, 18, [ float_literal(15, 18) ]),
                 ])
             ]
         )
@@ -381,7 +357,7 @@ mod test {
                 rotator_literal(0, 12, [
                     numeric_literal(4, 5, [ integer_literal(4, 5, [ integer_literal_decimal(4, 5) ]) ]),
                     numeric_literal(7, 8, [ integer_literal(7, 8, [ integer_literal_decimal(7, 8) ]) ]),
-                    numeric_literal(10, 11, [ integer_literal(10, 11, [ integer_literal_decimal(10, 11) ]) ])
+                    numeric_literal(10, 11, [ integer_literal(10, 11, [ integer_literal_decimal(10, 11) ]) ]),
                 ])
             ]
         )
@@ -397,7 +373,7 @@ mod test {
                 rotator_literal(0, 18, [
                     numeric_literal(4, 7, [ float_literal(4, 7) ]),
                     numeric_literal(9, 12, [ float_literal(9, 12) ]),
-                    numeric_literal(14, 17, [ float_literal(14, 17) ])
+                    numeric_literal(14, 17, [ float_literal(14, 17) ]),
                 ])
             ]
         )
@@ -409,9 +385,7 @@ mod test {
             parser: UnrealScriptParser,
             input: "class Foo;",
             rule: Rule::class_declaration,
-            tokens: [
-                class_declaration(0, 10, [ unqualified_identifier(6, 9) ])
-            ]
+            tokens: [ class_declaration(0, 10, [ unqualified_identifier(6, 9) ]) ]
         )
     }
 
@@ -424,7 +398,7 @@ mod test {
             tokens: [
                 class_declaration(0, 22, [
                     unqualified_identifier(6, 9),
-                    extends(10, 21, [ identifier(18, 21) ])
+                    extends(10, 21, [ identifier(18, 21) ]),
                 ])
             ]
         )
@@ -476,8 +450,8 @@ mod test {
                     extends(10, 21, [ identifier(18, 21) ]),
                     class_modifier(22, 33, [
                         class_modifier_type(22, 28),
-                        expression_list(29, 32, [ expression(29, 32, [ unqualified_identifier(29, 32) ]) ])
-                    ])
+                        expression_list(29, 32, [ expression(29, 32, [ unqualified_identifier(29, 32) ]) ]),
+                    ]),
                 ])
             ]
         )
@@ -495,8 +469,8 @@ mod test {
                     extends(10, 21, [ identifier(18, 21) ]),
                     class_modifier(22, 36, [
                         class_modifier_type(22, 31),
-                        expression_list(32, 35, [ expression(32, 35, [ unqualified_identifier(32, 35) ]) ])
-                    ])
+                        expression_list(32, 35, [ expression(32, 35, [ unqualified_identifier(32, 35) ]) ]),
+                    ]),
                 ])
             ]
         )
@@ -518,9 +492,9 @@ mod test {
                             expression(27, 28, [ numeric_literal(27, 28, [ integer_literal(27, 28, [ integer_literal_decimal(27, 28) ]) ]) ]),
                             expression(30, 31, [ numeric_literal(30, 31, [ integer_literal(30, 31, [ integer_literal_decimal(30, 31) ]) ]) ]),
                             expression(33, 34, [ numeric_literal(33, 34, [ integer_literal(33, 34, [ integer_literal_decimal(33, 34) ]) ]) ]),
-                            expression(36, 37, [ numeric_literal(36, 37, [ integer_literal(36, 37, [ integer_literal_decimal(36, 37) ]) ]) ])
+                            expression(36, 37, [ numeric_literal(36, 37, [ integer_literal(36, 37, [ integer_literal_decimal(36, 37) ]) ]) ]),
                         ])
-                    ])
+                    ]),
                 ])
             ]
         )
@@ -557,7 +531,7 @@ mod test {
             tokens: [
                 unqualified_identifier(0, 3),
                 unqualified_identifier(5, 8),
-                unqualified_identifier(10, 13)
+                unqualified_identifier(10, 13),
             ]
         )
     }
@@ -568,9 +542,7 @@ mod test {
             parser: UnrealScriptParser,
             input: "Foo",
             rule: Rule::unqualified_identifier_list,
-            tokens: [
-                unqualified_identifier(0, 3)
-            ]
+            tokens: [ unqualified_identifier(0, 3) ]
         )
     }
 
@@ -589,7 +561,7 @@ mod test {
                         expression_list(37, 50, [
                             expression(37, 40, [ unqualified_identifier(37, 40) ]),
                             expression(42, 45, [ unqualified_identifier(42, 45) ]),
-                            expression(47, 50, [ unqualified_identifier(47, 50) ])
+                            expression(47, 50, [ unqualified_identifier(47, 50) ]),
                         ])
                     ])
                 ])
@@ -606,7 +578,7 @@ mod test {
             tokens: [
                 var_declaration(0, 12, [
                     type_(4, 7, [ identifier(4, 7) ]),
-                    var_name(8, 11, [ unqualified_identifier(8, 11) ])
+                    var_name(8, 11, [ unqualified_identifier(8, 11) ]),
                 ])
             ]
         )
@@ -633,9 +605,7 @@ mod test {
             parser: UnrealScriptParser,
             input: "array<int>",
             rule: Rule::array_type,
-            tokens: [
-                array_type(0, 10, [ type_(6, 9, [ identifier(6, 9) ]) ])
-            ]
+            tokens: [ array_type(0, 10, [ type_(6, 9, [ identifier(6, 9) ]) ]) ]
         )
     }
 
@@ -659,7 +629,7 @@ mod test {
             rule: Rule::array_type,
             tokens: [
                 array_type(0, 17, [ type_(6, 16, [
-                    array_type(6, 16, [type_(12, 15, [ identifier(12, 15)])])
+                    array_type(6, 16, [type_(12, 15, [ identifier(12, 15)])]),
                 ])])
             ]
         }
@@ -671,9 +641,7 @@ mod test {
             parser: UnrealScriptParser,
             input: "class<Foo.Bar>",
             rule: Rule::class_type,
-            tokens: [
-                class_type(0, 14, [ identifier(6, 13) ])
-            ]
+            tokens: [ class_type(0, 14, [ identifier(6, 13) ]) ]
         )
     }
 
@@ -700,7 +668,7 @@ mod test {
                     vector_literal(0, 13, [
                         numeric_literal(5, 6, [ integer_literal(5, 6, [ integer_literal_decimal(5, 6) ]) ]),
                         numeric_literal(8, 9, [ integer_literal(8, 9, [ integer_literal_decimal(8, 9) ]) ]),
-                        numeric_literal(11, 12, [ integer_literal(11, 12, [ integer_literal_decimal(11, 12) ]) ])
+                        numeric_literal(11, 12, [ integer_literal(11, 12, [ integer_literal_decimal(11, 12) ]) ]),
                     ])
                 ])
             ]
@@ -743,13 +711,7 @@ mod test {
             parser: UnrealScriptParser,
             input: "\"Foo\"",
             rule: Rule::literal,
-            tokens: [
-                literal(0, 5, [
-                    string_literal(0, 5, [
-                        string_literal_inner(1, 4)
-                    ])
-                ])
-            ]
+            tokens: [ literal(0, 5, [ string_literal(0, 5, [ string_literal_inner(1, 4) ]) ]) ]
         )
     }
 
@@ -759,13 +721,7 @@ mod test {
             parser: UnrealScriptParser,
             input: "'Foo_Bar'",
             rule: Rule::literal,
-            tokens: [
-                literal(0, 9, [
-                    name_literal(0, 9, [
-                        name_inner(1, 8)
-                    ])
-                ])
-            ]
+            tokens: [ literal(0, 9, [ name_literal(0, 9, [ name_inner(1, 8) ]) ]) ]
         )
     }
 
@@ -779,9 +735,7 @@ mod test {
                 literal(0, 23, [
                     object_literal(0, 23, [
                         unqualified_identifier(0, 10),
-                        single_quoted_string(10, 23, [
-                            single_quoted_string_inner(11, 22)
-                        ])
+                        single_quoted_string(10, 23, [ single_quoted_string_inner(11, 22) ]),
                     ])
                 ])
             ]
@@ -794,9 +748,7 @@ mod test {
             parser: UnrealScriptParser,
             input: "false",
             rule: Rule::expression,
-            tokens: [
-                expression(0, 5, [ literal (0, 5, [ boolean_literal(0, 5) ]) ])
-            ]
+            tokens: [ expression(0, 5, [ literal (0, 5, [ boolean_literal(0, 5) ]) ]) ]
         )
     }
 
@@ -806,9 +758,7 @@ mod test {
             parser: UnrealScriptParser,
             input: "true",
             rule: Rule::expression,
-            tokens: [
-                expression(0, 4, [ literal (0, 4, [ boolean_literal(0, 4) ]) ])
-            ]
+            tokens: [ expression(0, 4, [ literal (0, 4, [ boolean_literal(0, 4) ]) ]) ]
         )
     }
 
@@ -821,7 +771,7 @@ mod test {
             tokens: [
                 const_declaration(0, 15, [
                     unqualified_identifier(6, 9),
-                    literal(12, 14, [ numeric_literal(12, 14, [ integer_literal(12, 14, [integer_literal_decimal(12, 14)]) ]) ])
+                    literal(12, 14, [ numeric_literal(12, 14, [ integer_literal(12, 14, [integer_literal_decimal(12, 14)]) ]) ]),
                 ])
             ]
         )
@@ -848,9 +798,7 @@ mod test {
             input: "[FOO]",
             rule: Rule::var_size,
             tokens: [
-                var_size(0, 5, [
-                    unqualified_identifier(1, 4)
-                ])
+                var_size(0, 5, [ unqualified_identifier(1, 4) ])
             ]
         )
     }
@@ -874,9 +822,7 @@ mod test {
             input: "Foo",
             rule: Rule::var_name,
             tokens: [
-                var_name(0, 3, [
-                    unqualified_identifier(0, 3)
-                ])
+                var_name(0, 3, [ unqualified_identifier(0, 3) ])
             ]
         )
     }
@@ -938,7 +884,7 @@ mod test {
                     var_name(46, 49, [ unqualified_identifier(46, 49) ]),
                     var_name(51, 58, [
                         unqualified_identifier(51, 54),
-                        var_size(54, 58, [ integer_literal(55, 57, [ integer_literal_decimal(55, 57) ]) ])
+                        var_size(54, 58, [ integer_literal(55, 57, [ integer_literal_decimal(55, 57) ]) ]),
                     ])
                 ])
             ]
@@ -971,7 +917,7 @@ mod test {
                 enum_declaration(0, 22, [
                     unqualified_identifier(5, 8),
                     unqualified_identifier(11, 14),
-                    unqualified_identifier(16, 19)
+                    unqualified_identifier(16, 19),
                 ])
             ]
         }
@@ -985,7 +931,7 @@ mod test {
             rule: Rule::struct_declaration,
             tokens: [
                 struct_declaration(0, 14, [
-                    unqualified_identifier(7, 10)
+                    unqualified_identifier(7, 10),
                 ])
             ]
         }
@@ -1000,7 +946,7 @@ mod test {
             tokens: [
                 struct_var_declaration(0, 10, [
                     type_(4, 7, [ identifier(4, 7) ]),
-                    var_name(8, 9, [ unqualified_identifier(8, 9) ])
+                    var_name(8, 9, [ unqualified_identifier(8, 9) ]),
                 ])
             ]
         }
@@ -1016,7 +962,7 @@ mod test {
                 struct_var_declaration(0, 12, [
                     struct_var_editable(3, 5),
                     type_(6, 9, [ identifier(6, 9) ]),
-                    var_name(10, 11, [ unqualified_identifier(10, 11) ])
+                    var_name(10, 11, [ unqualified_identifier(10, 11) ]),
                 ])
             ]
         }
@@ -1032,7 +978,7 @@ mod test {
                 struct_declaration(0, 31, [
                     struct_modifier(7, 13),
                     struct_modifier(14, 23),
-                    unqualified_identifier(24, 27)
+                    unqualified_identifier(24, 27),
                 ])
             ]
         }
@@ -1047,7 +993,7 @@ mod test {
             tokens: [
                 struct_declaration(0, 26, [
                     unqualified_identifier(7, 10),
-                    extends(11, 22, [ identifier(19, 22) ])
+                    extends(11, 22, [ identifier(19, 22) ]),
                 ])
             ]
         }
@@ -1064,11 +1010,11 @@ mod test {
                     unqualified_identifier(7, 10),
                     struct_var_declaration(13, 25, [
                         type_(17, 20, [ identifier(17, 20) ]),
-                        var_name(21, 24, [ unqualified_identifier(21, 24) ])
+                        var_name(21, 24, [ unqualified_identifier(21, 24) ]),
                     ]),
                     struct_var_declaration(26, 41, [
                         type_(30, 36, [ identifier(30, 36) ]),
-                        var_name(37, 40, [ unqualified_identifier(37, 40) ])
+                        var_name(37, 40, [ unqualified_identifier(37, 40) ]),
                     ]),
                 ])
             ]
@@ -1084,7 +1030,7 @@ mod test {
             tokens: [
                 function_argument(0, 7, [
                     type_(0, 3, [ identifier(0, 3) ]),
-                    var_name(4, 7, [ unqualified_identifier(4, 7) ])
+                    var_name(4, 7, [ unqualified_identifier(4, 7) ]),
                 ])
             ]
         }
@@ -1099,7 +1045,7 @@ mod test {
             tokens: [
                 function_declaration(0, 15, [
                     function_type(0, 8, [ function_type_no_arguments_type(0, 8) ]),
-                    function_name(9, 12, [ unqualified_identifier(9, 12) ])
+                    function_name(9, 12, [ unqualified_identifier(9, 12) ]),
                 ])
             ]
         }
@@ -1115,7 +1061,7 @@ mod test {
                 function_declaration(0, 19, [
                     function_type(0, 8, [ function_type_no_arguments_type(0, 8) ]),
                     type_(9, 12, [ identifier(9, 12) ]),
-                    function_name(13, 16, [ unqualified_identifier(13, 16) ])
+                    function_name(13, 16, [ unqualified_identifier(13, 16) ]),
                 ])
             ]
         }
@@ -1133,7 +1079,7 @@ mod test {
                     function_name(9, 12, [ unqualified_identifier(9, 12) ]),
                     function_argument(13, 23, [
                         type_(13, 19, [ identifier(13, 19) ]),
-                        var_name(20, 23, [ unqualified_identifier(20, 23) ])
+                        var_name(20, 23, [ unqualified_identifier(20, 23) ]),
                     ])
                 ])
             ]
@@ -1193,14 +1139,14 @@ mod test {
                 replication_statement(0, 22, [
                     replication_reliability(0, 8),
                     expression(13, 16, [ unqualified_identifier(13, 16) ]),
-                    unqualified_identifier(18, 21)
+                    unqualified_identifier(18, 21),
                 ])
             ]
         }
     }
 
     #[test]
-    fn goto_statement_as_code_statement() {
+    fn code_statement_goto_statement() {
         parses_to! {
             parser: UnrealScriptParser,
             input: "goto 'Foo';",
@@ -1240,7 +1186,7 @@ mod test {
                     replication_reliability(0, 8),
                     expression(13, 16, [ unqualified_identifier(13, 16) ]),
                     unqualified_identifier(18, 21),
-                    unqualified_identifier(23, 26)
+                    unqualified_identifier(23, 26),
                 ])
             ]
         }
@@ -1256,5 +1202,56 @@ mod test {
         }
     }
 
-    // TODO: operator tests!
+    #[test]
+    fn local_declaration_single() {
+        parses_to! {
+            parser: UnrealScriptParser,
+            input: "local int Foo;",
+            rule: Rule::local_declaration,
+            tokens: [
+                local_declaration(0, 14, [
+                    type_(6, 9, [ identifier(6, 9) ]),
+                    var_name(10, 13, [ unqualified_identifier(10, 13) ]),
+                ])
+            ]
+        }
+    }
+
+    #[test]
+    fn local_declaration_multiple() {
+        parses_to! {
+            parser: UnrealScriptParser,
+            input: "local int Foo, Bar;",
+            rule: Rule::local_declaration,
+            tokens: [
+                local_declaration(0, 19, [
+                    type_(6, 9, [ identifier(6, 9) ]),
+                    var_name(10, 13, [ unqualified_identifier(10, 13) ]),
+                    var_name(15, 18, [ unqualified_identifier(15, 18) ]),
+                ])
+            ]
+        }
+    }
+
+    #[test]
+    fn code_statement_jump_label() {
+        parses_to! {
+            parser: UnrealScriptParser,
+            input: "Begin:",
+            rule: Rule::code_statement,
+            tokens: [
+                code_statement(0, 6, [ jump_label(0, 6, [ unqualified_identifier(0, 5) ]) ])
+            ]
+        }
+    }
+
+    #[test]
+    fn script_test() {
+        // match UnrealScriptParser::program(UnrealScriptParser::parse(Rule::program, contents)?.single()?)
+        let program = UnrealScriptParser::parse(Rule::program, "class Foo extends Bar;").unwrap().single().unwrap();
+        let mut builder = ScriptBuilder::new(ScriptFormattingOptions{});
+        builder.write_data(program);
+        let s = builder.to_string();
+        println!("{}", s);
+    }
 }

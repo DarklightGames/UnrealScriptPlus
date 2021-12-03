@@ -1,7 +1,8 @@
-mod ast;
-mod parser;
-mod visitor;
+pub mod ast;
 mod test;
+pub mod parser;
+pub mod visitor;
+pub mod transform;
 
 extern crate encoding;
 #[macro_use]
