@@ -1,3 +1,5 @@
+![example event parameter](https://github.com/DarklightGames/UnrealScriptPlus/actions/workflows/rust.yml/badge.svg)
+
 # UnrealScriptPlus
 
 UnrealScriptPlus is intended to provide an extension to the version of the version of UnrealScript shipped with Unreal Engine 2.
