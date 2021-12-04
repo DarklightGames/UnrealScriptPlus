@@ -1265,7 +1265,7 @@ fn read_file_to_string(path: &str) -> std::result::Result<String, ParsingError> 
         .map_err(|e| ParsingError::EncodingError(e.to_string()))
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum ProgramErrorSeverity {
     Warning,
     Error
