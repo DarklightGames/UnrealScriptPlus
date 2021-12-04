@@ -1244,14 +1244,4 @@ mod test {
             ]
         }
     }
-
-    #[test]
-    fn script_test() {
-        // match UnrealScriptParser::program(UnrealScriptParser::parse(Rule::program, contents)?.single()?)
-        let program = UnrealScriptParser::parse(Rule::program, "class Foo extends Bar;").unwrap().single().unwrap();
-        let mut builder = ScriptBuilder::new(ScriptFormattingOptions{});
-        builder.write_data(program);
-        let s = builder.to_string();
-        println!("{}", s);
-    }
 }
