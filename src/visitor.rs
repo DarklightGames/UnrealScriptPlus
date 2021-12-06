@@ -365,11 +365,15 @@ impl Visit for AstNode<Expression> {
             }
             Expression::Call { operand, arguments } => {
                 operand.visit(visitor);
-                arguments.visit(visitor);
+                if let Some(arguments) = arguments {
+                    arguments.visit(visitor);
+                }
             }
             Expression::GlobalCall { name, arguments } => {
                 name.visit(visitor);
-                arguments.visit(visitor);
+                if let Some(arguments) = arguments {
+                    arguments.visit(visitor);
+                }
             }
             Expression::ArrayAccess { operand, argument } => {
                 operand.visit(visitor);
@@ -767,7 +771,7 @@ impl Visit for AstNode<EnumDeclaration> {
     }
 }
 
-impl Visit for AstNode<ClassDeclaration> {
+impl Visit for AstNode<ClassDeclaration> {  // TODO: we can get rid of the nested types by implement Visit on generic type AstNode<T: Visit>!
     fn visit(&self, visitor: &mut Visitor) {
         let mut modifier_occurences: HashMap<ClassModifierType, usize> = HashMap::new();
         self.modifiers

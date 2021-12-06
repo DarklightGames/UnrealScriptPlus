@@ -490,8 +490,11 @@ mod test {
                         class_modifier_type(22, 26),
                         expression_list(27, 37, [
                             expression(27, 28, [ numeric_literal(27, 28, [ integer_literal(27, 28, [ integer_literal_decimal(27, 28) ]) ]) ]),
+                            comma(28, 29),
                             expression(30, 31, [ numeric_literal(30, 31, [ integer_literal(30, 31, [ integer_literal_decimal(30, 31) ]) ]) ]),
+                            comma(31, 32),
                             expression(33, 34, [ numeric_literal(33, 34, [ integer_literal(33, 34, [ integer_literal_decimal(33, 34) ]) ]) ]),
+                            comma(34, 35),
                             expression(36, 37, [ numeric_literal(36, 37, [ integer_literal(36, 37, [ integer_literal_decimal(36, 37) ]) ]) ]),
                         ])
                     ]),
@@ -560,7 +563,9 @@ mod test {
                         class_modifier_type(22, 36),
                         expression_list(37, 50, [
                             expression(37, 40, [ unqualified_identifier(37, 40) ]),
+                            comma(40, 41),
                             expression(42, 45, [ unqualified_identifier(42, 45) ]),
+                            comma(45, 46),
                             expression(47, 50, [ unqualified_identifier(47, 50) ]),
                         ])
                     ])
@@ -1242,6 +1247,300 @@ mod test {
             tokens: [
                 code_statement(0, 6, [ jump_label(0, 6, [ unqualified_identifier(0, 5) ]) ])
             ]
+        }
+    }
+
+    #[test]
+    fn expression_list_single_argument() {
+        parses_to! {
+            parser: UnrealScriptParser,
+            input: "Foo",
+            rule: Rule::expression_list,
+            tokens: [
+                expression_list(0, 3, [ expression(0, 3, [ unqualified_identifier(0, 3) ]) ])
+            ]
+        }
+    }
+
+    #[test]
+    fn expression_list_leading_empty_arguments() {
+        parses_to! {
+            parser: UnrealScriptParser,
+            input: ",,Foo",
+            rule: Rule::expression_list,
+            tokens: [
+                expression_list(0, 5, [
+                    comma(0, 1),
+                    comma(1, 2),
+                    expression(2, 5, [ unqualified_identifier(2, 5) ])
+                ])
+            ]
+        }
+    }
+
+    #[test]
+    fn expression_list_trailing_empty_arguments() {
+        parses_to! {
+            parser: UnrealScriptParser,
+            input: "Foo,,",
+            rule: Rule::expression_list,
+            tokens: [
+                expression_list(0, 5, [
+                    expression(0, 3, [ unqualified_identifier(0, 3) ]),
+                    comma(3, 4),
+                    comma(4, 5),
+                ])
+            ]
+        }
+    }
+
+    #[test]
+    fn expression_list_interspersed_empty_arguments() {
+        parses_to! {
+            parser: UnrealScriptParser,
+            input: ",Foo,,Bar,",
+            rule: Rule::expression_list,
+            tokens: [
+                expression_list(0, 10, [
+                    comma(0, 1),
+                    expression(1, 4, [ unqualified_identifier(1, 4) ]),
+                    comma(4, 5),
+                    comma(5, 6),
+                    expression(6, 9, [ unqualified_identifier(6, 9) ]),
+                    comma(9, 10),
+                ])
+            ]
+        }
+    }
+
+    #[test]
+    fn call_no_arguments() {
+        parses_to! {
+            parser: UnrealScriptParser,
+            input: "()",
+            rule: Rule::call,
+            tokens: [ call(0, 2) ]
+        }
+    }
+
+    #[test]
+    fn call_with_arguments() {
+        parses_to! {
+            parser: UnrealScriptParser,
+            input: "(Foo, Bar)",
+            rule: Rule::call,
+            tokens: [
+                call(0, 10, [
+                    expression_list(1, 9, [
+                        expression(1, 4, [ unqualified_identifier(1, 4) ]),
+                        comma(4, 5),
+                        expression(6, 9, [ unqualified_identifier(6, 9) ]),
+                    ]),
+                ])
+            ]
+        }
+    }
+
+    #[test]
+    fn code_statement_or_block_code_block_empty() {
+        parses_to! {
+            parser: UnrealScriptParser,
+            input: "{}",
+            rule: Rule::code_statement_or_block,
+            tokens: [
+                code_statement_or_block(0, 2, [ code_block(0, 2) ])
+            ]
+        }
+    }
+
+    #[test]
+    fn return_statement_empty() {
+        parses_to! {
+            parser: UnrealScriptParser,
+            input: "return;",
+            rule: Rule::return_statement,
+            tokens: [ return_statement(0, 7) ]
+        }
+    }
+
+    #[test]
+    fn return_statement_with_value() {
+        parses_to! {
+            parser: UnrealScriptParser,
+            input: "return true;",
+            rule: Rule::return_statement,
+            tokens: [ return_statement(0, 12, [
+                expression(7, 11, [ literal (7, 11, [ boolean_literal(7, 11) ]) ])
+            ]) ]
+        }
+    }
+
+    #[test]
+    fn code_statement_return_statement() {
+        parses_to! {
+            parser: UnrealScriptParser,
+            input: "return;",
+            rule: Rule::code_statement,
+            tokens: [ code_statement(0, 7, [ return_statement(0, 7) ]) ]
+        }
+    }
+
+    #[test]
+    fn code_statement_or_block_code_statement() {
+        parses_to! {
+            parser: UnrealScriptParser,
+            input: "return;",
+            rule: Rule::code_statement_or_block,
+            tokens: [
+                code_statement_or_block(0, 7, [ code_statement(0, 7, [ return_statement(0, 7) ]) ])
+            ]
+        }
+    }
+
+    #[test]
+    fn defaultproperties_empty() {
+        parses_to! {
+            parser: UnrealScriptParser,
+            input: "defaultproperties { }",
+            rule: Rule::defaultproperties,
+            tokens: [ defaultproperties(0, 21) ]
+        }
+    }
+
+    #[test]
+    fn defaultproperties_target_simple() {
+        parses_to! {
+            parser: UnrealScriptParser,
+            input: "Foo",
+            rule: Rule::defaultproperties_target,
+            tokens: [ defaultproperties_target(0, 3, [ unqualified_identifier(0, 3) ]) ]
+        }
+    }
+
+    #[test]
+    fn defaultproperties_target_array_access_integer() {
+        parses_to! {
+            parser: UnrealScriptParser,
+            input: "Foo(42)",
+            rule: Rule::defaultproperties_target,
+            tokens: [
+                defaultproperties_target(0, 7, [
+                    unqualified_identifier(0, 3),
+                    defaultproperties_array_index(4, 6, [
+                        integer_literal(4, 6, [ integer_literal_decimal(4, 6) ]),
+                    ])
+                ])
+            ]
+        }
+    }
+
+    #[test]
+    fn defaultproperties_struct_empty() {
+        parses_to! {
+            parser: UnrealScriptParser,
+            input: "()",
+            rule: Rule::defaultproperties_struct,
+            tokens: [ defaultproperties_struct(0, 2) ]
+        }
+    }
+
+    #[test]
+    fn defaultproperties_array_empty() {
+        parses_to! {
+            parser: UnrealScriptParser,
+            input: "()",
+            rule: Rule::defaultproperties_array,
+            tokens: [ defaultproperties_array(0, 2) ]
+        }
+    }
+
+    #[test]
+    fn defaultproperties_array_strings() {
+        parses_to! {
+            parser: UnrealScriptParser,
+            input: "(\"Foo\", \"Bar\")",
+            rule: Rule::defaultproperties_array,
+            tokens: [ defaultproperties_array(0, 14, [
+                defaultproperties_value(1, 6, [ literal(1, 6, [ string_literal(1, 6, [ string_literal_inner(2, 5) ]) ]) ]),
+                comma(6, 7),
+                defaultproperties_value(8, 13, [ literal(8, 13, [ string_literal(8, 13, [ string_literal_inner(9, 12) ]) ]) ]),
+            ]) ]
+        }
+    }
+
+    // TODO: potential problem with syntax, i don't believe we can actually do array assignments within a struct!
+    // will need a separate rule for this
+    #[test]
+    fn defaultproperties_struct_vector() {
+        parses_to! {
+            parser: UnrealScriptParser,
+            input: "(X=0,Y=1,Z=2)",
+            rule: Rule::defaultproperties_struct,
+            tokens: [
+                defaultproperties_struct(0, 13, [
+                    defaultproperties_struct_assignment(1, 4, [
+                        defaultproperties_struct_target(1, 2, [ unqualified_identifier(1, 2) ]),
+                        defaultproperties_value(3, 4, [ literal(3, 4, [ numeric_literal(3, 4, [ integer_literal(3, 4, [ integer_literal_decimal(3, 4) ]) ]) ]) ])
+                    ]),
+                    defaultproperties_struct_assignment(5, 8, [
+                        defaultproperties_struct_target(5, 6, [ unqualified_identifier(5, 6) ]),
+                        defaultproperties_value(7, 8, [ literal(7, 8, [ numeric_literal(7, 8, [ integer_literal(7, 8, [ integer_literal_decimal(7, 8) ]) ]) ]) ])
+                    ]),
+                    defaultproperties_struct_assignment(9, 12, [
+                        defaultproperties_struct_target(9, 10, [ unqualified_identifier(9, 10) ]),
+                        defaultproperties_value(11, 12, [ literal(11, 12, [ numeric_literal(11, 12, [ integer_literal(11, 12, [ integer_literal_decimal(11, 12) ]) ]) ]) ])
+                    ]),
+                ])
+            ]
+        }
+    }
+
+    #[test]
+    fn defaultproperties_struct_nested() {
+        parses_to! {
+            parser: UnrealScriptParser,
+            input: "(Foo=(Bar=42))",
+            rule: Rule::defaultproperties_struct,
+            tokens: [
+                defaultproperties_struct(0, 14, [
+                    defaultproperties_struct_assignment(1, 13, [
+                        defaultproperties_struct_target(1, 4, [ unqualified_identifier(1, 4) ]),
+                        defaultproperties_value(5, 13, [
+                            defaultproperties_struct(5, 13, [
+                                defaultproperties_struct_assignment(6, 12, [
+                                    defaultproperties_struct_target(6, 9, [ unqualified_identifier(6, 9) ]),
+                                    defaultproperties_value(10, 12, [
+                                        literal(10, 12, [ numeric_literal(10, 12, [ integer_literal(10, 12, [ integer_literal_decimal(10, 12) ]) ]) ])
+                                    ]),
+                                ])
+                            ]),
+                        ]),
+                    ]),
+                ])
+            ]
+        }
+    }
+
+    #[test]
+    fn defaultproperties_assignment_simple() {
+        parses_to! {
+            parser: UnrealScriptParser,
+            input: "Foo=42",
+            rule: Rule::defaultproperties_assignment,
+            tokens: [ defaultproperties_assignment(0, 6, [
+                defaultproperties_target(0, 3, [ unqualified_identifier(0, 3) ]),
+                defaultproperties_value(4, 6, [ literal(4, 6, [ numeric_literal(4, 6, [ integer_literal(4, 6, [integer_literal_decimal(4, 6)]) ]) ]) ])
+            ]) ]
+        }
+    }
+
+    #[test]
+    fn defaultproperties_assignment_empty_value() {
+        parses_to! {
+            parser: UnrealScriptParser,
+            input: "defaultproperties { }",
+            rule: Rule::defaultproperties,
+            tokens: [ defaultproperties(0, 21) ]
         }
     }
 }

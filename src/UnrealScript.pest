@@ -222,10 +222,10 @@ array_access = { "[" ~ WS* ~ expression ~ WS* ~ "]" }
 member_access = { "." ~ WS* ~ unqualified_identifier }
 default_access = { ^"default" ~ WS* ~ "." ~ WS* ~ unqualified_identifier }
 static_access = { ^"static" ~ WS* ~ "." ~ WS* ~ unqualified_identifier }
-default_call = { ^"default" ~ WS* ~ "." ~ WS* ~ unqualified_identifier ~ WS* ~ "(" ~ WS* ~ expression_list ~ WS* ~ ")" }
-global_call = { ^"global" ~ WS* ~ "." ~ WS* ~ unqualified_identifier ~ WS* ~ "(" ~ WS* ~ expression_list ~ WS* ~ ")" }
-super_call = { ^"super" ~ WS* ~ ("(" ~ WS* ~ unqualified_identifier ~ WS* ~ ")")? ~ WS* ~ "." ~ WS* ~ unqualified_identifier ~ WS* ~ "(" ~ WS* ~ expression_list ~ WS* ~ ")" }
-call = { "(" ~ WS* ~ expression_list ~ WS* ~ ")" }
+default_call = { ^"default" ~ WS* ~ "." ~ WS* ~ unqualified_identifier ~ WS* ~ "(" ~ WS* ~ expression_list? ~ WS* ~ ")" }
+global_call = { ^"global" ~ WS* ~ "." ~ WS* ~ unqualified_identifier ~ WS* ~ "(" ~ WS* ~ expression_list? ~ WS* ~ ")" }
+super_call = { ^"super" ~ WS* ~ ("(" ~ WS* ~ unqualified_identifier ~ WS* ~ ")")? ~ WS* ~ "." ~ WS* ~ unqualified_identifier ~ WS* ~ "(" ~ WS* ~ expression_list? ~ WS* ~ ")" }
+call = { "(" ~ WS* ~ expression_list? ~ WS* ~ ")" }
 any_call = _{ default_call | super_call | global_call | call }
 
 dyadic_expression = _{ dyadic_verb ~ WS* ~ expression_inner }
@@ -252,11 +252,10 @@ expression_inner = _{ target | unqualified_identifier }   // TODO: monadic expre
 // new is a kind of "terminal", nothing can come after it in an expression
 new = { ^"new" ~ (WS* ~ "(" ~ WS* ~ expression_list ~ WS* ~ ")")? ~ WS* ~ expression } /// fuck this syntax
 
-expression_empty = { "," }
-expression_list = { (expression ~ WS* ~ "," ~ WS* | (expression_empty ~ WS*))* ~ expression? }
-// constant_list = _{ (constant ~ "," | expression_empty)* ~ constant? }
+comma = { "," }
+expression_list = { (expression | comma) ~ (WS* ~ (expression | comma))* }
 cast = { class_type ~ WS* ~ "(" ~ WS* ~ expression ~ WS* ~ ")" }
-// NOTE: certain casts (int, string) don't follow the cast grammar, this is only for explicit
+// NOTE: certain casts (int, string) don't follow the cast grammar, this is only for class type casts
 
 function_body_statement = _{ const_declaration | code_statement }
 function_body_statements = _{ function_body_statement ~ (WS* ~ function_body_statement)* }
@@ -343,11 +342,12 @@ defaultproperties_opening_bracket = _{ "(" | "[" }
 defaultproperties_closing_bracket = _{ ")" | "]" }
 defaultproperties_value = { literal | identifier | defaultproperties_struct | defaultproperties_array }
 defaultproperties_assignment = { defaultproperties_target ~ LWS* ~ "=" ~ LWS* ~ defaultproperties_value? ~ (LWS* ~ ";")* }
-defaultproperties_struct = { ("(" | "[") ~ LWS* ~ (defaultproperties_assignment ~ LWS* ~ ("," ~ LWS* ~ defaultproperties_assignment)*)? ~ LWS* ~ (")" | "]") }
-defaultproperties_array_comma = { "," }
+defaultproperties_struct_target = { unqualified_identifier }
+defaultproperties_struct_assignment = { defaultproperties_struct_target ~ LWS* ~ "=" ~ LWS* ~ defaultproperties_value? }
+defaultproperties_struct = { ("(" | "[") ~ LWS* ~ (defaultproperties_struct_assignment ~ LWS* ~ ("," ~ LWS* ~ defaultproperties_struct_assignment)*)? ~ LWS* ~ (")" | "]") }
 defaultproperties_array = {
     defaultproperties_opening_bracket ~ LWS* ~
-    ((defaultproperties_array_comma | defaultproperties_value) ~ LWS*)* ~
+    ((comma | defaultproperties_value) ~ LWS*)* ~
     LWS* ~ defaultproperties_closing_bracket
 }
 defaultproperties_object = { ^"begin" ~ LWS+ ~ ^"object" ~ LWS+ ~ ^"class" ~ "=" ~ identifier ~ (WS+ ~ defaultproperties_statement)* ~ WS+ ~ ^"end" ~ LWS+ ~ ^"object" }

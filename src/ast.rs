@@ -355,6 +355,19 @@ pub enum PodType {
     Bool,
 }
 
+impl ToString for PodType {
+    fn to_string(&self) -> String {
+        return String::from(match self {
+            PodType::Byte => "byte",
+            PodType::Int => "int",
+            PodType::Float => "float",
+            PodType::String => "string",
+            PodType::Name => "name",
+            PodType::Bool => "bool",
+        });
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum Type {
     Pod(PodType),
@@ -380,6 +393,7 @@ impl From<Identifier> for Type {
         } else if identifier.string.eq_ignore_ascii_case("bool") {
             Type::Pod(PodType::Bool)
         } else {
+            // TODO: this is technically wrong since it's possible for the identifier string to have invalid characters
             Type::Identifier(identifier)
         }
     }
@@ -398,8 +412,8 @@ pub enum Expression {
     MonadicPreExpression { operand: Box<AstNode<Expression>>, verb: MonadicVerb },
     MonadicPostExpression { operand: Box<AstNode<Expression>>, verb: MonadicVerb },
     DyadicExpression { lhs: Box<AstNode<Expression>>, verb: DyadicVerb, rhs: Box<AstNode<Expression>> },
-    Call { operand: Box<AstNode<Expression>>, arguments: AstNode<ExpressionList> },
-    GlobalCall { name: AstNode<Identifier>, arguments: AstNode<ExpressionList> },
+    Call { operand: Box<AstNode<Expression>>, arguments: Option<AstNode<ExpressionList>> },
+    GlobalCall { name: AstNode<Identifier>, arguments: Option<AstNode<ExpressionList>> },
     ArrayAccess { operand: Box<AstNode<Expression>>, argument: Box<AstNode<Expression>> },
     DefaultAccess { operand: Option<Box<AstNode<Expression>>>, target: AstNode<Identifier> },
     StaticAccess { operand: Option<Box<AstNode<Expression>>>, target: AstNode<Identifier> },

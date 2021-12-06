@@ -198,7 +198,10 @@ fn parse_target(nodes: &[Node]) -> Result<Box<AstNode<Expression>>> {
         Rule::global_call => {
             let mut inner_iter = node.clone().into_children().into_iter();
             let name = UnrealScriptParser::unqualified_identifier(inner_iter.next().unwrap())?;
-            let arguments = UnrealScriptParser::expression_list(inner_iter.next().unwrap())?;
+            let arguments = match inner_iter.next() {
+                Some(node) => Some(UnrealScriptParser::expression_list(node)?),
+                None => None,
+            };
             Ok(Box::new(AstNode {
                 span,
                 data: Expression::GlobalCall { name, arguments }
@@ -212,11 +215,15 @@ fn parse_target(nodes: &[Node]) -> Result<Box<AstNode<Expression>>> {
             }))
         }
         Rule::call => {
+            let arguments = match node.clone().into_children().single() {
+                Ok(node) => Some(UnrealScriptParser::expression_list(node)?),
+                Err(_) => None,
+            };
             Ok(Box::new(AstNode {
                 span,
                 data: Expression::Call {
                     operand: parse_expression_from_nodes(remaining)?,
-                    arguments: UnrealScriptParser::expression_list(node.clone().into_children().single()?)?
+                    arguments
                 }
             }))
         }
@@ -318,7 +325,7 @@ impl UnrealScriptParser {
     }
 
     fn single_quoted_string(input: Node) -> Result<String> {
-        Ok(input.as_str().to_string())
+        Ok(input.into_children().single()?.as_str().to_string())
     }
 
     fn name_literal(input: Node) -> Result<Literal> {
@@ -326,7 +333,7 @@ impl UnrealScriptParser {
     }
 
     fn string_literal(input: Node) -> Result<Literal> {
-        Ok(Literal::String(input.as_str().to_string()))
+        Ok(Literal::String(input.into_children().single()?.as_str().to_string()))
     }
 
     fn hex_digits(input: Node) -> Result<i32> {
@@ -417,7 +424,8 @@ impl UnrealScriptParser {
 
     fn compiler_directive(input: Node) -> Result<CompilerDirective> {
         match_nodes!(input.into_children();
-            [compiler_directive_inner(command)] => Ok(CompilerDirective { command })
+            [compiler_directive_inner(command)] => Ok(CompilerDirective { command }),
+            [compiler_directive_inner(command), EOI(_)] => Ok(CompilerDirective { command }),
         )
     }
 
@@ -1086,10 +1094,31 @@ impl UnrealScriptParser {
         )})
     }
 
+    fn defaultproperties_struct_target(input: Node) -> Result<AstNode<DefaultPropertiesTarget>> {
+        let span = AstSpan::from(&input);
+        match_nodes!(input.into_children();
+            [unqualified_identifier(target)] => {
+                Ok(AstNode { span, data: DefaultPropertiesTarget { target, index: None } })
+            }
+        )
+    }
+
+    fn defaultproperties_struct_assignment(input: Node) -> Result<AstNode<DefaultPropertiesAssignment>> {
+        let span = AstSpan::from(&input);
+        Ok(AstNode { span, data: match_nodes!(input.into_children();
+            [defaultproperties_struct_target(target)] => {
+                DefaultPropertiesAssignment { target, value: None }
+            },
+            [defaultproperties_struct_target(target), defaultproperties_value(value)] => {
+                DefaultPropertiesAssignment { target, value: Some(value) }
+            },
+        )})
+    }
+
     fn defaultproperties_struct(input: Node) -> Result<AstNode<DefaultPropertiesStruct>> {
         let span = AstSpan::from(&input);
         match_nodes!(input.into_children();
-            [defaultproperties_assignment(assignments)..] => {
+            [defaultproperties_struct_assignment(assignments)..] => {
                 Ok(AstNode {
                     span,
                     data: DefaultPropertiesStruct {
@@ -1100,16 +1129,21 @@ impl UnrealScriptParser {
         )
     }
 
-    fn defaultproperties_array_comma(_input: Node) -> Result<()> {
-        Ok(())
-    }
-
     fn defaultproperties_array(input: Node) -> Result<AstNode<DefaultPropertiesArray>> {
         let span = AstSpan::from(&input);
         let mut elements = Vec::new();
+        let mut expects_expression = true;
         match_nodes_any!(input.into_children();
-            defaultproperties_array_comma(_r) => elements.push(None),
-            defaultproperties_value(v) => elements.push(Some(v))
+            defaultproperties_value(v) => {
+                elements.push(Some(v));
+                expects_expression = false;
+            },
+            comma(_r) => {
+                if expects_expression {
+                    elements.push(None);
+                }
+                expects_expression = true;
+            }
         );
         Ok(AstNode { span, data: DefaultPropertiesArray { elements } })
     }
@@ -1218,16 +1252,25 @@ impl UnrealScriptParser {
         Ok(Program { statements })
     }
 
-    fn expression_empty(_input: Node) -> Result<()> {
+    fn comma(_input: Node) -> Result<()> {
         Ok(())
     }
 
     fn expression_list(input: Node) -> Result<AstNode<ExpressionList>> {
         let mut expressions = Vec::new();
         let span = AstSpan::from(&input);
+        let mut expects_expression = true;
         match_nodes_any!(input.into_children();
-            expression(e) => expressions.push(Some(e)),
-            expression_empty(_e) => expressions.push(None)
+            expression(e) => {
+                expressions.push(Some(e));
+                expects_expression = false;
+            },
+            comma(_e) => {
+                if expects_expression {
+                    expressions.push(None)
+                }
+                expects_expression = true;
+            }
         );
         Ok(AstNode { span, data: ExpressionList { expressions }})
     }
@@ -1265,7 +1308,7 @@ fn read_file_to_string(path: &str) -> std::result::Result<String, ParsingError> 
         .map_err(|e| ParsingError::EncodingError(e.to_string()))
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Eq, PartialEq, PartialOrd, Ord, Clone)]
 pub enum ProgramErrorSeverity {
     Warning,
     Error
