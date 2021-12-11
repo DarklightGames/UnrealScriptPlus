@@ -239,8 +239,15 @@ symbolic_verb = {
 monadic_pre_verb = { "++" | "--" | "~" | "-" | "!" }
 monadic_post_verb = { "++" | "--" }
 
+// F-STRINGS (added in UnrealScriptPlus)
+fstring_literal_character = { "\\{" | (!"\"" ~ !"{" ~ ANY) }
+fstring_literal = @{ fstring_literal_character+ }
+fstring_expression = { "{" ~ expression ~ "}" }
+fstring_element = { fstring_expression | fstring_literal }
+fstring = { "f\"" ~ fstring_element* ~ "\"" }
+
 atom = _{ call | array_access | ("." ~ default_access) | ("." ~ static_access) | member_access | (monadic_post_verb? ~ WS* ~ dyadic_expression) }
-primary = _{ cast | literal | default_access | static_access | global_call | unqualified_identifier | parenthetical_expression }
+primary = _{ cast | literal | fstring | default_access | static_access | global_call | unqualified_identifier | parenthetical_expression }
 target = _{
     (numeric_literal ~ (WS* ~ atom)* ~ WS* ~ monadic_post_verb?) |
     (monadic_pre_verb? ~ WS* ~ (new | primary ~ (WS* ~ atom)*) ~ WS* ~ monadic_post_verb?)
@@ -273,7 +280,7 @@ return_statement = { ^"return" ~ (WS+ ~ expression)? ~ WS* ~ ";" }
 // For some reason unbeknownst to mere mortals, UnrealScript allows two default cases in switch statements.
 
 // CONTROL FLOW
-jump_label = { unqualified_identifier ~ WS* ~ ":" }
+jump_label = { (!"default" ~ unqualified_identifier) ~ WS* ~ ":" }
 if_statement_empty = { ^"if" ~ WS* ~ "(" ~ WS* ~ expression ~ WS* ~ ")" }
 if_statement = { ^"if" ~ WS* ~ "(" ~ WS* ~ expression ~ WS* ~ ")" ~ WS* ~ code_statement_or_block }
 elif_statement = { ^"else" ~ WS+ ~ ^"if" ~ WS* ~ "(" ~ WS* ~ expression ~ WS* ~ ")" ~ WS* ~ code_statement_or_block }

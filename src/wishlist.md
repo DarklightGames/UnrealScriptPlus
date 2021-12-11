@@ -50,3 +50,20 @@ else
     Foo = Baz;
 }
 ```
+
+# Formatted Strings (f-strings)
+Strings that allow formatting within the string instead of chaining concatenation operators.
+
+Since these are not string literals, they are classed as expressions
+
+```
+f"This is a {Adjective} string!";
+```
+
+This would only be allowable inside of code statements, and cannot be used inside `defaultproperties`, `const` or anything like that.
+
+This would simply be expanding the string out to the following:
+
+```
+"This is a " $ (Adjective) $ " string";
+```

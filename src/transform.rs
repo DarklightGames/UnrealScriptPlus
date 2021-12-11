@@ -1,5 +1,6 @@
 use crate::ast::*;
 use std::ops::Deref;
+use pest::state;
 
 pub struct ScriptFormattingOptions {
     
@@ -53,8 +54,29 @@ impl ScriptBuilder {
         }
     }
 
+    pub fn finalize(&mut self) {
+        self.push_line();
+    }
+
     pub fn write_data<D: ToScript>(&mut self, data: &D) -> &mut Self {
         data.to_script(self);
+        self
+    }
+
+    pub fn write_data_line_separated<D: ToScript>(&mut self, data: &[D]) -> &mut Self {
+        self.write_data_interspersed_with(data, |builder| { builder.push_line(); })
+    }
+
+    pub fn write_data_interspersed_with<D: ToScript, F>(&mut self, data: &[D], separator: F) -> &mut Self
+        where F: Fn(&mut Self) {
+        if !data.is_empty() {
+            for (index, datum) in data.iter().enumerate() {
+                if index > 0 {
+                    separator(self);
+                }
+                datum.to_script(self);
+            }
+        }
         self
     }
 
@@ -80,7 +102,34 @@ impl ScriptBuilder {
         self
     }
 
-    pub fn chain_if<F, G>(&mut self, predicate: F, inner: G) -> &mut Self
+    pub fn inner_if_some<D, F>(&mut self, data: &Option<D>, inner: F) -> &mut Self
+        where F: FnOnce(&mut Self, &D) {
+        if let Some(data) = data {
+            inner(self, data);
+        }
+        self
+    }
+
+    pub fn write_data_inner_interspersed<D, F>(&mut self, data: &[D], inner: F, separator: &str) -> &mut Self
+        where F: Fn(&mut Self, &D) {
+        for (index, datum) in data.iter().enumerate() {
+            if index > 0 {
+                self.write(separator);
+            }
+            inner(self, datum);
+        }
+        self
+    }
+
+    pub fn write_scope<F>(&mut self, inner: F) -> &mut Self
+        where F: FnOnce(&mut Self) {
+        self.write("{").push_line().indent();
+        inner(self);
+        self.push_line().dedent().write("}");
+        self
+    }
+
+    pub fn inner_if<F, G>(&mut self, predicate: F, inner: G) -> &mut Self
         where F: FnOnce() -> bool,
               G: FnOnce(&mut Self) {
         if predicate() {
@@ -114,9 +163,106 @@ pub trait ToScript {
 
 impl ToScript for Program {
     fn to_script(&self, builder: &mut ScriptBuilder) {
+        builder.write_data_line_separated(&self.statements);
+    }
+}
+
+impl ToScript for DefaultPropertiesArrayIndex {
+    fn to_script(&self, builder: &mut ScriptBuilder) {
+        match self {
+            DefaultPropertiesArrayIndex::Identifier(identifier) => {
+                builder.write_data(identifier);
+            }
+            DefaultPropertiesArrayIndex::IntegerLiteral(integer_literal) => {
+                builder.write_data(integer_literal);
+            }
+        }
+    }
+}
+
+impl ToScript for DefaultPropertiesTarget {
+    fn to_script(&self, builder: &mut ScriptBuilder) {
+        builder.write_data(&self.target);
+        if let Some(index) = &self.index {
+            builder.write("(").write_data(index).write(")");
+        }
+    }
+}
+
+impl ToScript for DefaultPropertiesStruct {
+    fn to_script(&self, builder: &mut ScriptBuilder) {
+        builder
+            .write("(")
+            .write_data_interspersed(&self.assignments, ",")
+            .write(")");
+    }
+}
+
+impl ToScript for DefaultPropertiesArray {
+    fn to_script(&self, builder: &mut ScriptBuilder) {
+        // TODO: we need something that can take a fn so this is handled more gracefully
+        builder.write("(")
+            .write_data_inner_interspersed(&self.elements, |builder, element| {
+                if let Some(element) = element {
+                    builder.write_data(element);
+                }
+            }, ",")
+            .write(")");
+    }
+}
+
+impl ToScript for DefaultPropertiesValue {
+    fn to_script(&self, builder: &mut ScriptBuilder) {
+        match self {
+            DefaultPropertiesValue::Literal(literal) => { builder.write_data(literal); }
+            DefaultPropertiesValue::Identifier(identifier) => { builder.write_data(identifier); }
+            DefaultPropertiesValue::Struct(struct_) => { builder.write_data(struct_); }
+            DefaultPropertiesValue::Array(array) => { builder.write_data(array); }
+        }
+    }
+}
+
+impl ToScript for DefaultPropertiesAssignment {
+    fn to_script(&self, builder: &mut ScriptBuilder) {
+        builder.write_data(&self.target).write("=");
+        if let Some(value) = &self.value {
+            builder.write_data(value);
+        }
+    }
+}
+
+impl ToScript for DefaultPropertiesObject {
+    fn to_script(&self, builder: &mut ScriptBuilder) {
+        builder.write("Begin").space().write("Object").space().write("Class").write("=").write_data(&self.class).push_line().indent();
         for statement in &self.statements {
             builder.write_data(statement).push_line();
         }
+        builder.dedent().write("End").space().write("Object");
+    }
+}
+
+impl ToScript for DefaultPropertiesStatement {
+    fn to_script(&self, builder: &mut ScriptBuilder) {
+        match self {
+            DefaultPropertiesStatement::Assignment(assignment) => { builder.write_data(assignment); }
+            DefaultPropertiesStatement::Object(object) => { builder.write_data(object.as_ref()); }
+        }
+    }
+}
+
+impl ToScript for DefaultProperties {
+    fn to_script(&self, builder: &mut ScriptBuilder) {
+        builder.write("defaultproperties").push_line().write_scope(|builder| {
+            builder.write_data_line_separated(&self.statements);
+        });
+    }
+}
+
+impl ToScript for CppText {
+    fn to_script(&self, builder: &mut ScriptBuilder) {
+        builder.write("cpptext").push_line().write_scope(|builder| {
+            builder.write(self.text.as_str());
+        });
     }
 }
 
@@ -124,24 +270,227 @@ impl ToScript for ProgramStatement {
     fn to_script(&self, builder: &mut ScriptBuilder) {
         match self {
             ProgramStatement::Empty => { builder.write(";"); }
-            ProgramStatement::ClassDeclaration(class_declaration) => { builder.write_data(&class_declaration.data); }
+            ProgramStatement::ClassDeclaration(class_declaration) => { builder.write_data(class_declaration); }
             ProgramStatement::CompilerDirective(compiler_directive) => { builder.write_data(compiler_directive); }
             ProgramStatement::ConstDeclaration(const_declaration) => { builder.write_data(const_declaration); }
             ProgramStatement::VarDeclaration(var_declaration) => { builder.write_data(&var_declaration.data); }
-            ProgramStatement::EnumDeclaration(enum_declaration) => { builder.write_data(&enum_declaration.data).write(";"); }
-            ProgramStatement::StructDeclaration(struct_declaration) => { builder.write_data(&struct_declaration.data).write(";"); }
-            ProgramStatement::FunctionDeclaration(function_declaration) => { builder.write_data(&function_declaration.data); }
-            ProgramStatement::ReplicationBlock(replication_block) => {}
-            ProgramStatement::StateDeclaration(state_declaration) => {}
-            ProgramStatement::DefaultProperties(defaultproperties) => {}
-            ProgramStatement::CppText(cpptext) => {}
+            ProgramStatement::EnumDeclaration(enum_declaration) => { builder.write_data(enum_declaration).write(";"); }
+            ProgramStatement::StructDeclaration(struct_declaration) => { builder.write_data(struct_declaration).write(";"); }
+            ProgramStatement::FunctionDeclaration(function_declaration) => { builder.write_data(function_declaration); }
+            ProgramStatement::ReplicationBlock(replication_block) => { builder.write_data(replication_block); }
+            ProgramStatement::StateDeclaration(state_declaration) => { builder.write_data(state_declaration); }
+            ProgramStatement::DefaultProperties(defaultproperties) => { builder.write_data(defaultproperties); }
+            ProgramStatement::CppText(cpptext) => { builder.write_data(cpptext); }
         }
+    }
+}
+
+impl ToScript for StateModifier {
+    fn to_script(&self, builder: &mut ScriptBuilder) {
+        builder.write(format!("{:?}", self).to_lowercase().as_str());
+    }
+}
+
+impl ToScript for StateStatement {
+    fn to_script(&self, builder: &mut ScriptBuilder) {
+        match self {
+            StateStatement::ConstDeclaration(const_declaration) => { builder.write_data(const_declaration); }
+            StateStatement::FunctionDeclaration(function_declaration) => { builder.write_data(function_declaration); }
+        }
+    }
+}
+
+impl ToScript for ForEach {
+    fn to_script(&self, builder: &mut ScriptBuilder) {
+        builder.write("foreach").space().write_data(&self.predicate).push_line()
+            .write_scope(|builder| {
+                // TODO: this aint right!
+            });
+    }
+}
+
+impl ToScript for IfStatement {
+    fn to_script(&self, builder: &mut ScriptBuilder) {
+        builder.write("if").space().write("(").write_data(&self.predicate).write(")");
+        match &self.body {
+            None => { builder.write(";"); }
+            Some(body) => {
+                builder.push_line().write_data(body);
+            }
+        }
+    }
+}
+
+impl ToScript for ElifStatement {
+    fn to_script(&self, builder: &mut ScriptBuilder) {
+        builder.write("else").space().write("if").space().write("(").write_data(&self.predicate).write(")").push_line()
+            .write_data(&self.body);
+    }
+}
+
+impl ToScript for ElseStatement {
+    fn to_script(&self, builder: &mut ScriptBuilder) {
+        builder.write("else").push_line().write_data(&self.body);
+    }
+}
+
+impl ToScript for ConditionalStatement {
+    fn to_script(&self, builder: &mut ScriptBuilder) {
+        builder.write_data(&self.if_statement);
+        if !self.elif_statements.is_empty() {
+            builder.push_line().write_data_line_separated(&self.elif_statements);
+        }
+        if let Some(else_statement) = &self.else_statement {
+            builder.push_line().write_data(else_statement);
+        }
+    }
+}
+
+impl ToScript for WhileStatement {
+    fn to_script(&self, builder: &mut ScriptBuilder) {
+        builder.write("while").space().write("(").write_data(&self.predicate).write(")").push_line()
+            .write_data(&self.body);
+    }
+}
+
+impl ToScript for ForStatement {
+    fn to_script(&self, builder: &mut ScriptBuilder) {
+        builder.write("for").space().write("(");
+        let control_expressions = [&self.init, &self.predicate, &self.post];
+        for (index, expression) in control_expressions.iter().enumerate() {
+            match expression {
+                None => {
+                    if index > 0 {
+                        builder.write(";");
+                    }
+                }
+                Some(expression) => {
+                    if index > 0 {
+                        builder.write(";").space();
+                    }
+                    builder.write_data(expression);
+                }
+            }
+        }
+        builder.write(")").push_line()
+            .write_data(&self.body);
+    }
+}
+
+impl ToScript for SwitchCase {
+    fn to_script(&self, builder: &mut ScriptBuilder) {
+        match &self.type_ {
+            SwitchCaseType::Expression(expression) => {
+                builder.write("case").space().write_data(expression).write(":").push_line();
+            }
+            SwitchCaseType::Default => {
+                builder.write("default").write(":").push_line();
+            }
+        }
+        builder.indent().write_data_line_separated(&self.statements).push_line().dedent();
+    }
+}
+
+impl ToScript for SwitchStatement {
+    fn to_script(&self, builder: &mut ScriptBuilder) {
+        builder.write("switch").space().write("(").write(")").push_line()
+            .write_scope(|builder| {
+                builder.write_data_line_separated(&self.cases);
+            });
+    }
+}
+
+impl ToScript for DoUntil {
+    fn to_script(&self, builder: &mut ScriptBuilder) {
+        builder.write("do").push_line().write_data(&self.body);
+        if let Some(predicate) = &self.predicate {
+            builder.push_line().write("until").space().write("(").write_data(predicate).write(")");
+        }
+    }
+}
+
+impl ToScript for CodeStatement {
+    fn to_script(&self, builder: &mut ScriptBuilder) {
+        match self {
+            CodeStatement::Empty => { builder.write(";"); }
+            CodeStatement::Expression(expression) => { builder.write_data(expression).write(";"); }
+            CodeStatement::Return(value) => {
+                builder.write("return");
+                if let Some(value) = value {
+                    builder.space().write_data(value);
+                }
+                builder.write(";");
+            }
+            CodeStatement::Break => { builder.write("break").write(";"); }
+            CodeStatement::Continue => { builder.write("continue").write(";"); }
+            CodeStatement::Goto(label) => { builder.write("goto").space().write_data(label).write(";"); }
+            CodeStatement::JumpLabel(label) => { builder.write_data(label).write(":"); }
+            CodeStatement::ForEach(foreach) => { builder.write_data(foreach); }
+            CodeStatement::For(for_statement) => { builder.write_data(for_statement); }
+            CodeStatement::Switch(switch) => { builder.write_data(switch); }
+            CodeStatement::Conditional(conditional) => { builder.write_data(conditional); }
+            CodeStatement::While(while_statement) => { builder.write_data(while_statement); }
+            CodeStatement::DoUntil(do_until) => { builder.write_data(do_until); }
+            CodeStatement::CompilerDirective(compiler_directive) => { builder.write_data(compiler_directive); }
+            CodeStatement::ConstDeclaration(const_declaration) => { builder.write_data(const_declaration); }
+        }
+    }
+}
+
+impl ToScript for StateLabel {
+    fn to_script(&self, builder: &mut ScriptBuilder) {
+        builder.write_data(&self.label).write(":").push_line().write_data_line_separated(&self.statements);
+    }
+}
+
+impl ToScript for StateDeclaration {
+    fn to_script(&self, builder: &mut ScriptBuilder) {
+        builder
+            .inner_if(|| !self.modifiers.is_empty(), |builder| {
+                builder.write_data_interspersed(&self.modifiers, " ").space();
+            })
+            .write("state")
+            .inner_if(|| self.is_editable, |builder| {
+                builder.write("()");
+            }).space().write_data(&self.name).space();
+        if let Some(parent) = &self.parent {
+            builder.write("extends").space().write_data(parent).space();
+        }
+        builder.push_line().write_scope(|builder| {
+            if !self.ignores.is_empty() {
+                builder.write("ignores").space().write_data_interspersed(&self.ignores, ", ").write(";").push_line();
+            }
+            builder.write_data_line_separated(&self.statements);
+            builder.write_data_line_separated(&self.labels);
+        });
+    }
+}
+
+impl ToScript for ReplicationReliability {
+    fn to_script(&self, builder: &mut ScriptBuilder) {
+        builder.write(format!("{:?}", self).to_lowercase().as_str());
+    }
+}
+
+impl ToScript for ReplicationStatement {
+    fn to_script(&self, builder: &mut ScriptBuilder) {
+        builder
+            .write_data(&self.reliability).space().write("if").space().write("(").write_data(&self.condition).write(")").push_line()
+            .indent().write_data_interspersed(&self.variables, ", ").write(";").push_line().dedent();
+    }
+}
+
+impl ToScript for ReplicationBlock {
+    fn to_script(&self, builder: &mut ScriptBuilder) {
+        builder.write("replication").push_line().write_scope(|builder| {
+            builder.write_data_line_separated(&self.statements);
+        });
     }
 }
 
 impl ToScript for FunctionModifierType {
     fn to_script(&self, builder: &mut ScriptBuilder) {
-        builder.write(format!("{:?}", self).as_str());
+        builder.write(format!("{:?}", self).to_lowercase().as_str());
     }
 }
 
@@ -159,7 +508,7 @@ impl ToScript for FunctionModifier {
 
 impl ToScript for FunctionTypeType {
     fn to_script(&self, builder: &mut ScriptBuilder) {
-        builder.write(format!("{:?}", self).as_str());
+        builder.write(format!("{:?}", self).to_lowercase().as_str());
     }
 }
 
@@ -174,16 +523,57 @@ impl ToScript for FunctionType {
 
 impl ToScript for FunctionArgumentModifier {
     fn to_script(&self, builder: &mut ScriptBuilder) {
-        builder.write(format!("{:?}", self).as_str());
+        builder.write(format!("{:?}", self).to_lowercase().as_str());
     }
 }
 
 impl ToScript for FunctionArgument {
     fn to_script(&self, builder: &mut ScriptBuilder) {
+        if !self.modifiers.is_empty() {
+            builder.write_data_interspersed(&self.modifiers, " ").space();
+        }
         builder
-            .write_data_interspersed(&self.modifiers, " ").space()
             .write_data(&self.type_).space()
             .write_data(&self.name);
+    }
+}
+
+impl ToScript for CodeBlock {
+    fn to_script(&self, builder: &mut ScriptBuilder) {
+        builder.write_scope(|builder| {
+            builder.write_data_line_separated(&self.statements);
+        });
+    }
+}
+
+impl ToScript for CodeStatementOrBlock {
+    fn to_script(&self, builder: &mut ScriptBuilder) {
+        match self {
+            CodeStatementOrBlock::CodeBlock(block) => { builder.write_data(block); }
+            CodeStatementOrBlock::CodeStatement(statement) => { builder.write_data(statement); }
+        }
+    }
+}
+
+impl ToScript for LocalDeclaration {
+    fn to_script(&self, builder: &mut ScriptBuilder) {
+        builder.write("local").space().write_data(&self.type_).space().write_data_interspersed(&self.names, ", ").write(";");
+    }
+}
+
+impl ToScript for FunctionBodyStatement {
+    fn to_script(&self, builder: &mut ScriptBuilder) {
+        match self {
+            FunctionBodyStatement::ConstDeclaration(const_declaration) => { builder.write_data(const_declaration); }
+            FunctionBodyStatement::LocalDeclaration(local_declaration) => { builder.write_data(local_declaration); }
+            FunctionBodyStatement::CodeStatement(code_statement) => {builder.write_data(code_statement); }
+        }
+    }
+}
+
+impl ToScript for FunctionBody {
+    fn to_script(&self, builder: &mut ScriptBuilder) {
+        builder.write_data_line_separated(&self.statements);
     }
 }
 
@@ -192,14 +582,24 @@ impl ToScript for FunctionDeclaration {
         if !self.modifiers.is_empty() {
             builder.write_data_interspersed(&self.modifiers, " ").space();
         }
-        builder.write_data_interspersed(&self.types, " ").space();
-        if let Some(return_type) = &self.return_type {
-            builder.write_data(return_type).space();
-        }
-        builder.write_data(&self.name)
+        builder.write_data_interspersed(&self.types, " ").space()
+            .inner_if_some(&self.return_type, |builder, return_type| {
+                builder.write_data(return_type).space();
+            })
+            .write_data(&self.name)
             .write("(")
             .write_data_interspersed(&self.arguments, ", ")
-            .write(")").write(";").space();
+            .write(")");
+        match &self.body {
+            None => { builder.write(";"); }
+            Some(body) => {
+                builder.push_line().write_scope(|builder| {
+                    builder.write_data(body);
+                });
+            }
+        }
+
+
     }
 }
 
@@ -219,23 +619,19 @@ impl ToScript for StructDeclaration {
         if let Some(parent) = &self.parent {
             builder.write("extends").space().write_data(parent).space();
         }
-        builder.write("{").push_line().indent();
-        for member in &self.members {
-            builder.write_data(member).push_line();
-        }
-        builder.dedent().write("}");
+        builder.push_line().write_scope(|builder| {
+            builder.write_data_line_separated(&self.members);
+        });
     }
 }
 
 impl ToScript for EnumDeclaration {
     fn to_script(&self, builder: &mut ScriptBuilder) {
         builder
-            .write("enum").space()
-            .write_data(&self.name).space().write("{").push_line().indent();
-        for value in &self.values {
-            builder.write_data(value).write(",").push_line();
-        }
-        builder.dedent().write("}");
+            .write("enum").space().write_data(&self.name).push_line()
+            .write_scope(|builder| {
+                builder.write_data_line_separated(&self.values);
+            });
     }
 }
 
@@ -292,23 +688,24 @@ impl ToScript for VarDeclaration {
     fn to_script(&self, builder: &mut ScriptBuilder) {
         builder
             .write("var")
-            .chain_if(|| self.category.is_some(), |builder| {
+            .inner_if(|| self.category.is_some(), |builder| {
                 builder
                     .write("(")
                     .write(self.category.clone().unwrap().as_str())
                     .write(")");
             })
             .space()
-            .write_data_interspersed(&self.modifiers, ", ").space()
+            .inner_if(|| !self.modifiers.is_empty(), |builder| {
+                builder.write_data_interspersed(&self.modifiers, ", ").space();
+            })
             .write_data(&self.type_).space()
-            .write_data_interspersed(&self.names, ", ").write(";")
-            .push_line();
+            .write_data_interspersed(&self.names, ", ").write(";");
     }
 }
 
 impl ToScript for VarModifier {
     fn to_script(&self, builder: &mut ScriptBuilder) {
-        builder.write(format!("{:?}", self).as_str());
+        builder.write(format!("{:?}", self).to_lowercase().as_str());
     }
 }
 
@@ -356,11 +753,11 @@ impl ToScript for StructVarModifier {
 
 impl ToScript for StructVarDeclaration {
     fn to_script(&self, builder: &mut ScriptBuilder) {
-        builder.write("var").space();
+        builder.write("var");
         if self.is_editable {
-            builder.write("()").space();
+            builder.write("()");
         }
-        builder
+        builder.space()
             .write_data_interspersed(&self.modifiers, " ")
             .write_data(&self.type_).space()
             .write_data_interspersed(&self.names, ", ")
@@ -389,24 +786,11 @@ impl ToScript for Type {
                 builder.write(">");
             }
             Type::Class(class) => {
-                builder
-                    .write("class")
-                    .write("<")
-                    .write_data(class)
-                    .write(">");
+                builder.write("class").write("<").write_data(class).write(">");
             }
-            Type::Struct(struct_) => {
-                builder
-                    .write("struct")
-                    .write_data(&struct_.name.data)
-                    .write("{")
-                    .indent()
-                        // .write()
-                    .dedent()
-                    .write("}");
-            }
-            Type::Enum(enum_) => {}
-            Type::Identifier(identifier) => {}
+            Type::Struct(struct_) => { builder.write_data(struct_); }
+            Type::Enum(enum_) => { builder.write_data(enum_); }
+            Type::Identifier(identifier) => { builder.write_data(identifier); }
         }
     }
 }
@@ -421,10 +805,10 @@ impl ToScript for ClassDeclaration {
             builder.space().write("within").space().write(within.string.as_str());
         }
         if !self.modifiers.is_empty() {
-            builder.push_line().indent();
-            builder.write_data_interspersed(&self.modifiers[..], " ");
+            builder.push_line()
+                .indent().write_data_interspersed(&self.modifiers[..], " ");
         }
-        builder.write(";").push_line().dedent();
+        builder.write(";").dedent();
     }
 }
 
@@ -462,8 +846,141 @@ impl ToScript for ExpressionList {
     }
 }
 
+impl ToScript for MonadicVerb {
+    fn to_script(&self, builder: &mut ScriptBuilder) {
+        builder.write(match self {
+            MonadicVerb::Increment => "++",
+            MonadicVerb::Decrement => "--",
+            MonadicVerb::BitwiseNot => "~",
+            MonadicVerb::Negate => "-",
+            MonadicVerb::Not => "!"
+        });
+    }
+}
+
+impl ToScript for DyadicVerb {
+    fn to_script(&self, builder: &mut ScriptBuilder) {
+        builder.write(match self {
+            DyadicVerb::LogicalAnd => "&&",
+            DyadicVerb::LogicalExclusiveOr => "^^",
+            DyadicVerb::Exponentiate => "**",
+            DyadicVerb::AddAssign => "+=",
+            DyadicVerb::SubtractAssign => "-=",
+            DyadicVerb::MultiplyAssign => "*=",
+            DyadicVerb::DivideAssign => "/=",
+            DyadicVerb::Multiply => "*",
+            DyadicVerb::Divide => "/",
+            DyadicVerb::LogicalOr => "||",
+            DyadicVerb::Modulo => "%",
+            DyadicVerb::ShiftLeft => "<<",
+            DyadicVerb::DoubleShiftRight => ">>>",
+            DyadicVerb::ShiftRight => "<<",
+            DyadicVerb::CompareLessThanOrEqual => "<=",
+            DyadicVerb::CompareGreaterThanOrEqual => ">=",
+            DyadicVerb::CompareEqual => "==",
+            DyadicVerb::CompareApproximatelyEqual => "~=",
+            DyadicVerb::CompareLessThan => "<",
+            DyadicVerb::CompareGreaterThan => ">",
+            DyadicVerb::CompareNotEqual => "!=",
+            DyadicVerb::BitwiseAnd => "&",
+            DyadicVerb::BitwiseOr => "|",
+            DyadicVerb::BitwiseExclusiveOr => "^",
+            DyadicVerb::ConcatenateAssign => "$=",
+            DyadicVerb::ConcatenateSpaceAssign => "@=",
+            DyadicVerb::Concatenate => "$",
+            DyadicVerb::ConcatenateSpace => "@",
+            DyadicVerb::Add => "+",
+            DyadicVerb::Subtract => "-",
+            DyadicVerb::Assign => "=",
+            DyadicVerb::Dot => "dot",
+            DyadicVerb::Cross => "cross",
+        });
+    }
+}
+
+impl ToScript for FStringElement {
+    fn to_script(&self, builder: &mut ScriptBuilder) {
+        match self {
+            FStringElement::Literal(string) => {
+                builder.write("\"").write(string).write("\"");
+            }
+            FStringElement::Expression(expression) => {
+                builder.write("(").write_data(expression).write(")");
+            }
+        }
+    }
+}
+
+impl ToScript for FString {
+    fn to_script(&self, builder: &mut ScriptBuilder) {
+        builder.write_data_interspersed_with(&self.elements, |builder| {
+            builder.space().write("$").space();
+        });
+    }
+}
+
 impl ToScript for Expression {
     fn to_script(&self, builder: &mut ScriptBuilder) {
-        builder.write("<expr>");
+        match self {
+            Expression::Identifier(identifier) => { builder.write_data(identifier); }
+            Expression::Literal(literal) => { builder.write_data(literal); }
+            Expression::New { arguments, type_ } => {
+                builder.write("new");
+                if let Some(arguments) = arguments {
+                    builder.write("(").write_data(arguments).write(")").space();
+                }
+                builder.write_data(type_);
+            }
+            Expression::MonadicPreExpression { verb, operand } => {
+                builder.write_data(verb).write_data(operand);
+            }
+            Expression::MonadicPostExpression { operand, verb } => {
+                builder.write_data(operand).write_data(verb);
+            }
+            Expression::DyadicExpression { lhs, verb, rhs } => {
+                builder.write_data(lhs).space().write_data(verb).space().write_data(rhs);
+            }
+            Expression::Call { arguments, operand } => {
+                builder.write_data(operand).write("(");
+                if let Some(arguments) = arguments {
+                    builder.write_data(arguments);
+                }
+                builder.write(")");
+            }
+            Expression::GlobalCall { name, arguments } => {
+                builder.write("global").write(".").write_data(name).write("(");
+                if let Some(arguments) = arguments {
+                    builder.write_data(arguments);
+                }
+                builder.write(")");
+            }
+            Expression::ArrayAccess { operand, argument } => {
+                builder.write_data(operand).write("[").write_data(argument).write("]");
+            }
+            Expression::DefaultAccess { operand, target } => {
+                if let Some(operand) = operand {
+                    builder.write_data(operand).write(".");
+                }
+                builder.write("default").write(".").write_data(target);
+            }
+            Expression::StaticAccess { operand, target } => {
+                if let Some(operand) = operand {
+                    builder.write_data(operand).write(".");
+                }
+                builder.write("static").write(".").write_data(target);
+            }
+            Expression::MemberAccess { operand, target } => {
+                builder.write_data(operand).write(".").write_data(target);
+            }
+            Expression::Cast { operand, type_ } => {
+                builder.write_data(type_).write("(").write_data(operand).write(")");
+            }
+            Expression::ParentheticalExpression(expression) => {
+                builder.write("(").write_data(expression).write(")");
+            }
+            Expression::FString(fstring) => {
+                builder.write_data(fstring);
+            }
+        }
     }
 }

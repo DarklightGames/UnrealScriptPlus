@@ -11,6 +11,7 @@ fn main() {
             Ok(program) => {
                 let mut builder = ScriptBuilder::new(ScriptFormattingOptions { });
                 program.program.to_script(&mut builder);
+                builder.finalize();
                 println!("{}", builder.to_string());
             }
             Err(error) => {

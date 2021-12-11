@@ -57,6 +57,11 @@ impl Visitor<'_> {
         }
     }
 
+    pub fn visit<D>(&mut self, data: &D)
+        where D: Visit {
+        data.visit(self)
+    }
+
     pub fn warn(&mut self, message: &str, span: AstSpan) {
         self.errors.push(ProgramError {
             message: message.to_string(),
@@ -342,6 +347,21 @@ impl Visit for AstNode<CodeStatementOrBlock> {
     }
 }
 
+impl<D> Visit for Box<D>
+    where D: Visit {
+    fn visit(&self, visitor: &mut Visitor) {
+        visitor.visit(self.deref())
+    }
+}
+
+impl Visit for AstNode<FStringElement> {
+    fn visit(&self, visitor: &mut Visitor) {
+        if let FStringElement::Expression(expression) = &self.data {
+            visitor.visit(expression)
+        }
+    }
+}
+
 impl Visit for AstNode<Expression> {
     fn visit(&self, visitor: &mut Visitor) {
         match self.deref() {
@@ -409,6 +429,9 @@ impl Visit for AstNode<Expression> {
                     }
                 }
                 expression.visit(visitor)
+            }
+            Expression::FString(fstring) => {
+                fstring.elements.iter().for_each(|element| element.visit(visitor))
             }
         }
     }

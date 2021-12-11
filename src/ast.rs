@@ -288,6 +288,11 @@ pub struct Program {
 }
 
 #[derive(Debug)]
+pub struct CppText {
+    pub text: String,
+}
+
+#[derive(Debug)]
 pub enum ProgramStatement {
     Empty,
     ClassDeclaration(AstNode<ClassDeclaration>),
@@ -298,9 +303,9 @@ pub enum ProgramStatement {
     StructDeclaration(AstNode<StructDeclaration>),
     FunctionDeclaration(AstNode<FunctionDeclaration>),
     ReplicationBlock(AstNode<ReplicationBlock>),
-    StateDeclaration(StateDeclaration),
+    StateDeclaration(AstNode<StateDeclaration>),
     DefaultProperties(AstNode<DefaultProperties>),
-    CppText(String),
+    CppText(AstNode<CppText>),
 }
 
 #[derive(Debug)]
@@ -357,14 +362,7 @@ pub enum PodType {
 
 impl ToString for PodType {
     fn to_string(&self) -> String {
-        return String::from(match self {
-            PodType::Byte => "byte",
-            PodType::Int => "int",
-            PodType::Float => "float",
-            PodType::String => "string",
-            PodType::Name => "name",
-            PodType::Bool => "bool",
-        });
+        format!("{:?}", self).to_lowercase()
     }
 }
 
@@ -405,6 +403,17 @@ pub struct ExpressionList {
 }
 
 #[derive(Debug, PartialEq)]
+pub enum FStringElement {
+    Literal(String),
+    Expression(Box<AstNode<Expression>>),
+}
+
+#[derive(Debug, PartialEq)]
+pub struct FString {
+    pub elements: Vec<AstNode<FStringElement>>
+}
+
+#[derive(Debug, PartialEq)]
 pub enum Expression {
     Identifier(AstNode<Identifier>),
     Literal(AstNode<Literal>),
@@ -420,6 +429,7 @@ pub enum Expression {
     MemberAccess { operand: Box<AstNode<Expression>>, target: AstNode<Identifier> },
     Cast { type_: Type, operand: Box<AstNode<Expression>> },
     ParentheticalExpression(Box<AstNode<Expression>>),
+    FString(AstNode<FString>),
 }
 
 #[derive(Debug)]

@@ -55,7 +55,7 @@ macro_rules! match_nodes_any {
                         $e
                     }
                 )+
-                _ => { return Err(node.error("unexpected rule")) }
+                _ => { return Err(node.error(format!("unexpected rule '{:?}'", node.as_rule()))) }
             }
         }
     )
@@ -245,6 +245,14 @@ fn parse_target(nodes: &[Node]) -> Result<Box<AstNode<Expression>>> {
                 }
             }))
         }
+        Rule::fstring => {
+            Ok(Box::new(AstNode {
+                span,
+                data: Expression::FString(
+                    UnrealScriptParser::fstring(Node::new(node.clone().into_pair()))?
+                )
+            }))
+        }
         _ => panic!("unhandled rule {:?}", node.as_pair())
     }
 }
@@ -334,6 +342,34 @@ impl UnrealScriptParser {
 
     fn string_literal(input: Node) -> Result<Literal> {
         Ok(Literal::String(input.into_children().single()?.as_str().to_string()))
+    }
+
+    fn fstring_literal(input: Node) -> Result<String> {
+        Ok(input.as_str().to_string())
+    }
+
+    fn fstring_expression(input: Node) -> Result<Box<AstNode<Expression>>> {
+        let span = AstSpan::from(&input);
+        match_nodes!(input.into_children();
+            [expression(e)] => { Ok(e) }
+        )
+    }
+
+    fn fstring_element(input: Node) -> Result<AstNode<FStringElement>> {
+        let span = AstSpan::from(&input);
+         Ok(AstNode { span, data: match_nodes!(input.into_children();
+            [fstring_literal(s)] => FStringElement::Literal(s),
+            [fstring_expression(e)] => FStringElement::Expression(e)
+        )})
+    }
+
+    fn fstring(input: Node) -> Result<AstNode<FString>> {
+        let span = AstSpan::from(&input);
+        match_nodes!(input.into_children();
+            [fstring_element(elements)..] => {
+                Ok(AstNode { span, data: FString { elements: elements.collect() } })
+            }
+        )
     }
 
     fn hex_digits(input: Node) -> Result<i32> {
@@ -1049,7 +1085,7 @@ impl UnrealScriptParser {
         )
     }
 
-    fn state_declaration(input: Node) -> Result<StateDeclaration> {
+    fn state_declaration(input: Node) -> Result<AstNode<StateDeclaration>> {
         let mut modifiers = Vec::new();
         let mut is_editable = false;
         let mut name = None;
@@ -1057,6 +1093,7 @@ impl UnrealScriptParser {
         let mut ignores = Vec::new();
         let mut statements = Vec::new();
         let mut labels = Vec::new();
+        let span = AstSpan::from(&input);
         match_nodes_any!(input.into_children();
             state_modifier(m) => modifiers.push(m),
             state_editable(e) => is_editable = e,
@@ -1066,14 +1103,17 @@ impl UnrealScriptParser {
             state_statement(s) => statements.push(s),
             state_label(l) => labels.push(l)
         );
-        Ok(StateDeclaration {
-            is_editable,
-            modifiers,
-            name: name.unwrap(),
-            parent,
-            ignores,
-            statements,
-            labels
+        Ok(AstNode {
+            span,
+            data: StateDeclaration {
+                is_editable,
+                modifiers,
+                name: name.unwrap(),
+                parent,
+                ignores,
+                statements,
+                labels
+            }
         })
     }
 
@@ -1199,19 +1239,20 @@ impl UnrealScriptParser {
         )
     }
 
-    fn cpp_body(input: Node) -> Result<String> {
+    fn cpp_body_outer(input: Node) -> Result<String> {
         Ok(input.as_str().to_string())
     }
 
-    fn cpptext(input: Node) -> Result<String> {
+    fn cpptext(input: Node) -> Result<AstNode<CppText>> {
+        let span = AstSpan::from(&input);
         match_nodes!(input.into_children();
-            [cpp_body(b)] => Ok(b)
+            [cpp_body_outer(b)] => Ok(AstNode { span, data: CppText { text: b } })
         )
     }
 
     fn cppstruct(input: Node) -> Result<String> {
         match_nodes!(input.into_children();
-            [cpp_body(b)] => Ok(b)
+            [cpp_body_outer(b)] => Ok(b)
         )
     }
 
