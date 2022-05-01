@@ -1,6 +1,5 @@
 use crate::ast::*;
 use std::ops::Deref;
-use pest::state;
 
 pub struct ScriptFormattingOptions {
     
@@ -302,10 +301,7 @@ impl ToScript for StateStatement {
 
 impl ToScript for ForEach {
     fn to_script(&self, builder: &mut ScriptBuilder) {
-        builder.write("foreach").space().write_data(&self.predicate).push_line()
-            .write_scope(|builder| {
-                // TODO: this aint right!
-            });
+        builder.write("foreach").space().write_data(&self.predicate).push_line().write_data(&self.body);
     }
 }
 

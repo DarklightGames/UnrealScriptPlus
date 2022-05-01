@@ -351,7 +351,7 @@ impl UnrealScriptParser {
     fn fstring_expression(input: Node) -> Result<Box<AstNode<Expression>>> {
         let span = AstSpan::from(&input);
         match_nodes!(input.into_children();
-            [expression(e)] => { Ok(e) }
+            [expression(e)] => Ok(e)
         )
     }
 

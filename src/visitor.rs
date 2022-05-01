@@ -739,6 +739,15 @@ impl Visit for AstNode<StructVarDeclaration> {
         if let Type::Pod(PodType::Bool) = self.type_ {
             visit_bool_var_names(&self.names, visitor)
         }
+        // // TODO: struct vars should not have localized members if its editable?
+        // for modifier in self.modifiers {
+        //     match modifier {
+        //         StructVarModifier::Localized => {
+        //
+        //         }
+        //         _ => {}
+        //     }
+        // }
     }
 }
 
