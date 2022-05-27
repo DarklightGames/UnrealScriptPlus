@@ -152,7 +152,9 @@ impl Visit for AstNode<DefaultPropertiesAssignment> {
                                     match numeric.data {
                                         NumericLiteral::Integer(i) => {
                                             if !self.is_array_assignment() && i == 0 {
-                                                visitor.warn("redundant specification of default value", self.span)
+                                                visitor.warn(
+                                                    format!("redundant specification of default value ({}) of variable ({}) declared in this class", 0, self.target.target.as_str()).as_str() ,self.span
+                                                )
                                             }
                                             if i < u8::MIN as i32 || i > u8::MAX as i32 {
                                                 let bytes: [u8; 1] = [i.to_le_bytes()[0]];
@@ -177,12 +179,12 @@ impl Visit for AstNode<DefaultPropertiesAssignment> {
                                     match numeric.data {
                                         NumericLiteral::Integer(i) => {
                                             if i == 0 {
-                                                visitor.warn("redundant specification of default value", self.span)
+                                                visitor.warn(format!("redundant specification of default value ({}) of variable ({}) declared in this class", 0, self.target.target.as_str()).as_str() ,self.span)
                                             }
                                         }
                                         NumericLiteral::Float(f) => {
                                             if f == 0.0 {
-                                                visitor.warn("redundant specification of default value", self.span)
+                                                visitor.warn(format!("redundant specification of default value ({}) of variable ({}) declared in this class", 0.0, &self.target.target.as_str()).as_str() ,self.span)
                                             }
                                         }
                                     }
@@ -195,7 +197,7 @@ impl Visit for AstNode<DefaultPropertiesAssignment> {
                                 if let DefaultPropertiesValue::Literal(literal) = &value.data;
                                 if let Literal::String(s) = &literal.data;
                                 if s.is_empty();
-                                then { visitor.warn("redundant specification of default value", self.span) }
+                                then { visitor.warn(format!("redundant specification of default value ({}) of variable ({}) declared in this class", "", self.target.target.as_str()).as_str() ,self.span) }
                             }
                         }
                         PodType::Bool => {
@@ -204,7 +206,7 @@ impl Visit for AstNode<DefaultPropertiesAssignment> {
                                 if let DefaultPropertiesValue::Literal(literal) = &value.data;
                                 if let Literal::Boolean(b) = literal.data;
                                 if b == false;
-                                then { visitor.warn("redundant specification of default value", self.span) }
+                                then { visitor.warn(format!("redundant specification of default value ({}) of variable ({}) declared in this class", false, self.target.target.as_str()).as_str() ,self.span) }
                             }
                         }
                     }
