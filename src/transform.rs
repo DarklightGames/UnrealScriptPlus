@@ -1,8 +1,6 @@
 use crate::ast::*;
 
-pub struct ScriptFormattingOptions {
-    
-}
+pub struct ScriptFormattingOptions {}
 
 struct ScriptLine {
     indent: usize,
@@ -62,7 +60,10 @@ impl ScriptBuilder {
     }
 
     pub fn push_line(&mut self) -> &mut Self {
-        self.lines.push(ScriptLine { indent: self.indentation, string: self.buffer.to_string() });
+        self.lines.push(ScriptLine {
+            indent: self.indentation,
+            string: self.buffer.to_string(),
+        });
         self.buffer.clear();
         self
     }
@@ -86,8 +87,7 @@ pub trait ToScript {
 
 impl ToScript for Program {
     fn to_script(&self, builder: &mut ScriptBuilder) {
-        for statement in &self.statements {
-        }
+        for statement in &self.statements {}
     }
 }
 
@@ -95,7 +95,9 @@ impl ToScript for ProgramStatement {
     fn to_script(&self, builder: &mut ScriptBuilder) {
         match self {
             ProgramStatement::Empty => {}
-            ProgramStatement::ClassDeclaration(class_declaration) => { builder.write_data(&class_declaration.data); }
+            ProgramStatement::ClassDeclaration(class_declaration) => {
+                builder.write_data(&class_declaration.data);
+            }
             ProgramStatement::CompilerDirective(_) => {}
             ProgramStatement::ConstDeclaration(_) => {}
             ProgramStatement::VarDeclaration(_) => {}
@@ -130,10 +132,7 @@ impl ToScript for ClassDeclaration {
 impl ToScript for ClassModifier {
     fn to_script(&self, builder: &mut ScriptBuilder) {
         if let Some(arguments) = &self.arguments {
-            builder
-                .write("(")
-                .write_data(&arguments.data)
-                .write(")");
+            builder.write("(").write_data(&arguments.data).write(")");
         }
     }
 }

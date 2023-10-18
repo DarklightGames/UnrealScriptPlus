@@ -1,8 +1,8 @@
-use strum_macros::{EnumString, Display};
 use std::fmt::{Debug, Formatter};
+use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 use std::rc::Rc;
-use std::hash::{Hash, Hasher};
+use strum_macros::{Display, EnumString};
 
 #[derive(Debug, Copy, Clone)]
 pub struct AstSpan {
@@ -32,7 +32,7 @@ impl<T: PartialEq> PartialEq for AstNode<T> {
 }
 
 #[derive(Debug, Eq, PartialEq, Hash, Clone, Display, EnumString)]
-#[strum(serialize_all="lowercase")]
+#[strum(serialize_all = "lowercase")]
 pub enum ClassModifierType {
     Abstract,
     CacheExempt,
@@ -64,13 +64,13 @@ impl ClassModifierType {
     pub fn is_unique(&self) -> bool {
         return match self {
             ClassModifierType::DependsOn => false,
-            _ => true
-        }
+            _ => true,
+        };
     }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Ord, PartialOrd, Display, EnumString, Hash)]
-#[strum(serialize_all="lowercase")]
+#[strum(serialize_all = "lowercase")]
 pub enum FunctionModifierType {
     Exec,
     Final,
@@ -87,7 +87,7 @@ pub enum FunctionModifierType {
 }
 
 #[derive(Debug, PartialEq, Display, EnumString)]
-#[strum(serialize_all="lowercase")]
+#[strum(serialize_all = "lowercase")]
 pub enum FunctionArgumentModifier {
     Coerce,
     Optional,
@@ -96,7 +96,7 @@ pub enum FunctionArgumentModifier {
 }
 
 #[derive(Debug, PartialEq, Display, EnumString)]
-#[strum(serialize_all="lowercase")]
+#[strum(serialize_all = "lowercase")]
 pub enum StructModifier {
     Export,
     Init,
@@ -106,7 +106,7 @@ pub enum StructModifier {
 }
 
 #[derive(Debug, PartialEq, Display, EnumString)]
-#[strum(serialize_all="lowercase")]
+#[strum(serialize_all = "lowercase")]
 pub enum StructVarModifier {
     Config,
     Const,
@@ -127,14 +127,14 @@ pub enum StructVarModifier {
 }
 
 #[derive(Debug, PartialEq, Display, EnumString)]
-#[strum(serialize_all="lowercase")]
+#[strum(serialize_all = "lowercase")]
 pub enum StateModifier {
     Auto,
     Simulated,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, PartialOrd, Ord, Copy, Display, EnumString)]
-#[strum(serialize_all="lowercase")]
+#[strum(serialize_all = "lowercase")]
 pub enum VarModifier {
     Automated,
     Cache,
@@ -161,14 +161,14 @@ pub enum VarModifier {
 }
 
 #[derive(Debug, PartialEq, Display, EnumString)]
-#[strum(serialize_all="lowercase")]
+#[strum(serialize_all = "lowercase")]
 pub enum ReplicationReliability {
     Reliable,
     Unreliable,
 }
 
 #[derive(Debug, PartialEq, Display, EnumString)]
-#[strum(serialize_all="lowercase")]
+#[strum(serialize_all = "lowercase")]
 pub enum FunctionTypeType {
     Delegate,
     Event,
@@ -186,98 +186,98 @@ pub struct FunctionType {
 
 #[derive(Debug, PartialEq, Display, EnumString)]
 pub enum MonadicVerb {
-    #[strum(serialize="++")]
+    #[strum(serialize = "++")]
     Increment,
-    #[strum(serialize="--")]
+    #[strum(serialize = "--")]
     Decrement,
-    #[strum(serialize="~")]
+    #[strum(serialize = "~")]
     BitwiseNot,
-    #[strum(serialize="-")]
+    #[strum(serialize = "-")]
     Negate,
-    #[strum(serialize="!")]
+    #[strum(serialize = "!")]
     Not,
 }
 
 #[derive(Debug, PartialEq, Display, EnumString)]
 pub enum DyadicVerb {
-    #[strum(serialize="&&")]
+    #[strum(serialize = "&&")]
     LogicalAnd,
-    #[strum(serialize="^^")]
+    #[strum(serialize = "^^")]
     LogicalExclusiveOr,
-    #[strum(serialize="**")]
+    #[strum(serialize = "**")]
     Exponentiate,
-    #[strum(serialize="+=")]
+    #[strum(serialize = "+=")]
     AddAssign,
-    #[strum(serialize="-=")]
+    #[strum(serialize = "-=")]
     SubtractAssign,
-    #[strum(serialize="*=")]
+    #[strum(serialize = "*=")]
     MultiplyAssign,
-    #[strum(serialize="/=")]
+    #[strum(serialize = "/=")]
     DivideAssign,
-    #[strum(serialize="*")]
+    #[strum(serialize = "*")]
     Multiply,
-    #[strum(serialize="/")]
+    #[strum(serialize = "/")]
     Divide,
-    #[strum(serialize="||")]
+    #[strum(serialize = "||")]
     LogicalOr,
-    #[strum(serialize="%")]
+    #[strum(serialize = "%")]
     Modulo,
-    #[strum(serialize="<<")]
+    #[strum(serialize = "<<")]
     ShiftLeft,
-    #[strum(serialize=">>>")]
+    #[strum(serialize = ">>>")]
     DoubleShiftRight,
-    #[strum(serialize=">>")]
+    #[strum(serialize = ">>")]
     ShiftRight,
-    #[strum(serialize="<=")]
+    #[strum(serialize = "<=")]
     CompareLessThanOrEqual,
-    #[strum(serialize=">=")]
+    #[strum(serialize = ">=")]
     CompareGreaterThanOrEqual,
-    #[strum(serialize="==")]
+    #[strum(serialize = "==")]
     CompareEqual,
-    #[strum(serialize="~=")]
+    #[strum(serialize = "~=")]
     CompareApproximatelyEqual,
-    #[strum(serialize="<")]
+    #[strum(serialize = "<")]
     CompareLessThan,
-    #[strum(serialize=">")]
+    #[strum(serialize = ">")]
     CompareGreaterThan,
-    #[strum(serialize="!=")]
+    #[strum(serialize = "!=")]
     CompareNotEqual,
-    #[strum(serialize="&")]
+    #[strum(serialize = "&")]
     BitwiseAnd,
-    #[strum(serialize="|")]
+    #[strum(serialize = "|")]
     BitwiseOr,
-    #[strum(serialize="^")]
+    #[strum(serialize = "^")]
     BitwiseExclusiveOr,
-    #[strum(serialize="$=")]
+    #[strum(serialize = "$=")]
     ConcatenateAssign,
-    #[strum(serialize="@=")]
+    #[strum(serialize = "@=")]
     ConcatenateSpaceAssign,
-    #[strum(serialize="$")]
+    #[strum(serialize = "$")]
     Concatenate,
-    #[strum(serialize="@")]
+    #[strum(serialize = "@")]
     ConcatenateSpace,
-    #[strum(serialize="+")]
+    #[strum(serialize = "+")]
     Add,
-    #[strum(serialize="-")]
+    #[strum(serialize = "-")]
     Subtract,
-    #[strum(serialize="=")]
+    #[strum(serialize = "=")]
     Assign,
-    #[strum(serialize="dot")]
+    #[strum(serialize = "dot")]
     Dot,
-    #[strum(serialize="cross")]
+    #[strum(serialize = "cross")]
     Cross,
 }
 
 impl DyadicVerb {
     pub fn is_assignment(&self) -> bool {
         match self {
-            DyadicVerb::AddAssign |
-            DyadicVerb::SubtractAssign |
-            DyadicVerb::MultiplyAssign |
-            DyadicVerb::DivideAssign |
-            DyadicVerb::ConcatenateAssign |
-            DyadicVerb::ConcatenateSpaceAssign |
-            DyadicVerb::Assign => true,
+            DyadicVerb::AddAssign
+            | DyadicVerb::SubtractAssign
+            | DyadicVerb::MultiplyAssign
+            | DyadicVerb::DivideAssign
+            | DyadicVerb::ConcatenateAssign
+            | DyadicVerb::ConcatenateSpaceAssign
+            | DyadicVerb::Assign => true,
             _ => false,
         }
     }
@@ -375,7 +375,7 @@ impl From<Identifier> for Type {
             Type::Pod(PodType::Float)
         } else if identifier.string.eq_ignore_ascii_case("string") {
             Type::Pod(PodType::String)
-        }else if identifier.string.eq_ignore_ascii_case("name") {
+        } else if identifier.string.eq_ignore_ascii_case("name") {
             Type::Pod(PodType::Name)
         } else if identifier.string.eq_ignore_ascii_case("bool") {
             Type::Pod(PodType::Bool)
@@ -394,17 +394,51 @@ pub struct ExpressionList {
 pub enum Expression {
     Identifier(AstNode<Identifier>),
     Literal(AstNode<Literal>),
-    New { arguments: Option<AstNode<ExpressionList>>, type_: Box<AstNode<Expression>> },
-    MonadicPreExpression { operand: Box<AstNode<Expression>>, verb: MonadicVerb },
-    MonadicPostExpression { operand: Box<AstNode<Expression>>, verb: MonadicVerb },
-    DyadicExpression { lhs: Box<AstNode<Expression>>, verb: DyadicVerb, rhs: Box<AstNode<Expression>> },
-    Call { operand: Box<AstNode<Expression>>, arguments: AstNode<ExpressionList> },
-    GlobalCall { name: AstNode<Identifier>, arguments: AstNode<ExpressionList> },
-    ArrayAccess { operand: Box<AstNode<Expression>>, argument: Box<AstNode<Expression>> },
-    DefaultAccess { operand: Option<Box<AstNode<Expression>>>, target: AstNode<Identifier> },
-    StaticAccess { operand: Option<Box<AstNode<Expression>>>, target: AstNode<Identifier> },
-    MemberAccess { operand: Box<AstNode<Expression>>, target: AstNode<Identifier> },
-    Cast { type_: Type, operand: Box<AstNode<Expression>> },
+    New {
+        arguments: Option<AstNode<ExpressionList>>,
+        type_: Box<AstNode<Expression>>,
+    },
+    MonadicPreExpression {
+        operand: Box<AstNode<Expression>>,
+        verb: MonadicVerb,
+    },
+    MonadicPostExpression {
+        operand: Box<AstNode<Expression>>,
+        verb: MonadicVerb,
+    },
+    DyadicExpression {
+        lhs: Box<AstNode<Expression>>,
+        verb: DyadicVerb,
+        rhs: Box<AstNode<Expression>>,
+    },
+    Call {
+        operand: Box<AstNode<Expression>>,
+        arguments: AstNode<ExpressionList>,
+    },
+    GlobalCall {
+        name: AstNode<Identifier>,
+        arguments: AstNode<ExpressionList>,
+    },
+    ArrayAccess {
+        operand: Box<AstNode<Expression>>,
+        argument: Box<AstNode<Expression>>,
+    },
+    DefaultAccess {
+        operand: Option<Box<AstNode<Expression>>>,
+        target: AstNode<Identifier>,
+    },
+    StaticAccess {
+        operand: Option<Box<AstNode<Expression>>>,
+        target: AstNode<Identifier>,
+    },
+    MemberAccess {
+        operand: Box<AstNode<Expression>>,
+        target: AstNode<Identifier>,
+    },
+    Cast {
+        type_: Type,
+        operand: Box<AstNode<Expression>>,
+    },
     ParentheticalExpression(Box<AstNode<Expression>>),
 }
 
@@ -450,7 +484,10 @@ pub enum Literal {
     Name(String),
     Rotator([AstNode<NumericLiteral>; 3]),
     Vector([AstNode<NumericLiteral>; 3]),
-    Object { type_: AstNode<Identifier>, reference: String },
+    Object {
+        type_: AstNode<Identifier>,
+        reference: String,
+    },
 }
 
 #[derive(Eq, Clone)]
@@ -480,7 +517,9 @@ impl Debug for Identifier {
 
 impl Identifier {
     pub fn new(s: &str) -> Identifier {
-        Identifier { string: s.to_string() }
+        Identifier {
+            string: s.to_string(),
+        }
     }
 }
 

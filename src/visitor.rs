@@ -2,10 +2,10 @@ use crate::ast::*;
 use crate::parser::{ProgramError, ProgramErrorSeverity};
 
 use convert_case::{Case, Casing};
+use if_chain::if_chain;
 use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
 use std::rc::Rc;
-use if_chain::if_chain;
 
 pub enum VisitorState {
     DefaultPropertiesObject,
@@ -20,7 +20,9 @@ pub struct VisitorContext {
 
 impl VisitorContext {
     pub fn new() -> VisitorContext {
-        VisitorContext { state_stack: vec![] }
+        VisitorContext {
+            state_stack: vec![],
+        }
     }
 }
 
@@ -53,7 +55,7 @@ impl Visitor<'_> {
             errors: vec![],
             context: VisitorContext::new(),
             variables: HashMap::new(),
-            types: HashSet::new()
+            types: HashSet::new(),
         }
     }
 
@@ -69,7 +71,7 @@ impl Visitor<'_> {
         self.errors.push(ProgramError {
             message: message.to_string(),
             span,
-            severity: ProgramErrorSeverity::Error
+            severity: ProgramErrorSeverity::Error,
         })
     }
 }
@@ -83,9 +85,13 @@ impl Visit for AstNode<ConstDeclaration> {
         let name = &self.name.string;
         if name.to_case(Case::ScreamingSnake).ne(name) {
             visitor.warn(
-                format!("const variable names should be in SCREAMING_SNAKE_CASE (e.g., {:?})",
-                        name.to_case(Case::ScreamingSnake)).as_str(),
-                self.span)
+                format!(
+                    "const variable names should be in SCREAMING_SNAKE_CASE (e.g., {:?})",
+                    name.to_case(Case::ScreamingSnake)
+                )
+                .as_str(),
+                self.span,
+            )
         }
     }
 }
@@ -98,7 +104,10 @@ impl Visit for AstNode<DefaultPropertiesStruct> {
 
 impl Visit for AstNode<DefaultPropertiesArray> {
     fn visit(&self, visitor: &mut Visitor) {
-        self.elements.iter().flatten().for_each(|e| e.visit(visitor))
+        self.elements
+            .iter()
+            .flatten()
+            .for_each(|e| e.visit(visitor))
     }
 }
 
@@ -109,10 +118,14 @@ impl Visit for AstNode<DefaultPropertiesValue> {
                 literal.visit(visitor);
                 if let Literal::Name(name) = &literal.data {
                     visitor.error(
-                        format!("values in the defaultproperties block cannot be \
+                        format!(
+                            "values in the defaultproperties block cannot be \
                         initialized with name literals; use string literal instead \
-                        (e.g., {:?})", name).as_str(),
-                        self.span
+                        (e.g., {:?})",
+                            name
+                        )
+                        .as_str(),
+                        self.span,
                     )
                 }
             }
@@ -125,15 +138,18 @@ impl Visit for AstNode<DefaultPropertiesValue> {
 
 impl Visit for Rc<AstNode<DefaultPropertiesObject>> {
     fn visit(&self, visitor: &mut Visitor) {
-        visitor.context.push_state(VisitorState::DefaultPropertiesObject);
-        self.statements.iter().for_each(|statement| statement.visit(visitor));
+        visitor
+            .context
+            .push_state(VisitorState::DefaultPropertiesObject);
+        self.statements
+            .iter()
+            .for_each(|statement| statement.visit(visitor));
         visitor.context.pop_state();
     }
 }
 
 impl Visit for AstNode<DefaultPropertiesTarget> {
-    fn visit(&self, _visitor: &mut Visitor) {
-    }
+    fn visit(&self, _visitor: &mut Visitor) {}
 }
 
 impl Visit for AstNode<DefaultPropertiesAssignment> {
@@ -223,16 +239,19 @@ impl Visit for AstNode<DefaultPropertiesAssignment> {
 impl Visit for AstNode<Literal> {
     fn visit(&self, visitor: &mut Visitor) {
         match &self.data {
-            Literal::None => {},
-            Literal::Numeric(_) => {},
+            Literal::None => {}
+            Literal::Numeric(_) => {}
             Literal::Boolean(_) => {
                 let contents = &visitor.contents[self.span.start..self.span.end];
                 if contents != contents.to_lowercase().as_str() {
                     visitor.warn(
-                        format!("boolean literals should be lowercase (use {:?} instead of {:?})",
-                                contents.to_lowercase().as_str(),
-                                contents).as_str(),
-                        self.span
+                        format!(
+                            "boolean literals should be lowercase (use {:?} instead of {:?})",
+                            contents.to_lowercase().as_str(),
+                            contents
+                        )
+                        .as_str(),
+                        self.span,
                     )
                 }
             }
@@ -275,7 +294,7 @@ impl Visit for AstNode<Literal> {
                                 type_.span
                             )
                         }
-                    },
+                    }
                     _ => {
                         // TODO: the correct thing to do here is check that the capitalization matches the capitalization the type was defined with
                         let first_letter_in_type = type_.chars().nth(0).unwrap();
@@ -298,7 +317,7 @@ impl Visit for AstNode<DefaultPropertiesStatement> {
     fn visit(&self, visitor: &mut Visitor) {
         match &self.data {
             DefaultPropertiesStatement::Assignment(assignment) => assignment.visit(visitor),
-            DefaultPropertiesStatement::Object(object) => object.visit(visitor)
+            DefaultPropertiesStatement::Object(object) => object.visit(visitor),
         }
     }
 }
@@ -319,9 +338,10 @@ impl Visit for AstNode<ReplicationBlock> {
         }
         // TODO: check to see that reliability & expression are unique for each statement
         for (i, statement) in self.statements.iter().enumerate() {
-            for next_statement in &self.statements[i+1..] {
-                if statement.condition == next_statement.condition &&
-                    statement.reliability == next_statement.reliability {
+            for next_statement in &self.statements[i + 1..] {
+                if statement.condition == next_statement.condition
+                    && statement.reliability == next_statement.reliability
+                {
                     visitor.warn("identical replication reliability and condition", self.span)
                 }
             }
@@ -339,7 +359,7 @@ impl Visit for AstNode<CodeStatementOrBlock> {
     fn visit(&self, visitor: &mut Visitor) {
         match self.deref() {
             CodeStatementOrBlock::CodeBlock(b) => b.visit(visitor),
-            CodeStatementOrBlock::CodeStatement(s) => s.visit(visitor)
+            CodeStatementOrBlock::CodeStatement(s) => s.visit(visitor),
         }
     }
 }
@@ -355,12 +375,8 @@ impl Visit for AstNode<Expression> {
                     arguments.visit(visitor);
                 }
             }
-            Expression::MonadicPreExpression { operand, verb: _ } => {
-                operand.visit(visitor)
-            }
-            Expression::MonadicPostExpression { operand, verb: _ } => {
-                operand.visit(visitor)
-            }
+            Expression::MonadicPreExpression { operand, verb: _ } => operand.visit(visitor),
+            Expression::MonadicPostExpression { operand, verb: _ } => operand.visit(visitor),
             Expression::DyadicExpression { lhs, verb: _, rhs } => {
                 lhs.visit(visitor);
                 rhs.visit(visitor);
@@ -402,16 +418,13 @@ impl Visit for AstNode<Expression> {
                 match &expression.data {
                     Expression::New { .. } => {}
                     Expression::DyadicExpression { .. } => {}
-                    _ => {
-                        visitor.warn("redundant parenthetical expression", expression.span)
-                    }
+                    _ => visitor.warn("redundant parenthetical expression", expression.span),
                 }
                 expression.visit(visitor)
             }
         }
     }
 }
-
 
 impl Visit for ForEach {
     fn visit(&self, visitor: &mut Visitor) {
@@ -471,7 +484,9 @@ impl Visit for ForStatement {
 
 impl Visit for SwitchCase {
     fn visit(&self, visitor: &mut Visitor) {
-        self.statements.iter().for_each(|statement| statement.visit(visitor))
+        self.statements
+            .iter()
+            .for_each(|statement| statement.visit(visitor))
     }
 }
 
@@ -501,11 +516,9 @@ impl Visit for DoUntil {
 impl Visit for AstNode<CodeStatement> {
     fn visit(&self, visitor: &mut Visitor) {
         match &self.data {
-            CodeStatement::Empty => {
-                visitor.warn("empty statement", self.span)
-            }
+            CodeStatement::Empty => visitor.warn("empty statement", self.span),
             CodeStatement::Expression(expression) => {
-                if let Expression::DyadicExpression{lhs, verb: _, rhs} = &expression.data {
+                if let Expression::DyadicExpression { lhs, verb: _, rhs } = &expression.data {
                     if let Expression::ParentheticalExpression(lhs) = &lhs.data {
                         visitor.warn("redundant parenthetical expression", lhs.span)
                     }
@@ -514,7 +527,7 @@ impl Visit for AstNode<CodeStatement> {
                     }
                 }
                 expression.visit(visitor)
-            },
+            }
             CodeStatement::Return(expression) => {
                 if let Some(expression) = expression {
                     expression.visit(visitor)
@@ -531,21 +544,20 @@ impl Visit for AstNode<CodeStatement> {
             CodeStatement::While(w) => w.visit(visitor),
             CodeStatement::DoUntil(d) => d.visit(visitor),
             CodeStatement::CompilerDirective(_) => {}
-            CodeStatement::ConstDeclaration(c) => c.visit(visitor)
+            CodeStatement::ConstDeclaration(c) => c.visit(visitor),
         }
     }
 }
 
 impl Visit for AstNode<Identifier> {
-    fn visit(&self, _visitor: &mut Visitor) {
-    }
+    fn visit(&self, _visitor: &mut Visitor) {}
 }
 
 impl Visit for AstNode<VarSize> {
     fn visit(&self, visitor: &mut Visitor) {
         match &self.data {
             VarSize::IntegerLiteral(_) => {}
-            VarSize::Identifier(id) => id.visit(visitor)
+            VarSize::Identifier(id) => id.visit(visitor),
         }
     }
 }
@@ -582,7 +594,6 @@ impl Visit for FunctionBodyStatement {
 impl Visit for AstNode<FunctionBody> {
     fn visit(&self, visitor: &mut Visitor) {
         self.statements.iter().for_each(|s| s.visit(visitor))
-
     }
 }
 
@@ -596,7 +607,10 @@ impl Visit for AstNode<FunctionDeclaration> {
         // ensure that the name starts with a capital letter
         let first_letter_in_name = self.name.string.chars().nth(0).unwrap();
         if !first_letter_in_name.is_alphabetic() || !first_letter_in_name.is_uppercase() {
-            visitor.warn("function names should begin with a capital letter", self.name.span)
+            visitor.warn(
+                "function names should begin with a capital letter",
+                self.name.span,
+            )
         }
 
         // ensure that each modifier occurs only once
@@ -612,29 +626,35 @@ impl Visit for AstNode<FunctionDeclaration> {
             .iter()
             .filter(|(_, occurences)| **occurences > 1)
             .for_each(|(type_, _)| {
-                visitor.warn(format!("function has redundant {:?} modifier", type_).as_str(), self.span)
+                visitor.warn(
+                    format!("function has redundant {:?} modifier", type_).as_str(),
+                    self.span,
+                )
             });
 
         // ensure modifiers appear in alphabetical order
-        let modifier_types: Vec<FunctionModifierType> = self.modifiers
-            .iter()
-            .map(|f| f.type_.clone())
-            .collect();
+        let modifier_types: Vec<FunctionModifierType> =
+            self.modifiers.iter().map(|f| f.type_.clone()).collect();
         let mut sorted_modifier_types = modifier_types.clone();
         sorted_modifier_types.sort();
         let is_sorted = modifier_types
             .iter()
             .zip(sorted_modifier_types.iter())
             .filter(|&(lhs, rhs)| lhs.ne(rhs))
-            .count() == 0;
+            .count()
+            == 0;
         if !is_sorted {
             let sorted_modifier_type_names: Vec<String> = sorted_modifier_types
                 .iter()
                 .map(|t| format!("{:?}", t).to_lowercase())
                 .collect();
             visitor.warn(
-                format!("function modifiers should appear in alphabetical order (e.g., {:?})", sorted_modifier_type_names.join(" ").as_str()).as_str(),
-                self.span
+                format!(
+                    "function modifiers should appear in alphabetical order (e.g., {:?})",
+                    sorted_modifier_type_names.join(" ").as_str()
+                )
+                .as_str(),
+                self.span,
             )
         }
 
@@ -651,7 +671,7 @@ impl Visit for AstNode<FunctionDeclaration> {
                                         "functions with the exec modifier cannot correctly parse consecutive float arguments when invoked from the console",
                                         argument.span
                                     );
-                                    break
+                                    break;
                                 }
                             }
                         }
@@ -670,7 +690,7 @@ impl Visit for AstNode<FunctionDeclaration> {
 impl Visit for Type {
     fn visit(&self, visitor: &mut Visitor) {
         match self {
-            Type::Pod(_) => {},
+            Type::Pod(_) => {}
             Type::Array(t) => t.visit(visitor),
             Type::Class(c) => {
                 visitor.types.insert(c.data.clone());
@@ -703,7 +723,14 @@ impl Visit for Rc<AstNode<VarDeclaration>> {
             .zip(sorted_modifiers.iter())
             .all(|(lhs, rhs)| *lhs == *rhs);
         if !is_sorted {
-            visitor.warn(format!("var modifiers should be in alphabetical order (e.g., {:?})", sorted_modifiers).as_str(), self.span)
+            visitor.warn(
+                format!(
+                    "var modifiers should be in alphabetical order (e.g., {:?})",
+                    sorted_modifiers
+                )
+                .as_str(),
+                self.span,
+            )
         }
     }
 }
@@ -725,13 +752,17 @@ impl Visit for AstNode<StructDeclaration> {
 
 impl Visit for AstNode<ExpressionList> {
     fn visit(&self, visitor: &mut Visitor) {
-        let trailing_empty_arguments_count = self.expressions
+        let trailing_empty_arguments_count = self
+            .expressions
             .iter()
             .rev()
             .take_while(|argument| argument.is_none())
             .count();
         if trailing_empty_arguments_count > 0 {
-            visitor.warn("superfluous trailing empty arguments in function call", self.span);
+            visitor.warn(
+                "superfluous trailing empty arguments in function call",
+                self.span,
+            );
         }
         for expression in &self.expressions {
             if let Some(expression) = expression {
@@ -756,7 +787,10 @@ impl Visit for StateDeclaration {
             statement.visit(visitor)
         }
         for label in self.labels.iter() {
-            label.statements.iter().for_each(|statement| statement.visit(visitor))
+            label
+                .statements
+                .iter()
+                .for_each(|statement| statement.visit(visitor))
         }
     }
 }
@@ -764,7 +798,10 @@ impl Visit for StateDeclaration {
 impl Visit for AstNode<EnumDeclaration> {
     fn visit(&self, visitor: &mut Visitor) {
         if self.name.string.chars().nth(0).unwrap() != 'E' {
-            visitor.warn("enumeration types names should be prefixed with the letter \"E\"", self.span)
+            visitor.warn(
+                "enumeration types names should be prefixed with the letter \"E\"",
+                self.span,
+            )
         }
     }
 }
@@ -783,7 +820,10 @@ impl Visit for AstNode<ClassDeclaration> {
             .iter()
             .filter(|(type_, occurences)| **occurences > 1 && type_.is_unique())
             .for_each(|(type_, _)| {
-                visitor.warn(format!("class has redundant {:?} modifier", type_).as_str(), self.span)
+                visitor.warn(
+                    format!("class has redundant {:?} modifier", type_).as_str(),
+                    self.span,
+                )
             });
     }
 }
@@ -792,7 +832,7 @@ impl Visit for Program {
     fn visit(&self, visitor: &mut Visitor) {
         for statement in self.statements.iter() {
             match &statement.data {
-                ProgramStatement::Empty => { visitor.warn("empty statement", statement.span) }
+                ProgramStatement::Empty => visitor.warn("empty statement", statement.span),
                 ProgramStatement::ClassDeclaration(c) => c.visit(visitor),
                 ProgramStatement::CompilerDirective(_) => {}
                 ProgramStatement::ConstDeclaration(c) => c.visit(visitor),
@@ -813,7 +853,14 @@ fn visit_bool_var_names(names: &[AstNode<VarName>], visitor: &mut Visitor) {
     for name in names {
         let variable_name = &name.identifier.string;
         if variable_name.chars().nth(0).unwrap() != 'b' {
-            visitor.warn(format!("bool variable name {:?} should begin with a \"b\"", variable_name).as_str(), name.span);
+            visitor.warn(
+                format!(
+                    "bool variable name {:?} should begin with a \"b\"",
+                    variable_name
+                )
+                .as_str(),
+                name.span,
+            );
         }
     }
 }

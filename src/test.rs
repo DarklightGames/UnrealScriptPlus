@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod test {
-    use pest::{parses_to, consumes_to, fails_with};
-    use crate::parser::{UnrealScriptParser, Rule};
+    use crate::parser::{Rule, UnrealScriptParser};
     use crate::transform::{ScriptBuilder, ScriptFormattingOptions};
+    use pest::{consumes_to, fails_with, parses_to};
 
     #[test]
     fn comment_single_line() {
@@ -893,7 +893,7 @@ mod test {
 
     #[test]
     fn enum_declaration_basic() {
-        parses_to!{
+        parses_to! {
             parser: UnrealScriptParser,
             input: "enum Foo { Bar, Baz }",
             rule: Rule::enum_declaration,
@@ -909,7 +909,7 @@ mod test {
 
     #[test]
     fn enum_declaration_trailing_comma() {
-        parses_to!{
+        parses_to! {
             parser: UnrealScriptParser,
             input: "enum Foo { Bar, Baz, }",
             rule: Rule::enum_declaration,
@@ -925,7 +925,7 @@ mod test {
 
     #[test]
     fn struct_declaration_no_members() {
-        parses_to!{
+        parses_to! {
             parser: UnrealScriptParser,
             input: "struct Foo { }",
             rule: Rule::struct_declaration,
@@ -939,7 +939,7 @@ mod test {
 
     #[test]
     fn struct_var_declaration_simple() {
-        parses_to!{
+        parses_to! {
             parser: UnrealScriptParser,
             input: "var int A;",
             rule: Rule::struct_var_declaration,
@@ -954,7 +954,7 @@ mod test {
 
     #[test]
     fn struct_var_declaration_editable() {
-        parses_to!{
+        parses_to! {
             parser: UnrealScriptParser,
             input: "var() int A;",
             rule: Rule::struct_var_declaration,
@@ -970,7 +970,7 @@ mod test {
 
     #[test]
     fn struct_declaration_with_modifiers() {
-        parses_to!{
+        parses_to! {
             parser: UnrealScriptParser,
             input: "struct native transient Foo { }",
             rule: Rule::struct_declaration,
@@ -986,7 +986,7 @@ mod test {
 
     #[test]
     fn struct_declaration_with_extends() {
-        parses_to!{
+        parses_to! {
             parser: UnrealScriptParser,
             input: "struct Foo extends Bar { }",
             rule: Rule::struct_declaration,
@@ -1001,7 +1001,7 @@ mod test {
 
     #[test]
     fn struct_declaration_with_members() {
-        parses_to!{
+        parses_to! {
             parser: UnrealScriptParser,
             input: "struct Foo { var int Bar; var string Baz; }",
             rule: Rule::struct_declaration,
