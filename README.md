@@ -1,4 +1,4 @@
-# UnrealScriptPus
+# UnrealScriptPlus
 
 ![example event parameter](https://github.com/DarklightGames/UnrealScriptPlus/actions/workflows/rust.yml/badge.svg)
 
