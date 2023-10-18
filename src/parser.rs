@@ -4,7 +4,7 @@ extern crate pest;
 use pest_consume::Parser;
 
 #[derive(Parser)]
-#[grammar = "UnrealScript.pest"]
+#[grammar = "static//UnrealScript.pest"]
 pub struct UnrealScriptParser;
 
 use pest_consume::{match_nodes, Error};
