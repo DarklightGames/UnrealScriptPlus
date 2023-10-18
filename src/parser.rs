@@ -126,7 +126,7 @@ fn parse_target(nodes: &[Node]) -> Result<Box<AstNode<Expression>>> {
             ))?),
         })),
         Rule::new => {
-            let mut inner_iter = node.clone().into_children().into_iter();
+            let mut inner_iter = node.clone().into_children();
             let first = inner_iter.next().unwrap();
             if let Rule::expression_list = first.as_rule() {
                 Ok(Box::new(AstNode {
@@ -151,7 +151,7 @@ fn parse_target(nodes: &[Node]) -> Result<Box<AstNode<Expression>>> {
             }
         }
         Rule::cast => {
-            let mut inner_iter = node.clone().into_children().into_iter();
+            let mut inner_iter = node.clone().into_children();
             Ok(Box::new(AstNode {
                 span,
                 data: Expression::Cast {
@@ -202,7 +202,7 @@ fn parse_target(nodes: &[Node]) -> Result<Box<AstNode<Expression>>> {
             },
         })),
         Rule::global_call => {
-            let mut inner_iter = node.clone().into_children().into_iter();
+            let mut inner_iter = node.clone().into_children();
             let name = UnrealScriptParser::unqualified_identifier(inner_iter.next().unwrap())?;
             let arguments = UnrealScriptParser::expression_list(inner_iter.next().unwrap())?;
             Ok(Box::new(AstNode {
@@ -216,7 +216,6 @@ fn parse_target(nodes: &[Node]) -> Result<Box<AstNode<Expression>>> {
                 .into_children()
                 .single()?
                 .into_children()
-                .into_iter()
                 .collect();
             Ok(Box::new(AstNode {
                 span,
@@ -256,7 +255,7 @@ fn parse_target(nodes: &[Node]) -> Result<Box<AstNode<Expression>>> {
 
 fn parse_expression_from_nodes(nodes: &[Node]) -> Result<Box<AstNode<Expression>>> {
     let mut dyadic_verbs = Vec::new();
-    for (index, node) in nodes.into_iter().enumerate() {
+    for (index, node) in nodes.iter().enumerate() {
         if let Rule::dyadic_verb = node.as_rule() {
             let operator_precedence =
                 OPERATOR_PRECEDENCES.get(node.as_str().to_lowercase().as_str());
@@ -327,16 +326,14 @@ impl UnrealScriptParser {
         input
             .as_str()
             .to_lowercase()
-            .trim_end_matches("f")
+            .trim_end_matches('f')
             .to_string()
             .as_str()
             .parse::<f32>()
             .map_err(|e| input.error(e))
-            .and_then(|v| {
-                Ok(AstNode {
-                    span: AstSpan::from(&input),
-                    data: NumericLiteral::Float(v),
-                })
+            .map(|v| AstNode {
+                span: AstSpan::from(&input),
+                data: NumericLiteral::Float(v),
             })
     }
 
@@ -357,7 +354,7 @@ impl UnrealScriptParser {
     fn hex_digits(input: Node) -> Result<i32> {
         u32::from_str_radix(input.as_str(), 16)
             .map_err(|e| input.error(e))
-            .and_then(|v| Ok(i32::from_be_bytes(v.to_be_bytes())))
+            .map(|v| i32::from_be_bytes(v.to_be_bytes()))
     }
 
     fn integer_literal_hexadecimal(input: Node) -> Result<i32> {
@@ -694,7 +691,7 @@ impl UnrealScriptParser {
     fn boolean_literal(input: Node) -> Result<Literal> {
         bool::from_str(input.as_str().to_lowercase().as_str())
             .map_err(|e| input.error(e))
-            .and_then(|v| Ok(Literal::Boolean(v)))
+            .map(Literal::Boolean)
     }
 
     fn const_declaration(input: Node) -> Result<AstNode<ConstDeclaration>> {
@@ -1332,7 +1329,7 @@ fn read_file_to_string(path: &str) -> std::result::Result<String, ParsingError> 
     let mut buffer: Vec<u8> = Vec::new();
     file.read_to_end(&mut buffer)?;
     encoding::all::WINDOWS_1252
-        .decode(&mut buffer, DecoderTrap::Strict)
+        .decode(&buffer, DecoderTrap::Strict)
         .map_err(|e| ParsingError::EncodingError(e.to_string()))
 }
 
@@ -1369,7 +1366,7 @@ fn calculate_lines(contents: &str) -> Vec<usize> {
             }
         }
     }
-    return columns;
+    columns
 }
 
 pub fn parse_program(contents: &str) -> std::result::Result<ProgramResult, ParsingError> {

@@ -62,10 +62,7 @@ pub enum ClassModifierType {
 
 impl ClassModifierType {
     pub fn is_unique(&self) -> bool {
-        return match self {
-            ClassModifierType::DependsOn => false,
-            _ => true,
-        };
+        !matches!(self, ClassModifierType::DependsOn)
     }
 }
 
@@ -270,16 +267,16 @@ pub enum DyadicVerb {
 
 impl DyadicVerb {
     pub fn is_assignment(&self) -> bool {
-        match self {
+        matches!(
+            self,
             DyadicVerb::AddAssign
-            | DyadicVerb::SubtractAssign
-            | DyadicVerb::MultiplyAssign
-            | DyadicVerb::DivideAssign
-            | DyadicVerb::ConcatenateAssign
-            | DyadicVerb::ConcatenateSpaceAssign
-            | DyadicVerb::Assign => true,
-            _ => false,
-        }
+                | DyadicVerb::SubtractAssign
+                | DyadicVerb::MultiplyAssign
+                | DyadicVerb::DivideAssign
+                | DyadicVerb::ConcatenateAssign
+                | DyadicVerb::ConcatenateSpaceAssign
+                | DyadicVerb::Assign
+        )
     }
 }
 

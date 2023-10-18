@@ -25,6 +25,12 @@ impl VisitorContext {
     }
 }
 
+impl Default for VisitorContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl VisitorContext {
     pub fn push_state(&mut self, state: VisitorState) {
         self.state_stack.push(state)
@@ -220,7 +226,7 @@ impl Visit for AstNode<DefaultPropertiesAssignment> {
                                 if !self.is_array_assignment();
                                 if let DefaultPropertiesValue::Literal(literal) = &value.data;
                                 if let Literal::Boolean(b) = literal.data;
-                                if b == false;
+                                if !b;
                                 then { visitor.warn(format!("redundant specification of default value ({}) of variable ({}) declared in this class", false, self.target.target.as_str()).as_str() ,self.span) }
                             }
                         }
@@ -851,7 +857,7 @@ impl Visit for Program {
 fn visit_bool_var_names(names: &[AstNode<VarName>], visitor: &mut Visitor) {
     for name in names {
         let variable_name = &name.identifier.string;
-        if variable_name.chars().nth(0).unwrap() != 'b' {
+        if !variable_name.starts_with('b') {
             visitor.warn(
                 format!(
                     "bool variable name {:?} should begin with a \"b\"",

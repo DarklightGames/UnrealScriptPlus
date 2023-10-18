@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod test {
+mod tests {
     use crate::parser::{Rule, UnrealScriptParser};
     use pest::{consumes_to, fails_with, parses_to};
 

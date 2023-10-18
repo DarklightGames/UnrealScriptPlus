@@ -86,8 +86,8 @@ pub trait ToScript {
 }
 
 impl ToScript for Program {
-    fn to_script(&self, builder: &mut ScriptBuilder) {
-        for statement in &self.statements {}
+    fn to_script(&self, _builder: &mut ScriptBuilder) {
+        for _statement in &self.statements {}
     }
 }
 
@@ -138,7 +138,7 @@ impl ToScript for ClassModifier {
 }
 
 impl ToScript for ExpressionList {
-    fn to_script(&self, builder: &mut ScriptBuilder) {
+    fn to_script(&self, _builder: &mut ScriptBuilder) {
         todo!()
     }
 }

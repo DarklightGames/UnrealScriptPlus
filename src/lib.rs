@@ -129,7 +129,7 @@ fn unrealscriptplus(py: Python, m: &PyModule) -> PyResult<()> {
     fn parse_expression(module: &PyModule, path: &str) -> PyResult<String> {
         match crate::parser::parse_expression(path) {
             Ok(p) => Ok(format!("{:?}", p)),
-            Err(e) => Err(parsing_error_to_py_err(module, e.into())),
+            Err(e) => Err(parsing_error_to_py_err(module, e)),
         }
     }
 
