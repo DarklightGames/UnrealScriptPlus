@@ -3,18 +3,8 @@ pub mod parser;
 mod test;
 pub mod transform;
 pub mod visitor;
-
-extern crate encoding;
-#[macro_use]
-extern crate lazy_static;
-extern crate pest;
-extern crate pest_derive;
-
 use crate::parser::{ParserRule, ParsingError, ProgramResult};
 use pest::error::{ErrorVariant, InputLocation, LineColLocation};
-use pest_consume;
-
-// PYTHON STUFF
 use pyo3::prelude::pymodule;
 use pyo3::prelude::PyModule;
 use pyo3::types::PyDict;

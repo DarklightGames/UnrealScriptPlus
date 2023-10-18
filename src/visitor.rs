@@ -1,6 +1,5 @@
 use crate::ast::*;
 use crate::parser::{ProgramError, ProgramErrorSeverity};
-
 use convert_case::{Case, Casing};
 use if_chain::if_chain;
 use std::collections::{HashMap, HashSet};

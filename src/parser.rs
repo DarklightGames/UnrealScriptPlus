@@ -1,24 +1,18 @@
-extern crate if_chain;
-extern crate pest;
-
+use crate::ast::*;
+use crate::visitor::{Visit, Visitor};
+use encoding::{DecoderTrap, Encoding};
+use lazy_static::lazy_static;
 use pest_consume::Parser;
+use pest_consume::{match_nodes, Error};
+use std::collections::HashMap;
+use std::fs::File;
+use std::io::Read;
+use std::rc::Rc;
+use std::str::FromStr;
 
 #[derive(Parser)]
 #[grammar = "static//UnrealScript.pest"]
 pub struct UnrealScriptParser;
-
-use pest_consume::{match_nodes, Error};
-use std::collections::HashMap;
-use std::str::FromStr;
-
-use encoding::{DecoderTrap, Encoding};
-use std::fs::File;
-use std::io::Read;
-
-use std::rc::Rc;
-
-use crate::ast::*;
-use crate::visitor::{Visit, Visitor};
 
 type Result<T> = std::result::Result<T, Error<Rule>>;
 type Node<'i> = pest_consume::Node<'i, Rule, ()>;

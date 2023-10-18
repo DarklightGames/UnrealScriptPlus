@@ -1,7 +1,6 @@
 #[cfg(test)]
 mod test {
     use crate::parser::{Rule, UnrealScriptParser};
-    use crate::transform::{ScriptBuilder, ScriptFormattingOptions};
     use pest::{consumes_to, fails_with, parses_to};
 
     #[test]
