@@ -1,5 +1,4 @@
 pub mod ast;
-mod test;
 pub mod parser;
 pub mod visitor;
 pub mod transform;
