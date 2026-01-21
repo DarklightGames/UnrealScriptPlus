@@ -90,7 +90,7 @@ class_modifier = { class_modifier_type ~ (WS* ~ "(" ~ WS* ~ expression_list ~ WS
 class_within = { ^"within" ~ WS+ ~ identifier }
 class_declaration = { ^"class" ~ WS+ ~ unqualified_identifier ~ (WS+ ~ extends)? ~ (WS+ ~ class_within)? ~ (WS+ ~ class_modifier)* ~ WS* ~ ";" }
 
-var_modifier = {
+var_modifier = @{
     ^"const" |
     ^"deprecated" |
     ^"private" |
@@ -120,7 +120,7 @@ var_category = { "(" ~ WS* ~ unqualified_identifier? ~ WS* ~ ")" }
 var_modifiers = _{ (var_modifier ~ WS+)* }
 var_declaration = { ^"var" ~ (WS* ~ var_category)? ~ (WS+ ~ var_modifiers)? ~ WS* ~ type_ ~ WS+ ~ var_names ~ ";" }
 struct_var_editable = { "(" ~ WS* ~ ")" }
-struct_var_modifier = {
+struct_var_modifier = @{
     ^"const" |
     ^"private" |
     ^"protected" |
@@ -151,7 +151,7 @@ const_declarations = _{ const_declaration ~ (WS* ~ const_declaration)* }
 enum_declaration = { ^"enum" ~ WS+ ~ unqualified_identifier ~ WS* ~ "{" ~ WS* ~ unqualified_identifier_list ~ WS* ~ ","? ~ WS* ~ "}"}
 enum_statement = { enum_declaration ~ ";" }
 
-struct_modifier = {
+struct_modifier = @{
     ^"long" |
     ^"transient" |
     ^"export" |
@@ -163,7 +163,7 @@ extends = { ^"extends" ~ WS+ ~ identifier }
 struct_declaration = { ^"struct" ~ (WS+ ~ struct_modifier)* ~ WS+ ~ unqualified_identifier ~ WS+ ~ extends? ~ WS* ~ "{" ~ WS* ~ struct_inner_declarations? ~ WS* ~ "}" }
 
 // TODO: syntactically enforce argument rules (only native takes an argument)
-function_modifier_type = {
+function_modifier_type = @{
     ^"native" |
     ^"private" |
     ^"protected" |
@@ -179,7 +179,7 @@ function_modifier_type = {
 }
 function_modifier = { function_modifier_type ~ (WS* ~ "(" ~ WS* ~ integer_literal ~ WS* ~ ")")? }
 function_modifiers = _{ function_modifier ~ (WS+ ~ function_modifier)* }
-function_argument_modifier = {
+function_argument_modifier = @{
     ^"coerce" |
     ^"optional" |
     ^"out" |
@@ -188,8 +188,8 @@ function_argument_modifier = {
 function_argument_modifiers = _{ function_argument_modifier ~ (WS+ ~ function_argument_modifier)* }
 function_argument = { (function_argument_modifiers ~ WS+)? ~ type_ ~ WS+ ~ var_name}
 function_arguments = _{ function_argument ~ (WS* ~ "," ~ WS* ~ function_argument)* }
-function_type_no_arguments_type = { ^"function" | ^"event" | ^"delegate" | ^"preoperator" | ^"postoperator" }
-function_type_with_arguments_type = { ^"operator" }
+function_type_no_arguments_type = @{ ^"function" | ^"event" | ^"delegate" | ^"preoperator" | ^"postoperator" }
+function_type_with_arguments_type = @{ ^"operator" }
 function_type_with_arguments = { function_type_with_arguments_type ~  WS* ~ "(" ~ WS* ~ integer_literal ~ WS* ~ ")" }
 function_type = { function_type_no_arguments_type | function_type_with_arguments }
 function_types = _{ function_type ~ (WS+ ~ function_type)* }
@@ -202,7 +202,7 @@ function_declaration = {
     function_body_or_semicolon
 }
 
-replication_reliability = { ^"reliable" | ^"unreliable" }
+replication_reliability = @{ ^"reliable" | ^"unreliable" }
 replication_statement = { replication_reliability ~ WS+ ~ ^"if" ~ WS* ~ "(" ~ WS* ~ expression ~ WS* ~ ")" ~ WS* ~ unqualified_identifier ~ WS* ~ ("," ~ WS* ~ unqualified_identifier_list?)? ~ WS* ~ ";" }
 replication_statements = _{ replication_statement ~ (WS* ~ replication_statement)* }
 replication_block = { ^"replication" ~ WS* ~ "{" ~ WS* ~ replication_statements? ~ WS* ~ "}" }
@@ -236,8 +236,8 @@ symbolic_verb = {
     "$=" | "@=" | "$" | "@" | "+" | "-" | "=" | "&" | "|" | "^" | "%" | "*" | "/" | "!" | "~"
 }
 
-monadic_pre_verb = { "++" | "--" | "~" | "-" | "!" }
-monadic_post_verb = { "++" | "--" }
+monadic_pre_verb = @{ "++" | "--" | "~" | "-" | "!" }
+monadic_post_verb = @{ "++" | "--" }
 
 atom = _{ call | array_access | ("." ~ default_access) | ("." ~ static_access) | member_access | (monadic_post_verb? ~ WS* ~ dyadic_expression) }
 primary = _{ cast | literal | default_access | static_access | global_call | unqualified_identifier | parenthetical_expression }
@@ -304,7 +304,7 @@ break_statement = { ^"break" ~ WS* ~ ";" }
 goto_statement = { ^"goto" ~ WS+ ~ (("'" ~ unqualified_identifier ~ "'") | unqualified_identifier) ~ WS* ~ ";" }
 
 // STATES
-state_modifier = { ^"auto" | ^"simulated" }
+state_modifier = @{ ^"auto" | ^"simulated" }
 state_modifiers = _{ state_modifier ~ (WS+ ~ state_modifier)* }
 state_statement = { const_declaration | function_declaration }
 state_statements = _{ state_statement ~ (WS* ~ state_statement)* }
@@ -319,7 +319,7 @@ state_ignores = { ^"ignores" ~ WS+ ~ unqualified_identifier_list ~ WS* ~ ";" }
 statement_empty = { ";" }
 code_statement = { jump_label | conditional_statement | foreach_statement | for_statement | while_statement | do_until_statement | return_statement | break_statement | continue_statement | goto_statement | compiler_directive | switch_statement | const_declaration | (expression ~ WS* ~ ";") | statement_empty }
 // TODO: operator precedence is handled at the parser level
-dyadic_verb_native = {
+dyadic_verb_native = @{
     "&&" | "^^" |
     "**" |
     "+=" | "-=" | "*=" | "/=" |

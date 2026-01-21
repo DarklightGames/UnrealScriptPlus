@@ -674,7 +674,8 @@ impl UnrealScriptParser {
     }
 
     fn function_type_no_arguments_type(input: Node) -> Result<FunctionTypeType> {
-        Ok(FunctionTypeType::from_str(input.as_str()).unwrap())
+        FunctionTypeType::from_str(input.as_str())
+            .map_err(|_| input.error(format!("unrecognized function type: '{}'", input.as_str())))
     }
 
     fn function_type_with_arguments_type(input: Node) -> Result<FunctionTypeType> {

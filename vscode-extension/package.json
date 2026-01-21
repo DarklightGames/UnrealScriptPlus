@@ -4,6 +4,11 @@
   "description": "UnrealScript language support with LSP",
   "version": "0.1.0",
   "publisher": "unrealscript",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cmbasnett/UnrealScriptPlus.git",
+    "directory": "vscode-extension"
+  },
   "engines": {
     "vscode": "^1.75.0"
   },
