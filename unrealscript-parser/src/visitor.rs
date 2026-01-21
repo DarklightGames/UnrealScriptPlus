@@ -265,17 +265,6 @@ impl Visit for AstNode<Literal> {
             Literal::Vector(_) => {}
             Literal::Object { type_, .. } => {
                 match type_.to_lowercase().as_str() {
-                    "class" | "enum" => {
-                        if type_.to_lowercase().as_str() != type_.as_str() {
-                            visitor.warn(
-                                format!("type specifier for class and enum object literals should be lowercase (e.g., {} instead of {})",
-                                    type_.to_lowercase(),
-                                    type_.as_str()
-                                ).as_str(),
-                                type_.span
-                            )
-                        }
-                    },
                     _ => {
                         // TODO: the correct thing to do here is check that the capitalization matches the capitalization the type was defined with
                         let first_letter_in_type = type_.chars().nth(0).unwrap();

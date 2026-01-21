@@ -1,0 +1,127 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "UnrealScript",
+  "scopeName": "source.unrealscript",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#keywords" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#operators" },
+    { "include": "#functions" },
+    { "include": "#classes" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.unrealscript",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.unrealscript",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.unrealscript",
+          "match": "\\b(if|else|while|for|do|until|switch|case|default|break|continue|return|goto|foreach)\\b"
+        },
+        {
+          "name": "keyword.declaration.unrealscript",
+          "match": "\\b(class|extends|within|interface|implements|struct|enum|const|var|local|function|event|delegate|operator|preoperator|postoperator|state|auto|simulated|singular)\\b"
+        },
+        {
+          "name": "keyword.modifier.unrealscript",
+          "match": "\\b(public|protected|private|static|final|native|latent|iterator|exec|reliable|unreliable|server|client|dllimport|coerce|optional|out|skip|noexport|editconst|editinline|editinlinenew|editfixedsize|edithide|config|globalconfig|localized|travel|input|transient|duplicatetransient|nontransactional|instanced|databinding|editoronly|notforconsole|archetype|crosslevelactive|crosslevelpassive)\\b"
+        },
+        {
+          "name": "keyword.other.unrealscript",
+          "match": "\\b(replication|defaultproperties|structdefaultproperties|cpptext|cppstruct)\\b"
+        },
+        {
+          "name": "constant.language.unrealscript",
+          "match": "\\b(true|false|none|self|default)\\b"
+        },
+        {
+          "name": "storage.type.unrealscript",
+          "match": "\\b(bool|byte|int|float|string|name|vector|rotator|color|plane|array|map|class|object|interface|pointer|button|range|coords|matrix)\\b"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.unrealscript",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.unrealscript",
+              "match": "\\\\."
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.single.unrealscript",
+          "begin": "'",
+          "end": "'",
+          "patterns": [
+            {
+              "name": "constant.character.escape.unrealscript",
+              "match": "\\\\."
+            }
+          ]
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.unrealscript",
+          "match": "\\b0[xX][0-9a-fA-F]+\\b"
+        },
+        {
+          "name": "constant.numeric.float.unrealscript",
+          "match": "\\b[0-9]+\\.[0-9]+([eE][+-]?[0-9]+)?[fF]?\\b"
+        },
+        {
+          "name": "constant.numeric.integer.unrealscript",
+          "match": "\\b[0-9]+\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.unrealscript",
+          "match": "(\\+\\+|\\-\\-|\\+|\\-|\\*|/|%|==|!=|<|>|<=|>=|&&|\\|\\||!|&|\\||\\^|~|<<|>>|>>>|=|\\+=|\\-=|\\*=|/=|%=|&=|\\|=|\\^=|<<=|>>=|>>>=|\\$|@|\\$=|@=)"
+        }
+      ]
+    },
+    "functions": {
+      "patterns": [
+        {
+          "name": "entity.name.function.unrealscript",
+          "match": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s*(?=\\()"
+        }
+      ]
+    },
+    "classes": {
+      "patterns": [
+        {
+          "name": "entity.name.type.class.unrealscript",
+          "match": "\\b(class)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.unrealscript" },
+            "2": { "name": "entity.name.type.unrealscript" }
+          }
+        }
+      ]
+    }
+  }
+}

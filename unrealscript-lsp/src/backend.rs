@@ -49,8 +49,9 @@ impl Backend {
     }
 
     /// Publish diagnostics for a document
-    async fn publish_diagnostics(&self, uri: Url, text: &str, errors: &[ProgramError]) {
-        let diagnostics = self.errors_to_diagnostics(text, errors);
+    async fn publish_diagnostics_for_doc(&self, uri: Url, doc: &DocumentState) {
+        let diagnostics = self.errors_to_diagnostics(&doc.text, &doc.errors);
+        
         debug!(
             "Publishing {} diagnostics for {}",
             diagnostics.len(),
@@ -354,7 +355,7 @@ impl LanguageServer for Backend {
         let doc = DocumentState::new(text.clone(), version);
         
         // Publish diagnostics
-        self.publish_diagnostics(uri.clone(), &text, &doc.errors)
+        self.publish_diagnostics_for_doc(uri.clone(), &doc)
             .await;
 
         self.documents.insert(uri, doc);
@@ -373,7 +374,7 @@ impl LanguageServer for Backend {
                 doc.update(text.clone(), version);
 
                 // Publish diagnostics
-                self.publish_diagnostics(uri.clone(), &text, &doc.errors)
+                self.publish_diagnostics_for_doc(uri.clone(), &doc)
                     .await;
             } else {
                 warn!("Document not found in cache: {}", uri);
