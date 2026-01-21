@@ -116,11 +116,11 @@ fn function_declaration_operator() {
                 // A
                 var_name(54, 55, [ unqualified_identifier(54, 55) ])
             ]),
-            function_argument(57, 64, [
+            function_argument(57, 63, [
                 // bool
                 type_(57, 61, [ identifier(57, 61) ]),
                 // B
-                var_name(62, 64, [ unqualified_identifier(62, 63) ])
+                var_name(62, 63, [ unqualified_identifier(62, 63) ])
             ])
             ])
         ]
@@ -155,11 +155,11 @@ fn function_declaration_preoperator() {
                 type_(38, 41, [ identifier(38, 41) ]),
                 // ~
                 function_name(43, 44, [ symbolic_verb(43, 44) ]),
-                function_argument(48, 54, [
+                function_argument(48, 53, [
                     // int
                     type_(48, 51, [ identifier(48, 51) ]),
                     // A
-                    var_name(52, 54, [ unqualified_identifier(52, 53) ])
+                    var_name(52, 53, [ unqualified_identifier(52, 53) ])
                 ])
             ])
         ]   
