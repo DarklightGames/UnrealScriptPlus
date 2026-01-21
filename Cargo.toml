@@ -1,23 +1,12 @@
-[package]
-name = "unrealscript_parser"
+[workspace]
+members = [
+    "unrealscript-parser",
+    "unrealscript-lsp",
+]
+resolver = "2"
+
+[workspace.package]
 version = "0.2.1"
 edition = "2024"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-
-[lib]
-name = "unrealscript_parser"
-crate-type = ["lib"]
-
-[dependencies]
-pest = "2.7"
-pest_derive = "2.7"
-lazy_static = "1.5"
-encoding = "0.2"
-strum = { version = "0.26", features = ["derive"] }
-strum_macros = "0.26"
-pest_consume = "1.1"
-pest_consume_macros = "1.1"
-convert_case = "0.6"
-if_chain = "1.0"
+authors = ["Colin Basnett"]
+license = "MIT"
