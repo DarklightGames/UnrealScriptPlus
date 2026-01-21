@@ -9,10 +9,6 @@ use std::str::FromStr;
 use std::collections::HashMap;
 use lazy_static::lazy_static;
 
-use encoding::{DecoderTrap, Encoding};
-use std::fs::File;
-use std::io::Read;
-
 use std::rc::Rc;
 
 use crate::ast::*;
@@ -1236,6 +1232,7 @@ impl UnrealScriptParser {
     }
 }
 
+#[derive(Debug)]
 pub enum ParsingError {
     IoError(std::io::Error),
     EncodingError(String),
@@ -1252,15 +1249,6 @@ impl From<Error<Rule>> for ParsingError {
     fn from(error: Error<Rule>) -> Self {
         ParsingError::PestError(error)
     }
-}
-
-fn read_file_to_string(path: &str) -> std::result::Result<String, ParsingError> {
-    let mut file = File::open(path)?;
-    let mut buffer: Vec<u8> = Vec::new();
-    file.read_to_end(&mut buffer)?;
-    encoding::all::WINDOWS_1252
-        .decode(&mut buffer, DecoderTrap::Strict)
-        .map_err(|e| ParsingError::EncodingError(e.to_string()))
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -1330,6 +1318,22 @@ pub fn parse_expression(contents: &str) -> std::result::Result<Box<AstNode<Expre
     }
 }
 
-pub fn parse_file(path: &str) -> std::result::Result<ProgramResult, ParsingError> {
-    parse_program(read_file_to_string(path)?.as_str())
+/// Parse text starting at a specific grammar rule.
+/// Useful for incremental parsing where you want to parse a slice of code.
+/// 
+/// # Arguments
+/// * `rule` - The grammar rule to start parsing from
+/// * `contents` - The text to parse
+/// 
+/// # Returns
+/// The raw pest_consume Nodes iterator on success, or a ParsingError on failure.
+/// 
+/// # Example
+/// ```ignore
+/// use unrealscript_parser::{parse_with_rule, Rule};
+/// let result = parse_with_rule(Rule::expression, "1 + 2");
+/// ```
+pub fn parse_with_rule(rule: Rule, contents: &str) -> std::result::Result<pest_consume::Nodes<'_, Rule, ()>, ParsingError> {
+    UnrealScriptParser::parse(rule, contents)
+        .map_err(|e| ParsingError::from(e))
 }

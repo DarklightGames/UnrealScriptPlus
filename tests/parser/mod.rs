@@ -1,6 +1,6 @@
 // Re-export test utilities and parser for all test modules
 pub use pest::{parses_to, consumes_to, fails_with};
-pub use unrealscriptplus::parser::{UnrealScriptParser, Rule};
+pub use unrealscript_parser::parser::{UnrealScriptParser, Rule};
 
 // Comment tests
 mod comments;

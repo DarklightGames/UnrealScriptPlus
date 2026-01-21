@@ -1,5 +1,5 @@
 [package]
-name = "unrealscriptplus"
+name = "unrealscript_parser"
 version = "0.2.1"
 edition = "2024"
 
@@ -7,8 +7,8 @@ edition = "2024"
 
 
 [lib]
-name = "unrealscriptplus"
-crate-type = ["lib", "cdylib"]
+name = "unrealscript_parser"
+crate-type = ["lib"]
 
 [dependencies]
 pest = "2.7"
@@ -21,7 +21,3 @@ pest_consume = "1.1"
 pest_consume_macros = "1.1"
 convert_case = "0.6"
 if_chain = "1.0"
-
-[dependencies.pyo3]
-version = "0.27"
-features = ["extension-module"]
