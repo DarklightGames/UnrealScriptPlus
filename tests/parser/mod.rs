@@ -21,7 +21,8 @@ mod string_literal;
 mod vector_literal;
 
 // Type tests
-mod types;
+mod array_type;
+mod class_type;
 
 // Declaration tests
 mod class_declaration;

@@ -143,3 +143,26 @@ fn var_declaration_all_features() {
         ]
     }
 }
+
+#[test]
+fn var_declaration_with_inline_struct_type() {
+    parses_to! {
+        parser: UnrealScriptParser,
+        input: "var struct Foo { var int Bar; } Baz;",
+        rule: Rule::var_declaration,
+        tokens: [
+            var_declaration(0, 36, [
+                type_(4, 31, [
+                    struct_declaration(4, 31, [
+                        unqualified_identifier(11, 14),
+                        struct_var_declaration(17, 29, [
+                            type_(21, 24, [ identifier(21, 24) ]),
+                            var_name(25, 28, [ unqualified_identifier(25, 28) ]),
+                        ])
+                    ])
+                ]),
+                var_name(32, 35, [ unqualified_identifier(32, 35) ]),
+            ])
+        ]
+    }
+}
