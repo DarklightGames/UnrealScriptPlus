@@ -115,7 +115,7 @@ var_modifier = @{
     ^"noexport"
 }
 var_size = { "[" ~ WS* ~ (integer_literal | unqualified_identifier) ~ WS* ~ "]" }
-var_name = { unqualified_identifier ~ WS* ~ var_size? }
+var_name = { unqualified_identifier ~ (WS* ~ var_size)? }
 var_category = { "(" ~ WS* ~ unqualified_identifier? ~ WS* ~ ")" }
 var_modifiers = _{ (var_modifier ~ WS+)* }
 var_declaration = { ^"var" ~ (WS* ~ var_category)? ~ (WS+ ~ var_modifiers)? ~ WS* ~ type_ ~ WS+ ~ var_names ~ ";" }
