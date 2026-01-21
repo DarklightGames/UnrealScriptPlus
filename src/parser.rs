@@ -1,6 +1,3 @@
-extern crate pest;
-extern crate if_chain;
-
 use pest_consume::Parser;
 
 #[derive(Parser)]
@@ -10,6 +7,7 @@ pub struct UnrealScriptParser;
 use pest_consume::{Error, match_nodes};
 use std::str::FromStr;
 use std::collections::HashMap;
+use lazy_static::lazy_static;
 
 use encoding::{DecoderTrap, Encoding};
 use std::fs::File;

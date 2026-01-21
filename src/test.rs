@@ -2,7 +2,6 @@
 mod test {
     use pest::{parses_to, consumes_to, fails_with};
     use crate::parser::{UnrealScriptParser, Rule};
-    use crate::transform::{ScriptBuilder, ScriptFormattingOptions};
 
     #[test]
     fn comment_single_line() {

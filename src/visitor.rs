@@ -47,7 +47,7 @@ pub struct Visitor<'a> {
 }
 
 impl Visitor<'_> {
-    pub fn new(contents: &str) -> Visitor {
+    pub fn new(contents: &str) -> Visitor<'_> {
         Visitor {
             contents,
             errors: vec![],
