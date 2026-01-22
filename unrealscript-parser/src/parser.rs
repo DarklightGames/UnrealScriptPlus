@@ -49,7 +49,7 @@ macro_rules! match_nodes_any {
                         $e
                     }
                 )+
-                _ => { return Err(node.error("unexpected rule")) }
+                _ => { return Err(node.error("Unexpected rule")) }
             }
         }
     )
@@ -244,7 +244,7 @@ fn parse_expression_from_nodes(nodes: &[Node]) -> Result<Box<AstNode<Expression>
             if let Some(operator_precedence) = operator_precedence {
                 dyadic_verbs.push((operator_precedence, index, node.as_str().to_lowercase()))
             } else {
-                return Err(node.error("encountered unregistered dyadic verb"));
+                return Err(node.error("Encountered unregistered dyadic verb"));
             }
         }
     }
@@ -675,7 +675,7 @@ impl UnrealScriptParser {
 
     fn function_type_no_arguments_type(input: Node) -> Result<FunctionTypeType> {
         FunctionTypeType::from_str(input.as_str())
-            .map_err(|_| input.error(format!("unrecognized function type: '{}'", input.as_str())))
+            .map_err(|_| input.error(format!("Unrecognized function type: '{}'", input.as_str())))
     }
 
     fn function_type_with_arguments_type(input: Node) -> Result<FunctionTypeType> {

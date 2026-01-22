@@ -83,7 +83,7 @@ impl Visit for AstNode<ConstDeclaration> {
         let name = &self.name.string;
         if name.to_case(Case::ScreamingSnake).ne(name) {
             visitor.warn(
-                format!("const variable names should be in SCREAMING_SNAKE_CASE (e.g., {:?})",
+                format!("Const variable names should be in SCREAMING_SNAKE_CASE (e.g., {:?}).",
                         name.to_case(Case::ScreamingSnake)).as_str(),
                 self.span)
         }
@@ -153,19 +153,19 @@ impl Visit for AstNode<DefaultPropertiesAssignment> {
                                         NumericLiteral::Integer(i) => {
                                             if !self.is_array_assignment() && i == 0 {
                                                 visitor.warn(
-                                                    format!("redundant specification of default value ({}) of variable ({}) declared in this class", 0, self.target.target.as_str()).as_str() ,self.span
+                                                    format!("Redundant specification of default value ({}) of variable ({}) declared in this class", 0, self.target.target.as_str()).as_str() ,self.span
                                                 )
                                             }
                                             if i < u8::MIN as i32 || i > u8::MAX as i32 {
                                                 let bytes: [u8; 1] = [i.to_le_bytes()[0]];
                                                 let effective_value = u8::from_le_bytes(bytes);
                                                 visitor.warn(
-                                                    format!("value {} is outside the range of [{}..{}]; effective value: {}", i, u8::MIN, u8::MAX, effective_value).as_str(),
+                                                    format!("Value {} is outside the range of [{}..{}]; effective value: {}", i, u8::MIN, u8::MAX, effective_value).as_str(),
                                                     self.span
                                                 )
                                             }
                                         },
-                                        _ => { visitor.warn("incorrect literal type", self.span) }
+                                        _ => { visitor.warn("Incorrect literal type", self.span) }
                                     }
                                 }
                             }
@@ -179,12 +179,12 @@ impl Visit for AstNode<DefaultPropertiesAssignment> {
                                     match numeric.data {
                                         NumericLiteral::Integer(i) => {
                                             if i == 0 {
-                                                visitor.warn(format!("redundant specification of default value ({}) of variable ({}) declared in this class", 0, self.target.target.as_str()).as_str() ,self.span)
+                                                visitor.warn(format!("Redundant specification of default value ({}) of variable ({}) declared in this class", 0, self.target.target.as_str()).as_str() ,self.span)
                                             }
                                         }
                                         NumericLiteral::Float(f) => {
                                             if f == 0.0 {
-                                                visitor.warn(format!("redundant specification of default value ({}) of variable ({}) declared in this class", 0.0, &self.target.target.as_str()).as_str() ,self.span)
+                                                visitor.warn(format!("Redundant specification of default value ({}) of variable ({}) declared in this class", 0.0, &self.target.target.as_str()).as_str() ,self.span)
                                             }
                                         }
                                     }
@@ -197,7 +197,7 @@ impl Visit for AstNode<DefaultPropertiesAssignment> {
                                 if let DefaultPropertiesValue::Literal(literal) = &value.data;
                                 if let Literal::String(s) = &literal.data;
                                 if s.is_empty();
-                                then { visitor.warn(format!("redundant specification of default value ({}) of variable ({}) declared in this class", "", self.target.target.as_str()).as_str() ,self.span) }
+                                then { visitor.warn(format!("Redundant specification of default value ({}) of variable ({}) declared in this class", "", self.target.target.as_str()).as_str() ,self.span) }
                             }
                         }
                         PodType::Bool => {
@@ -206,7 +206,7 @@ impl Visit for AstNode<DefaultPropertiesAssignment> {
                                 if let DefaultPropertiesValue::Literal(literal) = &value.data;
                                 if let Literal::Boolean(b) = literal.data;
                                 if b == false;
-                                then { visitor.warn(format!("redundant specification of default value ({}) of variable ({}) declared in this class", false, self.target.target.as_str()).as_str() ,self.span) }
+                                then { visitor.warn(format!("Redundant specification of default value ({}) of variable ({}) declared in this class", false, self.target.target.as_str()).as_str() ,self.span) }
                             }
                         }
                     }
@@ -229,7 +229,7 @@ impl Visit for AstNode<Literal> {
                 let contents = &visitor.contents[self.span.start..self.span.end];
                 if contents != contents.to_lowercase().as_str() {
                     visitor.warn(
-                        format!("boolean literals should be lowercase (use {:?} instead of {:?})",
+                        format!("Boolean literals should be lowercase (use {:?} instead of {:?})",
                                 contents.to_lowercase().as_str(),
                                 contents).as_str(),
                         self.span
@@ -244,14 +244,14 @@ impl Visit for AstNode<Literal> {
                         NumericLiteral::Integer(n) => {
                             if *n < i16::MIN as i32 || *n > i16::MAX as i32 {
                                 visitor.warn(
-                                    format!("rotator literal component {} ({}) should be within the range [{}..{}]", index, n, i16::MIN, i16::MAX).as_str(),
+                                    format!("Rotator literal component {} ({}) should be within the range [{}..{}]", index, n, i16::MIN, i16::MAX).as_str(),
                                     value.span
                                 )
                             }
                         }
                         NumericLiteral::Float(f) => {
                             visitor.warn(
-                                format!("rotator literal component {} ({}) should be an integer literal (e.g., \"{}\")",
+                                format!("Rotator literal component {} ({}) should be an integer literal (e.g., \"{}\")",
                                         index,
                                         visitor.contents[value.span.start..value.span.end].to_string().as_str(),
                                         *f as i32
@@ -270,7 +270,7 @@ impl Visit for AstNode<Literal> {
                         let first_letter_in_type = type_.chars().nth(0).unwrap();
                         if !first_letter_in_type.is_uppercase() {
                             visitor.warn(
-                                format!("non-pod object literal types should begin with a capital letter (e.g., {})",
+                                format!("Non-POD object literal types should begin with a capital letter (e.g., {})",
                                         type_.to_case(Case::Pascal)
                                 ).as_str(),
                                 type_.span
@@ -295,7 +295,7 @@ impl Visit for AstNode<DefaultPropertiesStatement> {
 impl Visit for AstNode<DefaultProperties> {
     fn visit(&self, visitor: &mut Visitor) {
         if self.statements.is_empty() {
-            visitor.warn("defaultproperties block should not be empty", self.span)
+            visitor.warn("DefaultProperties block should not be empty.", self.span)
         }
         self.statements.iter().for_each(|f| f.visit(visitor))
     }
@@ -304,14 +304,14 @@ impl Visit for AstNode<DefaultProperties> {
 impl Visit for AstNode<ReplicationBlock> {
     fn visit(&self, visitor: &mut Visitor) {
         if self.statements.is_empty() {
-            visitor.warn("replication block should not be empty", self.span)
+            visitor.warn("Replication block should not be empty", self.span)
         }
         // TODO: check to see that reliability & expression are unique for each statement
         for (i, statement) in self.statements.iter().enumerate() {
             for next_statement in &self.statements[i+1..] {
                 if statement.condition == next_statement.condition &&
                     statement.reliability == next_statement.reliability {
-                    visitor.warn("identical replication reliability and condition", self.span)
+                    visitor.warn("Duplicate replication reliability and condition", self.span)
                 }
             }
         }
@@ -392,7 +392,7 @@ impl Visit for AstNode<Expression> {
                     Expression::New { .. } => {}
                     Expression::DyadicExpression { .. } => {}
                     _ => {
-                        visitor.warn("redundant parenthetical expression", expression.span)
+                        visitor.warn("Redundant parenthetical expression", expression.span)
                     }
                 }
                 expression.visit(visitor)
@@ -491,15 +491,15 @@ impl Visit for AstNode<CodeStatement> {
     fn visit(&self, visitor: &mut Visitor) {
         match &self.data {
             CodeStatement::Empty => {
-                visitor.warn("empty statement", self.span)
+                visitor.warn("Empty statement", self.span)
             }
             CodeStatement::Expression(expression) => {
                 if let Expression::DyadicExpression{lhs, verb: _, rhs} = &expression.data {
                     if let Expression::ParentheticalExpression(lhs) = &lhs.data {
-                        visitor.warn("redundant parenthetical expression", lhs.span)
+                        visitor.warn("Redundant parenthetical expression", lhs.span)
                     }
                     if let Expression::ParentheticalExpression(rhs) = &rhs.data {
-                        visitor.warn("redundant parenthetical expression", rhs.span)
+                        visitor.warn("Redundant parenthetical expression", rhs.span)
                     }
                 }
                 expression.visit(visitor)
@@ -579,13 +579,13 @@ impl Visit for AstNode<FunctionDeclaration> {
     fn visit<'a>(&'a self, visitor: &'a mut Visitor) {
         // ensure that only one function type is declared
         if self.types.len() > 1 {
-            visitor.error("multiple function types declared", self.span)
+            visitor.error("Multiple function types declared", self.span)
         }
 
         // ensure that the name starts with a capital letter
         let first_letter_in_name = self.name.string.chars().nth(0).unwrap();
         if !first_letter_in_name.is_alphabetic() || !first_letter_in_name.is_uppercase() {
-            visitor.warn("function names should begin with a capital letter", self.name.span)
+            visitor.warn("Function names should begin with a capital letter", self.name.span)
         }
 
         // ensure that each modifier occurs only once
@@ -601,7 +601,7 @@ impl Visit for AstNode<FunctionDeclaration> {
             .iter()
             .filter(|(_, occurences)| **occurences > 1)
             .for_each(|(type_, _)| {
-                visitor.warn(format!("function has redundant {:?} modifier", type_).as_str(), self.span)
+                visitor.warn(format!("Function has redundant {:?} modifier", type_).as_str(), self.span)
             });
 
         // ensure modifiers appear in alphabetical order
@@ -622,7 +622,7 @@ impl Visit for AstNode<FunctionDeclaration> {
                 .map(|t| format!("{:?}", t).to_lowercase())
                 .collect();
             visitor.warn(
-                format!("function modifiers should appear in alphabetical order (e.g., {:?})", sorted_modifier_type_names.join(" ").as_str()).as_str(),
+                format!("Function modifiers should appear in alphabetical order (e.g., {:?})", sorted_modifier_type_names.join(" ").as_str()).as_str(),
                 self.span
             )
         }
@@ -692,7 +692,7 @@ impl Visit for Rc<AstNode<VarDeclaration>> {
             .zip(sorted_modifiers.iter())
             .all(|(lhs, rhs)| *lhs == *rhs);
         if !is_sorted {
-            visitor.warn(format!("var modifiers should be in alphabetical order (e.g., {:?})", sorted_modifiers).as_str(), self.span)
+            visitor.warn(format!("Var modifiers should be in alphabetical order (e.g., {:?})", sorted_modifiers).as_str(), self.span)
         }
     }
 }
@@ -720,7 +720,7 @@ impl Visit for AstNode<ExpressionList> {
             .take_while(|argument| argument.is_none())
             .count();
         if trailing_empty_arguments_count > 0 {
-            visitor.warn("superfluous trailing empty arguments in function call", self.span);
+            visitor.warn("Superfluous trailing empty arguments in function call", self.span);
         }
         for expression in &self.expressions {
             if let Some(expression) = expression {
@@ -753,7 +753,7 @@ impl Visit for StateDeclaration {
 impl Visit for AstNode<EnumDeclaration> {
     fn visit(&self, visitor: &mut Visitor) {
         if self.name.string.chars().nth(0).unwrap() != 'E' {
-            visitor.warn("enumeration types names should be prefixed with the letter \"E\"", self.span)
+            visitor.warn("Enumeration types names should be prefixed with the letter \"E\"", self.span)
         }
     }
 }
@@ -781,7 +781,7 @@ impl Visit for Program {
     fn visit(&self, visitor: &mut Visitor) {
         for statement in self.statements.iter() {
             match &statement.data {
-                ProgramStatement::Empty => { visitor.warn("empty statement", statement.span) }
+                ProgramStatement::Empty => { visitor.warn("Empty statement", statement.span) }
                 ProgramStatement::ClassDeclaration(c) => c.visit(visitor),
                 ProgramStatement::CompilerDirective(_) => {}
                 ProgramStatement::ConstDeclaration(c) => c.visit(visitor),
@@ -802,7 +802,7 @@ fn visit_bool_var_names(names: &[AstNode<VarName>], visitor: &mut Visitor) {
     for name in names {
         let variable_name = &name.identifier.string;
         if variable_name.chars().nth(0).unwrap() != 'b' {
-            visitor.warn(format!("bool variable name {:?} should begin with a \"b\"", variable_name).as_str(), name.span);
+            visitor.warn(format!("Boolean variable name {:?} should begin with a \"b\"", variable_name).as_str(), name.span);
         }
     }
 }
