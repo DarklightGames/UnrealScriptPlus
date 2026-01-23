@@ -1,5 +1,6 @@
 mod backend;
 mod document;
+mod lru_cache;
 mod utils;
 mod token_collector;
 

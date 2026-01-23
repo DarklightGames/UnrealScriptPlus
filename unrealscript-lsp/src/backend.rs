@@ -5,21 +5,28 @@ use tower_lsp::{Client, LanguageServer};
 use tracing::{debug, info, warn};
 
 use crate::document::DocumentState;
+use crate::lru_cache::LruDashMap;
 use crate::utils::span_to_range;
 use crate::token_collector::{TokenCollector, LEGEND_TYPE};
 use unrealscript_parser::ast::*;
 use unrealscript_parser::parser::{ProgramError, ProgramErrorSeverity};
 
+/// Maximum number of documents to keep in the LRU cache.
+/// This prevents unbounded memory growth during long editing sessions.
+const MAX_CACHED_DOCUMENTS: usize = 50;
+
 pub struct Backend {
     client: Client,
-    documents: DashMap<Url, DocumentState>,
+    documents: LruDashMap<Url, DocumentState>,
+    semantic_token_map: DashMap<String, Vec<SemanticToken>>,
 }
 
 impl Backend {
     pub fn new(client: Client) -> Self {
         Self {
             client,
-            documents: DashMap::new(),
+            documents: LruDashMap::new(MAX_CACHED_DOCUMENTS),
+            semantic_token_map: DashMap::new(),
         }
     }
 
@@ -410,6 +417,7 @@ impl LanguageServer for Backend {
         let uri = params.text_document.uri;
         debug!("Document closed: {}", uri);
         self.documents.remove(&uri);
+        self.semantic_token_map.remove(uri.as_str());
     }
 
     async fn document_symbol(
@@ -450,6 +458,10 @@ impl LanguageServer for Backend {
                 Ok(result) => {
                     let collector = TokenCollector::new(&doc.text);
                     let tokens = collector.collect(&result.program);
+                    
+                    // Cache the successful tokens
+                    self.semantic_token_map.insert(uri.to_string(), tokens.clone());
+                    
                     debug!("Returning {} semantic tokens for {}", tokens.len(), uri);
                     return Ok(Some(SemanticTokensResult::Tokens(SemanticTokens {
                         result_id: None,
@@ -458,6 +470,17 @@ impl LanguageServer for Backend {
                 }
                 Err(e) => {
                     debug!("Failed to parse for semantic tokens: {:?}", e);
+                    
+                    // Return cached tokens if available
+                    if let Some(cached_tokens) = self.semantic_token_map.get(uri.as_str()) {
+                        debug!("Returning {} cached semantic tokens for {}", cached_tokens.len(), uri);
+                        return Ok(Some(SemanticTokensResult::Tokens(SemanticTokens {
+                            result_id: None,
+                            data: cached_tokens.clone(),
+                        })));
+                    } else {
+                        debug!("No cached tokens available for {}", uri);
+                    }
                 }
             }
         } else {
