@@ -6,6 +6,7 @@ use tracing::{debug, info, warn};
 
 use crate::document::DocumentState;
 use crate::utils::span_to_range;
+use crate::token_collector::{TokenCollector, LEGEND_TYPE};
 use unrealscript_parser::ast::*;
 use unrealscript_parser::parser::{ProgramError, ProgramErrorSeverity};
 
@@ -327,6 +328,29 @@ impl LanguageServer for Backend {
                     TextDocumentSyncKind::FULL,
                 )),
                 document_symbol_provider: Some(OneOf::Left(true)),
+                semantic_tokens_provider: Some(
+                    SemanticTokensServerCapabilities::SemanticTokensRegistrationOptions(
+                        SemanticTokensRegistrationOptions {
+                            text_document_registration_options: TextDocumentRegistrationOptions {
+                                document_selector: Some(vec![DocumentFilter {
+                                    language: Some("unrealscript".to_string()),
+                                    scheme: Some("file".to_string()),
+                                    pattern: None,
+                                }]),
+                            },
+                            semantic_tokens_options: SemanticTokensOptions {
+                                work_done_progress_options: WorkDoneProgressOptions::default(),
+                                legend: SemanticTokensLegend {
+                                    token_types: LEGEND_TYPE.into(),
+                                    token_modifiers: vec![SemanticTokenModifier::DECLARATION],
+                                },
+                                range: Some(false),
+                                full: Some(SemanticTokensFullOptions::Bool(true)),
+                            },
+                            static_registration_options: StaticRegistrationOptions::default(),
+                        },
+                    ),
+                ),
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
@@ -405,6 +429,35 @@ impl LanguageServer for Backend {
                 }
                 Err(e) => {
                     debug!("Failed to parse for symbols: {:?}", e);
+                }
+            }
+        } else {
+            warn!("Document not found: {}", uri);
+        }
+
+        Ok(None)
+    }
+
+    async fn semantic_tokens_full(
+        &self,
+        params: SemanticTokensParams,
+    ) -> Result<Option<SemanticTokensResult>> {
+        let uri = params.text_document.uri;
+        debug!("Semantic tokens requested for: {}", uri);
+
+        if let Some(doc) = self.documents.get(&uri) {
+            match unrealscript_parser::parse_program(&doc.text) {
+                Ok(result) => {
+                    let collector = TokenCollector::new(&doc.text);
+                    let tokens = collector.collect(&result.program);
+                    debug!("Returning {} semantic tokens for {}", tokens.len(), uri);
+                    return Ok(Some(SemanticTokensResult::Tokens(SemanticTokens {
+                        result_id: None,
+                        data: tokens,
+                    })));
+                }
+                Err(e) => {
+                    debug!("Failed to parse for semantic tokens: {:?}", e);
                 }
             }
         } else {

@@ -44,6 +44,13 @@ export function activate(context: vscode.ExtensionContext) {
         synchronize: {
             // Notify the server about file changes to '.uc' files in the workspace
             fileEvents: vscode.workspace.createFileSystemWatcher('**/*.uc')
+        },
+        // Enable semantic tokens
+        middleware: {
+            provideDocumentSemanticTokens: async (document, token, next) => {
+                const result = await next(document, token);
+                return result;
+            }
         }
     };
 

@@ -362,22 +362,22 @@ pub enum Type {
     Class(AstNode<Identifier>),
     Struct(AstNode<StructDeclaration>),
     Enum(AstNode<EnumDeclaration>),
-    Identifier(Identifier),
+    Identifier(AstNode<Identifier>),
 }
 
-impl From<Identifier> for Type {
-    fn from(identifier: Identifier) -> Self {
-        if identifier.string.eq_ignore_ascii_case("int") {
+impl From<AstNode<Identifier>> for Type {
+    fn from(identifier: AstNode<Identifier>) -> Self {
+        if identifier.data.string.eq_ignore_ascii_case("int") {
             Type::Pod(PodType::Int)
-        } else if identifier.string.eq_ignore_ascii_case("byte") {
+        } else if identifier.data.string.eq_ignore_ascii_case("byte") {
             Type::Pod(PodType::Byte)
-        } else if identifier.string.eq_ignore_ascii_case("float") {
+        } else if identifier.data.string.eq_ignore_ascii_case("float") {
             Type::Pod(PodType::Float)
-        } else if identifier.string.eq_ignore_ascii_case("string") {
+        } else if identifier.data.string.eq_ignore_ascii_case("string") {
             Type::Pod(PodType::String)
-        }else if identifier.string.eq_ignore_ascii_case("name") {
+        }else if identifier.data.string.eq_ignore_ascii_case("name") {
             Type::Pod(PodType::Name)
-        } else if identifier.string.eq_ignore_ascii_case("bool") {
+        } else if identifier.data.string.eq_ignore_ascii_case("bool") {
             Type::Pod(PodType::Bool)
         } else {
             Type::Identifier(identifier)

@@ -543,7 +543,7 @@ impl UnrealScriptParser {
             [enum_declaration(e)] => Ok(Type::Enum(e)),
             [array_type(a)] => Ok(a),
             [class_type(c)] => Ok(c),
-            [identifier(i)] => Ok(Type::from(i.data))
+            [identifier(i)] => Ok(Type::from(i))
         )
     }
 

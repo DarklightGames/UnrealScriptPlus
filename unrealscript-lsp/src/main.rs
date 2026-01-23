@@ -1,6 +1,7 @@
 mod backend;
 mod document;
 mod utils;
+mod token_collector;
 
 use tower_lsp::{LspService, Server};
 use tracing::info;

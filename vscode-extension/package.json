@@ -40,6 +40,39 @@
         "scopeName": "source.unrealscript",
         "path": "./syntaxes/unrealscript.tmLanguage.json"
       }
+    ],
+    "semanticTokenTypes": [
+      {
+        "id": "boolean",
+        "superType": "keyword",
+        "description": "A boolean literal"
+      },
+      {
+        "id": "vector",
+        "superType": "type",
+        "description": "A vector literal"
+      },
+      {
+        "id": "rotator",
+        "superType": "type",
+        "description": "A rotator literal"
+      },
+      {
+        "id": "objectLiteral",
+        "superType": "string",
+        "description": "An object literal reference"
+      }
+    ],
+    "semanticTokenScopes": [
+      {
+        "language": "unrealscript",
+        "scopes": {
+          "boolean": ["constant.language.boolean.unrealscript"],
+          "vector": ["support.type.vector.unrealscript"],
+          "rotator": ["support.type.rotator.unrealscript"],
+          "objectLiteral": ["string.quoted.other.unrealscript"]
+        }
+      }
     ]
   },
   "scripts": {

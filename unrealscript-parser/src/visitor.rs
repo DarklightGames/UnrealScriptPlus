@@ -667,7 +667,7 @@ impl Visit for Type {
             Type::Struct(e) => e.visit(visitor),
             Type::Enum(e) => e.visit(visitor),
             Type::Identifier(id) => {
-                visitor.types.insert(id.clone());
+                visitor.types.insert(id.data.clone());
             }
         }
     }
