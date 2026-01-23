@@ -13,7 +13,6 @@ pub const LEGEND_TYPE: &[SemanticTokenType] = &[
     SemanticTokenType::new("boolean"),
     SemanticTokenType::new("vector"),
     SemanticTokenType::new("rotator"),
-    SemanticTokenType::new("objectLiteral"),
 ];
 
 const MODIFIER_DECLARATION: u32 = 0b00000001;
@@ -89,9 +88,39 @@ impl<'a> TokenCollector<'a> {
         result
     }
 
+    fn visit_struct_var_declaration(&mut self, var_decl: &AstNode<StructVarDeclaration>) {
+        // Visit the type to handle inline enum declarations.
+        self.visit_type(&var_decl.type_);
+        
+        // Add tokens for variable names.
+        let var_token_type = Self::get_token_type_index(&SemanticTokenType::VARIABLE);
+        for name in &var_decl.names {
+            self.add_token(name.identifier.span, var_token_type, MODIFIER_DECLARATION);
+        }
+    }
+
+    fn visit_struct_declaration(&mut self, struct_decl: &AstNode<StructDeclaration>) {
+        let token_type = Self::get_token_type_index(&SemanticTokenType::TYPE);
+        self.add_token(struct_decl.name.span, token_type, MODIFIER_DECLARATION);
+        if let Some(parent) = &struct_decl.parent {
+            self.add_token(parent.span, token_type, 0);
+        }
+        for member in &struct_decl.members {
+            self.visit_struct_var_declaration(member);
+        }
+    }
+
+    fn visit_class_modifier(&mut self, modifier: &AstNode<ClassModifier>) {
+        let token_type = Self::get_token_type_index(&SemanticTokenType::KEYWORD);
+        self.add_token(modifier.type_.span, token_type, 0);
+    }
+
     fn visit_class_declaration(&mut self, class_decl: &AstNode<ClassDeclaration>) {
         let token_type = Self::get_token_type_index(&SemanticTokenType::CLASS);
         self.add_token(class_decl.name.span, token_type, MODIFIER_DECLARATION);
+        class_decl.modifiers.iter().for_each(|modifier| {
+            self.visit_class_modifier(modifier);
+        });
         if let Some(parent) = &class_decl.parent_class {
             self.add_token(parent.span, token_type, 0);
         }
@@ -133,6 +162,13 @@ impl<'a> TokenCollector<'a> {
             ProgramStatement::ReplicationBlock(replication_block) => {
                 self.visit_replication_block(replication_block);
             }
+            ProgramStatement::StructDeclaration(struct_decl) => {
+                self.visit_struct_declaration(struct_decl);
+            }
+            ProgramStatement::CompilerDirective(_) => {
+                let token_type = Self::get_token_type_index(&SemanticTokenType::MACRO);
+                self.add_token(statement.span, token_type, 0);
+            }
             _ => {}
         }
     }
@@ -151,6 +187,11 @@ impl<'a> TokenCollector<'a> {
         // Add function name as declaration.
         let token_type = Self::get_token_type_index(&SemanticTokenType::FUNCTION);
         self.add_token(func_decl.name.span, token_type, MODIFIER_DECLARATION);
+
+        // Return type, if present.
+        if let Some(return_type) = &func_decl.return_type {
+            self.visit_type(return_type);
+        }
 
         func_decl.arguments.iter().for_each(|arg| {
             self.visit_function_argument(arg);
@@ -269,14 +310,6 @@ impl<'a> TokenCollector<'a> {
                 self.visit_literal(literal);
             }
             Expression::Call { operand, arguments } => {
-                // Extract function name from operand.
-                if let Expression::Identifier(ident) = &operand.data {
-                    let token_type = Self::get_token_type_index(&SemanticTokenType::FUNCTION);
-                    self.add_token(ident.span, token_type, 0);
-                } else if let Expression::MemberAccess { target, .. } = &operand.data {
-                    let token_type = Self::get_token_type_index(&SemanticTokenType::FUNCTION);
-                    self.add_token(target.span, token_type, 0);
-                }
                 self.visit_expression(operand);
                 self.visit_expression_list(arguments);
             }
@@ -299,13 +332,17 @@ impl<'a> TokenCollector<'a> {
                 self.visit_expression(operand);
                 self.visit_expression(argument);
             }
-            Expression::MemberAccess { operand, .. } => {
+            Expression::MemberAccess { operand, target } => {
                 self.visit_expression(operand);
+                let token_type = Self::get_token_type_index(&SemanticTokenType::PROPERTY);
+                self.add_token(target.span, token_type, 0);
             }
-            Expression::DefaultAccess { operand, .. } => {
+            Expression::DefaultAccess { operand, target } => {
                 if let Some(operand) = operand {
                     self.visit_expression(operand);
                 }
+                let token_type = Self::get_token_type_index(&SemanticTokenType::PROPERTY);
+                self.add_token(target.span, token_type, 0);
             }
             Expression::StaticAccess { operand, .. } => {
                 if let Some(operand) = operand {
@@ -323,6 +360,10 @@ impl<'a> TokenCollector<'a> {
                     self.visit_expression_list(args);
                 }
                 self.visit_expression(type_);
+            }
+            Expression::Identifier (identifier) => {
+                let token_type = Self::get_token_type_index(&SemanticTokenType::VARIABLE);
+                self.add_token(identifier.span, token_type, 0);
             }
             _ => {}
         }
@@ -372,9 +413,9 @@ impl<'a> TokenCollector<'a> {
                     self.add_token(value.span, num_token_type, 0);
                 }
             }
-            Literal::Object { .. } => {
-                let token_type = Self::get_token_type_index(&SemanticTokenType::new("objectLiteral"));
-                self.add_token(literal.span, token_type, 0);
+            Literal::Object { type_, .. } => {
+                let token_type = Self::get_token_type_index(&SemanticTokenType::TYPE);
+                self.add_token(type_.span, token_type, 0);
             }
             _ => {}
         }
@@ -442,6 +483,18 @@ impl<'a> TokenCollector<'a> {
     }
 
     fn visit_state_declaration(&mut self, state_decl: &StateDeclaration) {
+        let token_type = Self::get_token_type_index(&SemanticTokenType::NAMESPACE);
+        self.add_token(state_decl.name.span, token_type, MODIFIER_DECLARATION);
+
+        if let Some(parent) = &state_decl.parent {
+            self.add_token(parent.span, token_type, 0);
+        }
+
+        state_decl.ignores.iter().for_each(|ignores| {
+            let token_type = Self::get_token_type_index(&SemanticTokenType::FUNCTION);
+            self.add_token(ignores.span, token_type, 0);
+        });
+
         for statement in &state_decl.statements {
             match statement {
                 StateStatement::FunctionDeclaration(func_decl) => {
@@ -466,9 +519,15 @@ impl<'a> TokenCollector<'a> {
         }
     }
 
+    fn visit_default_properties_target(&mut self, target: &AstNode<DefaultPropertiesTarget>) {
+        let token_type = Self::get_token_type_index(&SemanticTokenType::VARIABLE);
+        self.add_token(target.data.target.span, token_type, 0);
+    }
+
     fn visit_default_properties_statement(&mut self, statement: &AstNode<DefaultPropertiesStatement>) {
         match &statement.data {
             DefaultPropertiesStatement::Assignment(assignment) => {
+                self.visit_default_properties_target(&assignment.target);
                 if let Some(value) = &assignment.value {
                     self.visit_default_properties_value(value);
                 }
@@ -488,6 +547,7 @@ impl<'a> TokenCollector<'a> {
             }
             DefaultPropertiesValue::Struct(struct_val) => {
                 for assignment in &struct_val.assignments {
+                    self.visit_default_properties_target(&assignment.target);
                     if let Some(val) = &assignment.value {
                         self.visit_default_properties_value(val);
                     }

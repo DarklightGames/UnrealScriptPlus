@@ -56,11 +56,6 @@
         "id": "rotator",
         "superType": "type",
         "description": "A rotator literal"
-      },
-      {
-        "id": "objectLiteral",
-        "superType": "string",
-        "description": "An object literal reference"
       }
     ],
     "semanticTokenScopes": [
@@ -69,8 +64,7 @@
         "scopes": {
           "boolean": ["constant.language.boolean.unrealscript"],
           "vector": ["support.type.vector.unrealscript"],
-          "rotator": ["support.type.rotator.unrealscript"],
-          "objectLiteral": ["string.quoted.other.unrealscript"]
+          "rotator": ["support.type.rotator.unrealscript"]
         }
       }
     ]

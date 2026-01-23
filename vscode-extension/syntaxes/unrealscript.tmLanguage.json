@@ -41,7 +41,7 @@
         },
         {
           "name": "keyword.other.unrealscript",
-          "match": "(?i)\\b(replication|defaultproperties|structdefaultproperties|cpptext|cppstruct)\\b"
+          "match": "(?i)\\b(replication|defaultproperties|structdefaultproperties|cpptext|cppstruct|ignores|new)\\b"
         },
         {
           "name": "constant.language.unrealscript",
@@ -49,7 +49,7 @@
         },
         {
           "name": "storage.type.unrealscript",
-          "match": "(?i)\\b(bool|byte|int|float|string|name|vector|rotator|color|plane|array|map|class|object|interface|pointer|button|range|coords|matrix)\\b"
+          "match": "(?i)\\b(bool|byte|int|float|string|name|array|class|object|interface|pointer)\\b"
         }
       ]
     },
