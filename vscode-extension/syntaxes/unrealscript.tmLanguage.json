@@ -29,27 +29,27 @@
       "patterns": [
         {
           "name": "keyword.control.unrealscript",
-          "match": "\\b(if|else|while|for|do|until|switch|case|default|break|continue|return|goto|foreach)\\b"
+          "match": "(?i)\\b(if|else|while|for|do|until|switch|case|default|break|continue|return|goto|foreach)\\b"
         },
         {
           "name": "keyword.declaration.unrealscript",
-          "match": "\\b(class|extends|within|interface|implements|struct|enum|const|var|local|function|event|delegate|operator|preoperator|postoperator|state|auto|simulated|singular)\\b"
+          "match": "(?i)\\b(class|extends|within|interface|implements|struct|enum|const|var|local|function|event|delegate|operator|preoperator|postoperator|state|auto|simulated|singular)\\b"
         },
         {
           "name": "keyword.modifier.unrealscript",
-          "match": "\\b(public|protected|private|static|final|native|latent|iterator|exec|reliable|unreliable|server|client|dllimport|coerce|optional|out|skip|noexport|editconst|editinline|editinlinenew|editfixedsize|edithide|config|globalconfig|localized|travel|input|transient|duplicatetransient|nontransactional|instanced|databinding|editoronly|notforconsole|archetype|crosslevelactive|crosslevelpassive)\\b"
+          "match": "(?i)\\b(public|protected|private|static|final|native|latent|iterator|exec|reliable|unreliable|server|client|dllimport|coerce|optional|out|skip|noexport|editconst|editinline|editinlinenew|editfixedsize|edithide|config|globalconfig|localized|travel|input|transient|duplicatetransient|nontransactional|instanced|databinding|editoronly|notforconsole|archetype|crosslevelactive|crosslevelpassive)\\b"
         },
         {
           "name": "keyword.other.unrealscript",
-          "match": "\\b(replication|defaultproperties|structdefaultproperties|cpptext|cppstruct)\\b"
+          "match": "(?i)\\b(replication|defaultproperties|structdefaultproperties|cpptext|cppstruct)\\b"
         },
         {
           "name": "constant.language.unrealscript",
-          "match": "\\b(true|false|none|self|default)\\b"
+          "match": "(?i)\\b(true|false|none|self|default)\\b"
         },
         {
           "name": "storage.type.unrealscript",
-          "match": "\\b(bool|byte|int|float|string|name|vector|rotator|color|plane|array|map|class|object|interface|pointer|button|range|coords|matrix)\\b"
+          "match": "(?i)\\b(bool|byte|int|float|string|name|vector|rotator|color|plane|array|map|class|object|interface|pointer|button|range|coords|matrix)\\b"
         }
       ]
     },
@@ -115,7 +115,7 @@
       "patterns": [
         {
           "name": "entity.name.type.class.unrealscript",
-          "match": "\\b(class)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "match": "(?i)\\b(class)\\s+([A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
             "1": { "name": "keyword.declaration.unrealscript" },
             "2": { "name": "entity.name.type.unrealscript" }
