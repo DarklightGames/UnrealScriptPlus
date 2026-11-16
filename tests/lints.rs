@@ -655,3 +655,37 @@ fn redundant_self() {
         .unwrap();
     assert_eq!(&source[e.span.start..e.span.end], "Self.");
 }
+
+#[test]
+fn every_lint_is_documented() {
+    let doc = include_str!("../STATIC_ANALYSIS.md");
+    for &lint in Lint::ALL {
+        let row = format!(
+            "| {} | `{}` | {:?} |",
+            lint.code(),
+            lint.name(),
+            lint.severity()
+        );
+        assert!(
+            doc.contains(&row),
+            "STATIC_ANALYSIS.md has no row starting {:?}",
+            row
+        );
+    }
+    // ...and lists nothing that no longer exists.
+    for line in doc.lines() {
+        let Some(code) = line.strip_prefix("| ").and_then(|l| l.split(' ').next()) else {
+            continue;
+        };
+        let is_code = code.len() == 4
+            && code.starts_with(['C', 'S', 'P', 'R', 'N', 'F'])
+            && code[1..].chars().all(|c| c.is_ascii_digit());
+        if is_code {
+            assert!(
+                Lint::ALL.iter().any(|l| l.code() == code),
+                "STATIC_ANALYSIS.md lists unknown lint {}",
+                code
+            );
+        }
+    }
+}
