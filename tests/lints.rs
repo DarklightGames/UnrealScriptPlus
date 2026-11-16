@@ -706,7 +706,27 @@ fn const_values_and_class_modifier_arguments_are_visited() {
     let source = "class Foo extends Object;\nfunction F() { const B = TRUE; }\n";
     assert_eq!(only(&["F001"], source), vec!["F001"]);
     assert_eq!(
-        only(&["R008"], "class Foo extends Object\n    config(User,,);\n"),
+        only(&["R008"], "class Foo extends Object\n    config(User,);\n"),
         vec!["R008"]
     );
+}
+
+#[test]
+fn trailing_empty_arguments() {
+    for body in ["F(A,);", "F(A,,);", "F(A, , );", "Other.G(A, Z,);"] {
+        assert_eq!(
+            only(&["R008"], &function("", body)),
+            vec!["R008"],
+            "{}",
+            body
+        );
+    }
+    for body in ["F();", "F(A);", "F(A,,Z);", "F(,Z);"] {
+        assert_eq!(
+            only(&["R008"], &function("", body)),
+            Vec::<&str>::new(),
+            "{}",
+            body
+        );
+    }
 }

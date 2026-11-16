@@ -71,7 +71,7 @@ fn class_declaration_config_modifier() {
                 extends(10, 21, [ identifier(18, 21) ]),
                 class_modifier(22, 33, [
                     class_modifier_type(22, 28),
-                    expression_list(29, 32, [ expression(29, 32, [ unqualified_identifier(29, 32) ]) ]),
+                    expression_list(29, 32, [ expression_slot(29, 32, [ expression(29, 32, [ unqualified_identifier(29, 32) ]) ]) ]),
                 ]),
             ])
         ]
@@ -90,7 +90,7 @@ fn class_declaration_dependson_modifier() {
                 extends(10, 21, [ identifier(18, 21) ]),
                 class_modifier(22, 36, [
                     class_modifier_type(22, 31),
-                    expression_list(32, 35, [ expression(32, 35, [ unqualified_identifier(32, 35) ]) ]),
+                    expression_list(32, 35, [ expression_slot(32, 35, [ expression(32, 35, [ unqualified_identifier(32, 35) ]) ]) ]),
                 ]),
             ])
         ]
@@ -110,10 +110,10 @@ fn class_declaration_guid_modifier() {
                 class_modifier(22, 38, [
                     class_modifier_type(22, 26),
                     expression_list(27, 37, [
-                        expression(27, 28, [ numeric_literal(27, 28, [ integer_literal(27, 28, [ integer_literal_decimal(27, 28) ]) ]) ]),
-                        expression(30, 31, [ numeric_literal(30, 31, [ integer_literal(30, 31, [ integer_literal_decimal(30, 31) ]) ]) ]),
-                        expression(33, 34, [ numeric_literal(33, 34, [ integer_literal(33, 34, [ integer_literal_decimal(33, 34) ]) ]) ]),
-                        expression(36, 37, [ numeric_literal(36, 37, [ integer_literal(36, 37, [ integer_literal_decimal(36, 37) ]) ]) ]),
+                        expression_slot(27, 28, [ expression(27, 28, [ numeric_literal(27, 28, [ integer_literal(27, 28, [ integer_literal_decimal(27, 28) ]) ]) ]) ]),
+                        expression_slot(30, 31, [ expression(30, 31, [ numeric_literal(30, 31, [ integer_literal(30, 31, [ integer_literal_decimal(30, 31) ]) ]) ]) ]),
+                        expression_slot(33, 34, [ expression(33, 34, [ numeric_literal(33, 34, [ integer_literal(33, 34, [ integer_literal_decimal(33, 34) ]) ]) ]) ]),
+                        expression_slot(36, 37, [ expression(36, 37, [ numeric_literal(36, 37, [ integer_literal(36, 37, [ integer_literal_decimal(36, 37) ]) ]) ]) ]),
                     ])
                 ]),
             ])
@@ -134,9 +134,9 @@ fn class_declaration_hidecategories_modifier() {
                 class_modifier(22, 51, [
                     class_modifier_type(22, 36),
                     expression_list(37, 50, [
-                        expression(37, 40, [ unqualified_identifier(37, 40) ]),
-                        expression(42, 45, [ unqualified_identifier(42, 45) ]),
-                        expression(47, 50, [ unqualified_identifier(47, 50) ]),
+                        expression_slot(37, 40, [ expression(37, 40, [ unqualified_identifier(37, 40) ]) ]),
+                        expression_slot(42, 45, [ expression(42, 45, [ unqualified_identifier(42, 45) ]) ]),
+                        expression_slot(47, 50, [ expression(47, 50, [ unqualified_identifier(47, 50) ]) ]),
                     ])
                 ])
             ])

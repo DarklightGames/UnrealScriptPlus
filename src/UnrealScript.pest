@@ -257,9 +257,11 @@ expression_inner = _{ target | unqualified_identifier }   // TODO: monadic expre
 // new is a kind of "terminal", nothing can come after it in an expression
 new = { ^"new" ~ !(ASCII_ALPHANUMERIC | "_") ~ (WS* ~ "(" ~ WS* ~ expression_list ~ WS* ~ ")")? ~ WS* ~ expression } /// fuck this syntax
 
-expression_empty = { "," }
-expression_list = { (expression ~ WS* ~ "," ~ WS* | (expression_empty ~ WS*))* ~ expression? }
-// constant_list = _{ (constant ~ "," | expression_empty)* ~ constant? }
+// An argument list is argument slots separated by commas: `F(A,,B)` has three
+// slots and `F(A,)` two, the last one empty. A single empty slot is an empty
+// list: `F()`.
+expression_slot = { expression? }
+expression_list = { expression_slot ~ (WS* ~ "," ~ WS* ~ expression_slot)* }
 cast = { class_type ~ WS* ~ "(" ~ WS* ~ expression ~ WS* ~ ")" }
 // NOTE: certain casts (int, string) don't follow the cast grammar, this is only for explicit
 

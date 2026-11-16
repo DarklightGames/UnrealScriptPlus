@@ -402,3 +402,28 @@ fn malformed_float_literal() {
         ]
     );
 }
+
+#[test]
+fn argument_list_slots() {
+    use unrealscript_parser::ast::Expression;
+    use unrealscript_parser::parse_expression;
+    // `Some` for an argument, `None` for an empty slot.
+    for (source, expected) in [
+        ("F()", vec![]),
+        ("F( )", vec![]),
+        ("F(A)", vec![true]),
+        ("F(A, B)", vec![true, true]),
+        ("F(A,,B)", vec![true, false, true]),
+        ("F(,B)", vec![false, true]),
+        ("F(A,)", vec![true, false]),
+        ("F(A, , )", vec![true, false, false]),
+        ("F(,)", vec![false, false]),
+    ] {
+        let e = parse_expression(source).unwrap();
+        let Expression::Call { arguments, .. } = &e.data else {
+            panic!("{} is not a call", source)
+        };
+        let slots: Vec<bool> = arguments.expressions.iter().map(|a| a.is_some()).collect();
+        assert_eq!(slots, expected, "{}", source);
+    }
+}

@@ -1235,17 +1235,23 @@ impl UnrealScriptParser {
         Ok(Program { statements })
     }
 
-    fn expression_empty(_input: Node) -> Result<()> {
-        Ok(())
+    fn expression_slot(input: Node) -> Result<Option<Box<AstNode<Expression>>>> {
+        match_nodes!(input.into_children();
+            [expression(e)] => Ok(Some(e)),
+            [] => Ok(None),
+        )
     }
 
     fn expression_list(input: Node) -> Result<AstNode<ExpressionList>> {
         let mut expressions = Vec::new();
         let span = AstSpan::from(&input);
         match_nodes_any!(input.into_children();
-            expression(e) => expressions.push(Some(e)),
-            expression_empty(_e) => expressions.push(None)
+            expression_slot(e) => expressions.push(e)
         );
+        // `F()` has no arguments, not one empty one.
+        if let [None] = expressions.as_slice() {
+            expressions.clear();
+        }
         Ok(AstNode {
             span,
             data: ExpressionList { expressions },
