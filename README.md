@@ -11,5 +11,11 @@ This project is in the very early stages of development. More information will b
 ## Static analysis
 
 UnrealScriptPlus reports likely bugs, redundant code and style problems. See
-[STATIC_ANALYSIS.md](STATIC_ANALYSIS.md) for the list of warnings and how to
+[docs/STATIC_ANALYSIS.md](docs/STATIC_ANALYSIS.md) for the list of warnings and how to
 choose which ones are reported.
+
+## Legacy code
+
+Shipped UE2 code relies on leniency in the original compiler. See
+[docs/PERMISSIVE_PARSING.md](docs/PERMISSIVE_PARSING.md) for the rules the
+parser follows to accept it unchanged.

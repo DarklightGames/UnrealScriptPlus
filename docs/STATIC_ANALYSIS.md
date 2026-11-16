@@ -5,9 +5,9 @@ style problems. Every problem found by a lint carries the lint's **code** and
 **name** (e.g. `S003 self-assignment`) on `ProgramError::lint`, alongside a
 severity (`Error` or `Warning`).
 
-The registry of lints is in [`src/lint.rs`](src/lint.rs). The checks are in
-[`src/visitor.rs`](src/visitor.rs), and some of them use the per-file symbol
-table in [`src/symbols.rs`](src/symbols.rs).
+The registry of lints is in [`src/lint.rs`](../src/lint.rs). The checks are in
+[`src/visitor.rs`](../src/visitor.rs), and some of them use the per-file symbol
+table in [`src/symbols.rs`](../src/symbols.rs).
 
 ## Categories
 

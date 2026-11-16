@@ -42,9 +42,19 @@ Every file should still parse. Shipped engine code is treated as read-only:
 if it doesn't parse, fix the parser, not the code. Source files may be
 Windows-1252 rather than UTF-8.
 
+## Permissive parsing
+
+UE2 accepts code that a strict reading of UnrealScript rejects, and legacy code
+relies on it. [`docs/PERMISSIVE_PARSING.md`](docs/PERMISSIVE_PARSING.md) lists
+every such rule. It covers both recovered problems, which strict mode rejects,
+and quirks that are accepted silently, and it explains how to add a new rule.
+**Keep it up to date:** whenever the parser starts accepting or recovering
+from something new, add it to that document in the same change, together with
+a regression test in `tests/programs.rs`.
+
 ## Static analysis
 
-**Keep [`STATIC_ANALYSIS.md`](STATIC_ANALYSIS.md) up to date.** It lists every
+**Keep [`docs/STATIC_ANALYSIS.md`](docs/STATIC_ANALYSIS.md) up to date.** It lists every
 kind of static analysis warning: code, name, severity and what it reports,
 including notable exemptions. Update it in the same change whenever a lint is
 added, removed or renamed, or when what it reports or exempts changes. The
@@ -64,4 +74,4 @@ To add a lint:
 3. Add tests to `tests/lints.rs` for code that should and shouldn't trigger the lint.
 4. Run the corpus with `--lints`, read through the hits, and add exemptions
    for false positives (with a test for each).
-5. Add the lint to `STATIC_ANALYSIS.md`.
+5. Add the lint to `docs/STATIC_ANALYSIS.md`.

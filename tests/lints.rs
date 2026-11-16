@@ -658,7 +658,7 @@ fn redundant_self() {
 
 #[test]
 fn every_lint_is_documented() {
-    let doc = include_str!("../STATIC_ANALYSIS.md");
+    let doc = include_str!("../docs/STATIC_ANALYSIS.md");
     for &lint in Lint::ALL {
         let row = format!(
             "| {} | `{}` | {:?} |",
@@ -668,7 +668,7 @@ fn every_lint_is_documented() {
         );
         assert!(
             doc.contains(&row),
-            "STATIC_ANALYSIS.md has no row starting {:?}",
+            "docs/STATIC_ANALYSIS.md has no row starting {:?}",
             row
         );
     }
@@ -683,7 +683,7 @@ fn every_lint_is_documented() {
         if is_code {
             assert!(
                 Lint::ALL.iter().any(|l| l.code() == code),
-                "STATIC_ANALYSIS.md lists unknown lint {}",
+                "docs/STATIC_ANALYSIS.md lists unknown lint {}",
                 code
             );
         }
