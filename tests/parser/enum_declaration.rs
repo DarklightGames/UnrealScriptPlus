@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn enum_declaration_basic() {
-    parses_to!{
+    parses_to! {
         parser: UnrealScriptParser,
         input: "enum Foo { Bar, Baz }",
         rule: Rule::enum_declaration,
@@ -18,7 +18,7 @@ fn enum_declaration_basic() {
 
 #[test]
 fn enum_declaration_trailing_comma() {
-    parses_to!{
+    parses_to! {
         parser: UnrealScriptParser,
         input: "enum Foo { Bar, Baz, }",
         rule: Rule::enum_declaration,

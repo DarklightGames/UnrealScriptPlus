@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn struct_declaration_no_members() {
-    parses_to!{
+    parses_to! {
         parser: UnrealScriptParser,
         input: "struct Foo { }",
         rule: Rule::struct_declaration,
@@ -16,7 +16,7 @@ fn struct_declaration_no_members() {
 
 #[test]
 fn struct_var_declaration_simple() {
-    parses_to!{
+    parses_to! {
         parser: UnrealScriptParser,
         input: "var int A;",
         rule: Rule::struct_var_declaration,
@@ -31,7 +31,7 @@ fn struct_var_declaration_simple() {
 
 #[test]
 fn struct_var_declaration_editable() {
-    parses_to!{
+    parses_to! {
         parser: UnrealScriptParser,
         input: "var() int A;",
         rule: Rule::struct_var_declaration,
@@ -47,7 +47,7 @@ fn struct_var_declaration_editable() {
 
 #[test]
 fn struct_declaration_with_modifiers() {
-    parses_to!{
+    parses_to! {
         parser: UnrealScriptParser,
         input: "struct native transient Foo { }",
         rule: Rule::struct_declaration,
@@ -63,7 +63,7 @@ fn struct_declaration_with_modifiers() {
 
 #[test]
 fn struct_declaration_with_extends() {
-    parses_to!{
+    parses_to! {
         parser: UnrealScriptParser,
         input: "struct Foo extends Bar { }",
         rule: Rule::struct_declaration,
@@ -78,7 +78,7 @@ fn struct_declaration_with_extends() {
 
 #[test]
 fn struct_declaration_with_members() {
-    parses_to!{
+    parses_to! {
         parser: UnrealScriptParser,
         input: "struct Foo { var int Bar; var string Baz; }",
         rule: Rule::struct_declaration,

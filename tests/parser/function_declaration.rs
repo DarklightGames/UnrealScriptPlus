@@ -162,6 +162,6 @@ fn function_declaration_preoperator() {
                     var_name(52, 53, [ unqualified_identifier(52, 53) ])
                 ])
             ])
-        ]   
+        ]
     }
 }
