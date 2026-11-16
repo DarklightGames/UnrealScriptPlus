@@ -81,10 +81,10 @@ pub trait Visit {
 impl Visit for AstNode<ConstDeclaration> {
     fn visit(&self, visitor: &mut Visitor) {
         let name = &self.name.string;
-        if name.to_case(Case::ScreamingSnake).ne(name) {
+        if name.to_case(Case::Constant).ne(name) {
             visitor.warn(
                 format!("const variable names should be in SCREAMING_SNAKE_CASE (e.g., {:?})",
-                        name.to_case(Case::ScreamingSnake)).as_str(),
+                        name.to_case(Case::Constant)).as_str(),
                 self.span)
         }
     }

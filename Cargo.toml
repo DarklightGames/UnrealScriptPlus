@@ -11,13 +11,13 @@ name = "unrealscript_parser"
 crate-type = ["lib"]
 
 [dependencies]
-pest = "2.7"
-pest_derive = "2.7"
+pest = "2.9"
+pest_derive = "2.9"
 lazy_static = "1.5"
 encoding = "0.2"
-strum = { version = "0.26", features = ["derive"] }
-strum_macros = "0.26"
+strum = { version = "0.28", features = ["derive"] }
+strum_macros = "0.28"
 pest_consume = "1.1"
 pest_consume_macros = "1.1"
-convert_case = "0.6"
+convert_case = "0.12"
 if_chain = "1.0"
