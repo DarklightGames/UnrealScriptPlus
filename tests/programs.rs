@@ -1,13 +1,69 @@
 // End-to-end tests that run the full `parse_program` pipeline (grammar + AST
 // construction + visitor). Many of these are minimal reproductions of failures
 // found by running `examples/parse_corpus.rs` against real UnrealScript code.
-use unrealscript_parser::parse_program;
+use unrealscript_parser::ast::{DefaultProperties, ProgramStatement};
+use unrealscript_parser::{
+    ParseMode, ParseOptions, ParsingError, ProgramErrorSeverity, ProgramResult, parse_program,
+    parse_program_with,
+};
 
+const STRICT: ParseOptions = ParseOptions {
+    mode: ParseMode::Strict,
+};
+
+/// Asserts that `source` parses in strict mode, i.e. without anything to
+/// recover from.
 #[track_caller]
-fn assert_parses(source: &str) {
-    if let Err(e) = parse_program(source) {
-        panic!("failed to parse:\n{}\n\nerror: {:?}", source, e);
+fn assert_parses(source: &str) -> ProgramResult {
+    match parse_program_with(source, &STRICT) {
+        Ok(result) => result,
+        Err(e) => panic!("failed to parse:\n{}\n\nerror: {:?}", source, e),
     }
+}
+
+/// Parses `source` permissively, asserting that strict mode rejects it, and
+/// returns the result along with the messages of the recovered problems.
+#[track_caller]
+fn parse_recovering(source: &str) -> (ProgramResult, Vec<String>) {
+    let problems = match parse_program_with(source, &STRICT) {
+        Err(ParsingError::Strict(problems)) => problems,
+        other => panic!(
+            "strict mode should have failed for:\n{}\ngot {:?}",
+            source,
+            other.map(|r| r.errors)
+        ),
+    };
+    let result = parse_program(source).expect("permissive parsing should succeed");
+    for p in &problems {
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.message == p.message && e.span.start == p.span.start),
+            "permissive result should report {:?} as a warning",
+            p.message
+        );
+    }
+    (result, problems.into_iter().map(|p| p.message).collect())
+}
+
+fn default_properties(result: &ProgramResult) -> &DefaultProperties {
+    result
+        .program
+        .statements
+        .iter()
+        .find_map(|s| match &s.data {
+            ProgramStatement::DefaultProperties(d) => Some(&d.data),
+            _ => None,
+        })
+        .expect("no defaultproperties block")
+}
+
+fn class(defaultproperties: &str) -> String {
+    format!(
+        "class Foo extends Object;\n\ndefaultproperties\n{{\n{}}}\n",
+        defaultproperties
+    )
 }
 
 #[test]
@@ -133,5 +189,201 @@ fn clockwisefrom_operator() {
     assert_parses(
         "class Foo extends Object;\n\
          function bool F(int A, int B) { if (A ClockwiseFrom B) { return true; } return false; }\n",
+    );
+}
+
+// --- defaultproperties (parsed by the t3d crate) ---
+
+#[test]
+fn defaultproperties_values_and_objects() {
+    let result = assert_parses(&class(
+        "    // comment with a } brace\n\
+         \x20   /* block\n       comment */\n\
+         \x20   A=1\n\
+         \x20   B=\"string with } brace\"\n\
+         \x20   C(0)=Texture'Pkg.Tex'\n\
+         \x20   C[1]=Texture 'Pkg.Tex2'\n\
+         \x20   D=(X=1,Y=(2,3),Z=SomeEnum)\n\
+         \x20   IdleAnim=idle-empty\n\
+         \x20   Sound=20_seconds\n\
+         \x20   Begin Object Class=GUIButton Name=OkButton\n\
+         \x20       Caption=\"OK\"\n\
+         \x20   End Object\n\
+         \x20   OkButtonRef=GUIButton'OkButton'\n",
+    ));
+    let d = default_properties(&result);
+    assert!(d.closed);
+    assert!(d.diagnostics.is_empty());
+    assert_eq!(d.statements.len(), 9);
+}
+
+#[test]
+fn defaultproperties_spans_are_file_offsets() {
+    let source = class("    A=Value\n");
+    let result = assert_parses(&source);
+    let span = default_properties(&result).statements[0].span;
+    assert_eq!(&source[span.start..span.end], "A=Value");
+}
+
+#[test]
+fn defaultproperties_crlf_and_comment_before_brace() {
+    assert_parses(
+        "class Foo extends Object;\r\n\r\ndefaultproperties // c\r\n{\r\n    A=1\r\n}\r\n",
+    );
+}
+
+#[test]
+fn defaultproperties_empty_block_warns() {
+    let result = assert_parses(&class(""));
+    assert!(
+        result
+            .errors
+            .iter()
+            .any(|e| e.message.contains("should not be empty"))
+    );
+}
+
+#[test]
+fn defaultproperties_invalid_lines_are_discarded() {
+    // Each of these is from shipped UE2 code.
+    for line in [
+        "0.905471",
+        "Texture'InterfaceArt_tex.Menu.changeme_texture'",
+        "/ Moving fire anims",
+        "WinHeight1.0",
+        "RemoteRole==ROLE_None",
+        "DefaultStyleNames(35)=\"GUI2K4.STY2CheckBox",
+    ] {
+        let source = class(&format!("    A=1\n    {}\n    B=2\n", line));
+        let (result, problems) = parse_recovering(&source);
+        assert_eq!(problems.len(), 1, "{:?}", problems);
+        assert!(
+            problems[0].contains("invalid line was ignored"),
+            "{}",
+            problems[0]
+        );
+        assert!(problems[0].contains(line), "{}", problems[0]);
+        // The surrounding lines are kept.
+        assert_eq!(default_properties(&result).statements.len(), 2);
+    }
+}
+
+#[test]
+fn defaultproperties_trailing_input_keeps_the_statement() {
+    for (line, junk) in [
+        ("PitchDownLimit=50000/", "`/`"),
+        ("WinWidth= 0.43000                           .", "`.`"),
+        (
+            "Grenades(0)=(Item=class'Foo.Bar',Amount=2)        NebelGranate39Weapon",
+            "`NebelGranate39Weapon`",
+        ),
+        ("Digits=(A=(X1=1),B=(X1=2)))", "`)`"),
+        (
+            "BindingLabel(35)=\"Toggle \"BehindView\"\"",
+            "`BehindView\"\"`",
+        ),
+    ] {
+        let (result, problems) = parse_recovering(&class(&format!("    {}\n", line)));
+        assert_eq!(problems.len(), 1, "{:?}", problems);
+        assert!(
+            problems[0].contains(junk),
+            "{} should mention {}",
+            problems[0],
+            junk
+        );
+        assert_eq!(default_properties(&result).statements.len(), 1);
+    }
+}
+
+#[test]
+fn defaultproperties_unclosed_block() {
+    let source = "class Foo extends Object;\n\ndefaultproperties\n{\n    A=1\n    B=2\n";
+    let (result, problems) = parse_recovering(source);
+    assert_eq!(
+        problems,
+        vec!["defaultproperties block is not closed before the end of the file"]
+    );
+    let d = default_properties(&result);
+    assert!(!d.closed);
+    assert_eq!(d.statements.len(), 2);
+}
+
+#[test]
+fn defaultproperties_unclosed_object() {
+    let (_, problems) =
+        parse_recovering(&class("    Begin Object Class=Foo Name=Bar\n        A=1\n"));
+    assert_eq!(problems.len(), 1);
+    assert!(
+        problems[0].contains("has no matching `End Object`"),
+        "{}",
+        problems[0]
+    );
+}
+
+#[test]
+fn recovered_problems_have_correct_line_numbers() {
+    // Non-ASCII text before the problem must not throw off the line number
+    // (positions are byte offsets).
+    let source = "class Foo extends Object;\n\n// Panzerführer – ü\ndefaultproperties\n{\n    A=\"Führer\"\n    ???\n}\n";
+    let (result, _) = parse_recovering(source);
+    let warning = result
+        .errors
+        .iter()
+        .find(|e| e.message.contains("???"))
+        .unwrap();
+    assert_eq!(warning.span.line, Some(7));
+    assert!(matches!(warning.severity, ProgramErrorSeverity::Warning));
+}
+
+#[test]
+fn name_literal_in_defaultproperties_is_an_error() {
+    let result = assert_parses(&class(
+        "    PlayerModelAnim='stand_idlehip_satchel'\n    S=(N='Foo')\n",
+    ));
+    let errors: Vec<_> = result
+        .errors
+        .iter()
+        .filter(|e| {
+            e.message
+                .contains("cannot be initialized with name literals")
+        })
+        .collect();
+    assert_eq!(errors.len(), 2);
+    assert!(
+        errors
+            .iter()
+            .all(|e| matches!(e.severity, ProgramErrorSeverity::Error))
+    );
+}
+
+#[test]
+fn defaultproperties_redundant_default_lint() {
+    let result = assert_parses(
+        "class Foo extends Object;\nvar int I;\nvar byte B;\nvar bool bX;\n\
+         defaultproperties\n{\n    I=0\n    B=300\n    bX=False\n    Begin Object Class=Bar Name=Baz\n        I=0\n    End Object\n}\n",
+    );
+    let messages: Vec<_> = result.errors.iter().map(|e| e.message.as_str()).collect();
+    assert!(
+        messages
+            .iter()
+            .any(|m| m.contains("Redundant specification of default value (0) of variable (I)"))
+    );
+    assert!(
+        messages
+            .iter()
+            .any(|m| m.contains("Value 300 is outside the range of [0..255]; effective value: 44"))
+    );
+    assert!(
+        messages.iter().any(
+            |m| m.contains("Redundant specification of default value (false) of variable (bX)")
+        )
+    );
+    // Assignments inside `Begin Object` belong to the subobject, not this class.
+    assert_eq!(
+        messages
+            .iter()
+            .filter(|m| m.contains("variable (I)"))
+            .count(),
+        1
     );
 }

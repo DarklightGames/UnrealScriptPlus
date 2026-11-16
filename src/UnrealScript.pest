@@ -15,7 +15,6 @@ unqualified_identifier = @{ (alpha | "_") ~ (alpha | digit | "_")* }
 unqualified_identifier_list = _{ unqualified_identifier ~ (WS* ~ "," ~ WS* ~  unqualified_identifier)* }
 qualified_identifier = @{ unqualified_identifier ~ "." ~ unqualified_identifier }
 identifier = @{ qualified_identifier | unqualified_identifier }
-object_path = @{ unqualified_identifier ~ ("." ~ unqualified_identifier){2,} }
 
 // literals
 hex_digits = { ASCII_HEX_DIGIT+ }
@@ -339,25 +338,19 @@ dyadic_verb_native = @{
 dyadic_verb = { dyadic_verb_native | unqualified_identifier }
 
 // DEFAULTPROPERTIES
-LWS = _{ " " | "\t" }
-defaultproperties_opening_bracket = _{ "(" | "[" }
-defaultproperties_closing_bracket = _{ ")" | "]" }
-defaultproperties_value = { literal | object_path | identifier | defaultproperties_struct | defaultproperties_array }
-defaultproperties_assignment = { defaultproperties_target ~ LWS* ~ "=" ~ LWS* ~ defaultproperties_value? ~ (LWS* ~ ";")* }
-defaultproperties_struct = { ("(" | "[") ~ LWS* ~ (defaultproperties_assignment ~ LWS* ~ ("," ~ LWS* ~ defaultproperties_assignment)*)? ~ LWS* ~ (")" | "]") }
-defaultproperties_array_comma = { "," }
-defaultproperties_array = {
-    defaultproperties_opening_bracket ~ LWS* ~
-    ((defaultproperties_array_comma | defaultproperties_value) ~ LWS*)* ~
-    LWS* ~ defaultproperties_closing_bracket
+// The contents of a defaultproperties block are not UnrealScript: they are
+// T3D-style property text, parsed separately by the `t3d` crate. Here we only
+// find where the block ends. Comments and quoted text are skipped so that a
+// `}` inside them does not end the block; quotes end at a newline, because
+// shipped code contains unterminated strings. A block that is not closed runs
+// to the end of the file.
+defaultproperties_quoted = _{
+    ("\"" ~ (("\\" ~ !"\n" ~ ANY) | (!("\"" | "\\" | "\n") ~ ANY))* ~ "\""?) |
+    ("'" ~ (!("'" | "\n") ~ ANY)* ~ "'"?)
 }
-defaultproperties_object = { ^"begin" ~ LWS+ ~ ^"object" ~ LWS+ ~ ^"class" ~ "=" ~ identifier ~ (WS+ ~ defaultproperties_statement)* ~ WS+ ~ ^"end" ~ LWS+ ~ ^"object" }
-defaultproperties_statement = { defaultproperties_assignment | defaultproperties_object }
-defaultproperties_lines = _{ defaultproperties_statement ~ (WS* ~ defaultproperties_statement)* }
-defaultproperties_array_index = { integer_literal | unqualified_identifier }
-defaultproperties_array_access = _{ defaultproperties_opening_bracket ~ LWS* ~ defaultproperties_array_index ~ LWS* ~ defaultproperties_closing_bracket }
-defaultproperties_target = { unqualified_identifier ~ LWS* ~ defaultproperties_array_access? }
-defaultproperties = { ^"defaultproperties" ~ WS* ~ "{" ~ WS* ~ defaultproperties_lines? ~ WS* ~ "}" }
+defaultproperties_body = @{ (comment_single_line | comment_multi_line | defaultproperties_quoted | (!"}" ~ ANY))* }
+defaultproperties_closing_brace = { "}" }
+defaultproperties = ${ ^"defaultproperties" ~ (WS | WHITESPACE | COMMENT)* ~ "{" ~ defaultproperties_body ~ (defaultproperties_closing_brace | &EOI) }
 
 // CPPTEXT
 cpp_brackets = _{ "{" ~ WS* ~ cpp_body ~ WS* ~ "}" }

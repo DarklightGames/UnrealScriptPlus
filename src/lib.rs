@@ -4,5 +4,6 @@ pub mod visitor;
 
 // Re-export main parsing functions and types for library consumers
 pub use parser::{
-    ParsingError, ProgramResult, Rule, parse_expression, parse_program, parse_with_rule,
+    ParseMode, ParseOptions, ParsingError, ProgramError, ProgramErrorSeverity, ProgramResult, Rule,
+    parse_expression, parse_program, parse_program_with, parse_with_rule,
 };

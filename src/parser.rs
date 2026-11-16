@@ -13,6 +13,7 @@ use std::rc::Rc;
 
 use crate::ast::*;
 use crate::visitor::{Visit, Visitor};
+pub use t3d::{ParseMode, ParseOptions};
 
 type Result<T> = std::result::Result<T, Error<Rule>>;
 type Node<'i> = pest_consume::Node<'i, Rule, ()>;
@@ -410,15 +411,6 @@ impl UnrealScriptParser {
     }
 
     fn identifier(input: Node) -> Result<AstNode<Identifier>> {
-        Ok(AstNode {
-            span: AstSpan::from(&input),
-            data: Identifier {
-                string: input.as_str().to_string(),
-            },
-        })
-    }
-
-    fn object_path(input: Node) -> Result<AstNode<Identifier>> {
         Ok(AstNode {
             span: AstSpan::from(&input),
             data: Identifier {
@@ -1142,110 +1134,40 @@ impl UnrealScriptParser {
         })
     }
 
-    fn defaultproperties_object(input: Node) -> Result<Rc<AstNode<DefaultPropertiesObject>>> {
-        let span = AstSpan::from(&input);
-        match_nodes!(input.into_children();
-            [identifier(class), defaultproperties_statement(statements)..] => {
-                Ok(Rc::new(AstNode { span, data: DefaultPropertiesObject { class, statements: statements.collect() } }))
-            }
-        )
-    }
-
-    fn defaultproperties_statement(input: Node) -> Result<AstNode<DefaultPropertiesStatement>> {
-        let span = AstSpan::from(&input);
-        Ok(AstNode {
-            span,
-            data: match_nodes!(input.into_children();
-                [defaultproperties_assignment(a)] => DefaultPropertiesStatement::Assignment(a),
-                [defaultproperties_object(a)] => DefaultPropertiesStatement::Object(a),
-            ),
-        })
-    }
-
-    fn defaultproperties_struct(input: Node) -> Result<AstNode<DefaultPropertiesStruct>> {
-        let span = AstSpan::from(&input);
-        match_nodes!(input.into_children();
-            [defaultproperties_assignment(assignments)..] => {
-                Ok(AstNode {
-                    span,
-                    data: DefaultPropertiesStruct {
-                        assignments: assignments.collect()
-                    }
-                })
-            }
-        )
-    }
-
-    fn defaultproperties_array_comma(_input: Node) -> Result<()> {
+    fn defaultproperties_closing_brace(_input: Node) -> Result<()> {
         Ok(())
-    }
-
-    fn defaultproperties_array(input: Node) -> Result<AstNode<DefaultPropertiesArray>> {
-        let span = AstSpan::from(&input);
-        let mut elements = Vec::new();
-        match_nodes_any!(input.into_children();
-            defaultproperties_array_comma(_r) => elements.push(None),
-            defaultproperties_value(v) => elements.push(Some(v))
-        );
-        Ok(AstNode {
-            span,
-            data: DefaultPropertiesArray { elements },
-        })
-    }
-
-    fn defaultproperties_value(input: Node) -> Result<AstNode<DefaultPropertiesValue>> {
-        Ok(AstNode {
-            span: AstSpan::from(&input),
-            data: match_nodes!(input.into_children();
-                [literal(l)] => DefaultPropertiesValue::Literal(l),
-                [object_path(l)] => DefaultPropertiesValue::Identifier(l),
-                [identifier(l)] => DefaultPropertiesValue::Identifier(l),
-                [defaultproperties_struct(s)] => DefaultPropertiesValue::Struct(s),
-                [defaultproperties_array(a)] => DefaultPropertiesValue::Array(a)
-            ),
-        })
-    }
-
-    fn defaultproperties_array_index(input: Node) -> Result<AstNode<DefaultPropertiesArrayIndex>> {
-        let span = AstSpan::from(&input);
-        match_nodes!(input.into_children();
-            [integer_literal(l)] => Ok(AstNode { span, data: DefaultPropertiesArrayIndex::IntegerLiteral(l) }),
-            [unqualified_identifier(id)] => Ok(AstNode { span, data: DefaultPropertiesArrayIndex::Identifier(id) })
-        )
-    }
-
-    fn defaultproperties_target(input: Node) -> Result<AstNode<DefaultPropertiesTarget>> {
-        let span = AstSpan::from(&input);
-        match_nodes!(input.into_children();
-            [unqualified_identifier(target), defaultproperties_array_index(index)] => {
-                Ok(AstNode { span, data: DefaultPropertiesTarget { target, index: Some(index) } })
-            },
-            [unqualified_identifier(target)] => {
-                Ok(AstNode { span, data: DefaultPropertiesTarget { target, index: None } })
-            }
-        )
-    }
-
-    fn defaultproperties_assignment(input: Node) -> Result<AstNode<DefaultPropertiesAssignment>> {
-        let span = AstSpan::from(&input);
-        Ok(AstNode {
-            span,
-            data: match_nodes!(input.into_children();
-                [defaultproperties_target(target)] => DefaultPropertiesAssignment { target, value: None },
-                [defaultproperties_target(target), defaultproperties_value(value)] => {
-                    DefaultPropertiesAssignment { target, value: Some(value) }
-                },
-            ),
-        })
     }
 
     fn defaultproperties(input: Node) -> Result<AstNode<DefaultProperties>> {
         let span = AstSpan::from(&input);
-        match_nodes!(input.into_children();
-            [defaultproperties_statement(statements)..] => {
-                Ok(AstNode { span, data: DefaultProperties { statements: statements.collect() } })
-            }
-        )
+        let mut children = input.into_children();
+        let body = children
+            .next()
+            .expect("defaultproperties always has a body");
+        let closed = children.next().is_some();
+        let offset = body.as_span().start();
+        // The block's contents are parsed permissively; whether recovered
+        // problems are errors is decided by `parse_program_with`.
+        let parsed = t3d::parse_properties(body.as_str(), &t3d::ParseOptions::default())
+            .expect("permissive parsing never fails");
+        let mut statements = parsed.value;
+        statements.iter_mut().for_each(|s| s.offset_spans(offset));
+        let diagnostics = parsed
+            .diagnostics
+            .into_iter()
+            .map(|mut d| {
+                d.span = d.span.offset(offset);
+                d
+            })
+            .collect();
+        Ok(AstNode {
+            span,
+            data: DefaultProperties {
+                statements,
+                diagnostics,
+                closed,
+            },
+        })
     }
 
     fn cpp_body_outer(input: Node) -> Result<String> {
@@ -1340,6 +1262,9 @@ pub enum ParsingError {
     IoError(std::io::Error),
     EncodingError(String),
     PestError(Error<Rule>),
+    /// In strict mode: problems that permissive parsing would have recovered
+    /// from (e.g. invalid lines in a `defaultproperties` block).
+    Strict(Vec<ProgramError>),
 }
 
 impl From<std::io::Error> for ParsingError {
@@ -1372,47 +1297,83 @@ pub struct ProgramResult {
     pub errors: Vec<ProgramError>,
 }
 
+/// Returns the byte offset of every newline in `contents`.
 fn calculate_lines(contents: &str) -> Vec<usize> {
-    let mut columns = Vec::new();
-    let mut chars = contents.chars();
-    for index in 0.. {
-        match chars.next() {
-            Some(char) => {
-                if char == '\n' {
-                    columns.push(index)
-                }
-            }
-            None => {
-                break;
-            }
-        }
-    }
-    return columns;
+    contents.match_indices('\n').map(|(i, _)| i).collect()
 }
 
-pub fn parse_program(contents: &str) -> std::result::Result<ProgramResult, ParsingError> {
-    match UnrealScriptParser::program(UnrealScriptParser::parse(Rule::program, contents)?.single()?)
-    {
-        Ok(program) => {
-            let mut visitor = Visitor::new(contents);
-            program.visit(&mut visitor);
-            if !visitor.errors.is_empty() {
-                // calculate position of line breaks and attach it to the AstSpan error (hacky and bad!!!)
-                let lines = calculate_lines(contents);
-                for error in &mut visitor.errors {
-                    error.span.line = Some(match lines.binary_search(&error.span.start) {
-                        Ok(line) => line,
-                        Err(line) => line + 1,
-                    })
-                }
+/// Returns the 1-based line number of the byte offset `position`.
+fn line_of(lines: &[usize], position: usize) -> usize {
+    // The number of newlines strictly before `position`, plus one.
+    lines.partition_point(|&newline| newline < position) + 1
+}
+
+/// Problems that permissive parsing recovered from.
+fn recovered_problems(program: &Program) -> Vec<ProgramError> {
+    let mut problems = Vec::new();
+    for statement in &program.statements {
+        if let ProgramStatement::DefaultProperties(d) = &statement.data {
+            for diagnostic in &d.diagnostics {
+                problems.push(ProgramError {
+                    message: format!("defaultproperties: {}", diagnostic.message),
+                    span: AstSpan {
+                        start: diagnostic.span.start,
+                        end: diagnostic.span.end,
+                        line: None,
+                    },
+                    severity: ProgramErrorSeverity::Warning,
+                });
             }
-            Ok(ProgramResult {
-                program,
-                errors: visitor.errors.to_vec(),
-            })
+            if !d.closed {
+                problems.push(ProgramError {
+                    message: "defaultproperties block is not closed before the end of the file"
+                        .to_string(),
+                    span: d.span,
+                    severity: ProgramErrorSeverity::Warning,
+                });
+            }
         }
-        Err(e) => Err(ParsingError::from(e)),
     }
+    problems
+}
+
+/// Parses an UnrealScript program permissively; see [`parse_program_with`].
+pub fn parse_program(contents: &str) -> std::result::Result<ProgramResult, ParsingError> {
+    parse_program_with(contents, &ParseOptions::default())
+}
+
+/// Parses an UnrealScript program.
+///
+/// In [`ParseMode::Permissive`] (the default), malformed `defaultproperties`
+/// content is recovered from the way Unreal Engine does (invalid lines are
+/// discarded, trailing junk after a statement is ignored) and each problem is
+/// reported as a warning in [`ProgramResult::errors`]. In [`ParseMode::Strict`]
+/// these problems are returned as [`ParsingError::Strict`] instead.
+pub fn parse_program_with(
+    contents: &str,
+    options: &ParseOptions,
+) -> std::result::Result<ProgramResult, ParsingError> {
+    let program =
+        UnrealScriptParser::program(UnrealScriptParser::parse(Rule::program, contents)?.single()?)?;
+    let lines = calculate_lines(contents);
+    let with_lines = |mut errors: Vec<ProgramError>| {
+        for error in &mut errors {
+            error.span.line = Some(line_of(&lines, error.span.start));
+        }
+        errors
+    };
+
+    let recovered = with_lines(recovered_problems(&program));
+    if options.mode == ParseMode::Strict && !recovered.is_empty() {
+        return Err(ParsingError::Strict(recovered));
+    }
+
+    let mut visitor = Visitor::new(contents);
+    program.visit(&mut visitor);
+    let mut errors = recovered;
+    errors.extend(with_lines(visitor.errors));
+    errors.sort_by_key(|e| e.span.start);
+    Ok(ProgramResult { program, errors })
 }
 
 pub fn parse_expression(

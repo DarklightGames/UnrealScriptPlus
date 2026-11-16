@@ -20,4 +20,4 @@ strum_macros = "0.28"
 pest_consume = "1.1"
 pest_consume_macros = "1.1"
 convert_case = "0.12"
-if_chain = "1.0"
+t3d = { git = "https://github.com/DarklightGames/t3d-rs", rev = "3dd7fa2037206641d956b2095e34595dc58e2f37" }

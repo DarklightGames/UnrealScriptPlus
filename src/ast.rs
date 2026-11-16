@@ -704,61 +704,15 @@ pub struct ElseStatement {
     pub body: AstNode<CodeStatementOrBlock>,
 }
 
+/// A `defaultproperties` block. Its contents are T3D-style property text,
+/// parsed by the [`t3d`] crate; all spans in `statements` and `diagnostics`
+/// are byte offsets into the whole source file.
 #[derive(Debug)]
 pub struct DefaultProperties {
-    pub statements: Vec<AstNode<DefaultPropertiesStatement>>,
-}
-
-#[derive(Debug)]
-pub enum DefaultPropertiesStatement {
-    Assignment(AstNode<DefaultPropertiesAssignment>),
-    Object(Rc<AstNode<DefaultPropertiesObject>>),
-}
-
-#[derive(Debug)]
-pub struct DefaultPropertiesAssignment {
-    pub target: AstNode<DefaultPropertiesTarget>,
-    pub value: Option<AstNode<DefaultPropertiesValue>>,
-}
-
-impl DefaultPropertiesAssignment {
-    pub fn is_array_assignment(&self) -> bool {
-        self.target.index.is_some()
-    }
-}
-
-#[derive(Debug)]
-pub enum DefaultPropertiesValue {
-    Literal(AstNode<Literal>),
-    Identifier(AstNode<Identifier>),
-    Struct(AstNode<DefaultPropertiesStruct>),
-    Array(AstNode<DefaultPropertiesArray>),
-}
-
-#[derive(Debug)]
-pub struct DefaultPropertiesStruct {
-    pub assignments: Vec<AstNode<DefaultPropertiesAssignment>>,
-}
-
-#[derive(Debug)]
-pub enum DefaultPropertiesArrayIndex {
-    Identifier(AstNode<Identifier>),
-    IntegerLiteral(AstNode<NumericLiteral>),
-}
-
-#[derive(Debug)]
-pub struct DefaultPropertiesTarget {
-    pub target: AstNode<Identifier>,
-    pub index: Option<AstNode<DefaultPropertiesArrayIndex>>,
-}
-
-#[derive(Debug)]
-pub struct DefaultPropertiesArray {
-    pub elements: Vec<Option<AstNode<DefaultPropertiesValue>>>,
-}
-
-#[derive(Debug)]
-pub struct DefaultPropertiesObject {
-    pub class: AstNode<Identifier>,
-    pub statements: Vec<AstNode<DefaultPropertiesStatement>>,
+    pub statements: Vec<t3d::syntax::Statement>,
+    /// Problems in the block that were recovered from (discarded lines,
+    /// ignored trailing text, unbalanced `Begin`/`End Object`).
+    pub diagnostics: Vec<t3d::Diagnostic>,
+    /// `false` if the block has no closing `}` before the end of the file.
+    pub closed: bool,
 }

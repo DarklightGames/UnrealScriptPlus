@@ -1,10 +1,15 @@
 //! Parses every `*.uc` file under a directory and writes a TSV report.
 //!
-//! Usage: cargo run --release --example parse_corpus -- <root> [report.tsv]
+//! Usage: cargo run --release --example parse_corpus -- [--strict] <root> [report.tsv]
 //!
 //! Columns: status, path, line, col, ms, message
-//! Status is one of: ok, parse_error, panic, slow (slow = still running after
-//! the watchdog limit; the file is reported and the run continues).
+//! Status is one of:
+//! - ok: parsed with nothing to recover from;
+//! - recovered: parsed, but permissive parsing recovered from problems (e.g.
+//!   invalid defaultproperties lines); the message lists them. With
+//!   `--strict` these are reported as `strict_error` instead;
+//! - parse_error, panic;
+//! - slow: still running after the watchdog limit (the run continues).
 
 use std::collections::HashMap;
 use std::fs;
@@ -19,7 +24,7 @@ use std::time::{Duration, Instant};
 use encoding::all::WINDOWS_1252;
 use encoding::{DecoderTrap, Encoding};
 use pest::error::LineColLocation;
-use unrealscript_parser::{ParsingError, parse_program};
+use unrealscript_parser::{ParseMode, ParseOptions, ParsingError, parse_program_with};
 
 const SLOW_LIMIT: Duration = Duration::from_secs(10);
 
@@ -56,13 +61,27 @@ fn one_line(s: &str) -> String {
 }
 
 /// Returns (status, line, col, message).
-fn parse_file(path: &Path) -> (&'static str, usize, usize, String) {
+fn parse_file(path: &Path, strict: bool) -> (&'static str, usize, usize, String) {
     let contents = match fs::read(path) {
         Ok(b) => decode(&b),
         Err(e) => return ("io_error", 0, 0, e.to_string()),
     };
-    match panic::catch_unwind(|| parse_program(&contents).map(|r| r.errors.len())) {
+    // Always parse strictly: a `Strict` error lists exactly the problems that
+    // permissive parsing recovers from.
+    let options = ParseOptions {
+        mode: ParseMode::Strict,
+    };
+    match panic::catch_unwind(|| parse_program_with(&contents, &options).map(|r| r.errors.len())) {
         Ok(Ok(_warnings)) => ("ok", 0, 0, String::new()),
+        Ok(Err(ParsingError::Strict(problems))) => {
+            let line = problems.first().and_then(|p| p.span.line).unwrap_or(0);
+            let messages: Vec<_> = problems
+                .iter()
+                .map(|p| format!("L{}: {}", p.span.line.unwrap_or(0), p.message))
+                .collect();
+            let status = if strict { "strict_error" } else { "recovered" };
+            (status, line, 0, one_line(&messages.join(" | ")))
+        }
         Ok(Err(ParsingError::PestError(e))) => {
             let (line, col) = match e.line_col {
                 LineColLocation::Pos(p) => p,
@@ -83,10 +102,12 @@ fn parse_file(path: &Path) -> (&'static str, usize, usize, String) {
 }
 
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
+    let mut args: Vec<String> = std::env::args().collect();
+    let strict = args.iter().any(|a| a == "--strict");
+    args.retain(|a| a != "--strict");
     let root = PathBuf::from(
         args.get(1)
-            .expect("usage: parse_corpus <root> [report.tsv]"),
+            .expect("usage: parse_corpus [--strict] <root> [report.tsv]"),
     );
     let report_path = args
         .get(2)
@@ -126,7 +147,7 @@ fn main() {
                         }
                         in_flight.lock().unwrap().insert(i, Instant::now());
                         let start = Instant::now();
-                        let r = parse_file(&files[i]);
+                        let r = parse_file(&files[i], strict);
                         let ms = start.elapsed().as_millis();
                         in_flight.lock().unwrap().remove(&i);
                         results.lock().unwrap().push((i, r, ms));
