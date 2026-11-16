@@ -255,7 +255,7 @@ parenthetical_expression = { "(" ~ WS* ~ expression ~ WS* ~ ")" }
 expression_inner = _{ target | unqualified_identifier }   // TODO: monadic expression should be a target???
 
 // new is a kind of "terminal", nothing can come after it in an expression
-new = { ^"new" ~ (WS* ~ "(" ~ WS* ~ expression_list ~ WS* ~ ")")? ~ WS* ~ expression } /// fuck this syntax
+new = { ^"new" ~ !(ASCII_ALPHANUMERIC | "_") ~ (WS* ~ "(" ~ WS* ~ expression_list ~ WS* ~ ")")? ~ WS* ~ expression } /// fuck this syntax
 
 expression_empty = { "," }
 expression_list = { (expression ~ WS* ~ "," ~ WS* | (expression_empty ~ WS*))* ~ expression? }

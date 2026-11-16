@@ -12,6 +12,7 @@ use std::str::FromStr;
 use std::rc::Rc;
 
 use crate::ast::*;
+use crate::lint::Lint;
 use crate::visitor::{Visit, Visitor};
 pub use t3d::{ParseMode, ParseOptions};
 
@@ -1278,7 +1279,7 @@ impl From<Error<Rule>> for ParsingError {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ProgramErrorSeverity {
     Warning,
     Error,
@@ -1289,6 +1290,9 @@ pub struct ProgramError {
     pub message: String,
     pub span: AstSpan,
     pub severity: ProgramErrorSeverity,
+    /// The lint that reported this problem, or `None` for problems found
+    /// while parsing (e.g. recovered `defaultproperties` lines).
+    pub lint: Option<Lint>,
 }
 
 pub struct ProgramResult {
@@ -1334,6 +1338,7 @@ fn recovered_problems(root: &Node, program: &Program) -> Vec<ProgramError> {
                     line: None,
                 },
                 severity: ProgramErrorSeverity::Warning,
+                lint: None,
             });
         }
     }
@@ -1348,6 +1353,7 @@ fn recovered_problems(root: &Node, program: &Program) -> Vec<ProgramError> {
                         line: None,
                     },
                     severity: ProgramErrorSeverity::Warning,
+                    lint: None,
                 });
             }
             if !d.closed {
@@ -1356,6 +1362,7 @@ fn recovered_problems(root: &Node, program: &Program) -> Vec<ProgramError> {
                         .to_string(),
                     span: d.span,
                     severity: ProgramErrorSeverity::Warning,
+                    lint: None,
                 });
             }
         }
