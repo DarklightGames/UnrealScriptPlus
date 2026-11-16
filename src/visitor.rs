@@ -2,8 +2,13 @@ use crate::ast::*;
 use crate::lint::Lint;
 use crate::parser::ProgramError;
 
+use crate::symbols::{
+    Access, Namespace, ReferenceKind, ScopeId, ScopeKind, SymbolId, SymbolKind, SymbolTable,
+    TypeRef,
+};
+
 use convert_case::{Case, Casing};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::ops::Deref;
 use std::rc::Rc;
 
@@ -35,9 +40,9 @@ const PER_FRAME_FUNCTIONS: &[&str] = &[
 /// Iterators that visit every actor (or object) in the level.
 const EXPENSIVE_ITERATORS: &[&str] = &["AllActors", "DynamicActors", "AllObjects"];
 
-/// What the visitor knows about a local or a function argument.
+/// What the visitor knows about a variable, argument or local.
 #[derive(Debug, Clone, Copy)]
-struct LocalInfo {
+struct VariableInfo {
     is_byte: bool,
     size: Option<i64>,
 }
@@ -45,6 +50,8 @@ struct LocalInfo {
 /// Where the code being visited is.
 #[derive(Default)]
 struct CodeContext {
+    /// The scope names are looked up in.
+    scope: ScopeId,
     /// The function being visited, if any.
     function_name: Option<String>,
     /// Whether the code is state code (under a state label).
@@ -54,39 +61,21 @@ struct CodeContext {
     /// Whether `X = X` is allowed, as in `for (i = i; ...)`, which continues
     /// a loop from the current value of `i`.
     allow_self_assignment: bool,
-    locals: HashMap<Identifier, LocalInfo>,
-    /// How each local (not argument) is used, in declaration order.
-    local_usages: Vec<LocalUsage>,
-}
-
-/// How a local variable is used in its function.
-struct LocalUsage {
-    name: AstNode<Identifier>,
-    /// Whether it's ever read, or used in a way that might read it (e.g.
-    /// passed to a function, which may take it as an `out` argument).
-    read: bool,
-    /// Whether it's assigned, incremented or decremented.
-    written: bool,
 }
 
 pub struct Visitor<'a> {
     pub errors: Vec<ProgramError>,
     contents: &'a str,
-    variables: HashMap<Identifier, Rc<AstNode<VarDeclaration>>>,
-    /// Integer constants declared in this file.
-    consts: HashMap<Identifier, i64>,
-    types: HashSet<Identifier>,
+    symbols: &'a SymbolTable,
     code: CodeContext,
 }
 
-impl Visitor<'_> {
-    pub fn new(contents: &str) -> Visitor<'_> {
+impl<'a> Visitor<'a> {
+    pub fn new(contents: &'a str, symbols: &'a SymbolTable) -> Visitor<'a> {
         Visitor {
             contents,
             errors: vec![],
-            variables: HashMap::new(),
-            consts: HashMap::new(),
-            types: HashSet::new(),
+            symbols,
             code: CodeContext::default(),
         }
     }
@@ -101,100 +90,46 @@ impl Visitor<'_> {
         })
     }
 
-    fn resolve_size(&self, size: &VarSize) -> Option<i64> {
-        match size {
-            VarSize::IntegerLiteral(n) => match n.data {
-                NumericLiteral::Integer(i) => Some(i as i64),
-                NumericLiteral::Float(_) => None,
-            },
-            VarSize::Identifier(id) => self.consts.get(&id.data).copied(),
-        }
+    /// Looks up the variable, argument or local `name` declared in this file
+    /// and visible from the current scope.
+    fn lookup(&self, name: &Identifier) -> Option<VariableInfo> {
+        self.lookup_in(self.code.scope, name)
     }
 
-    /// Returns whether the variable `name` (a local, or a class variable
-    /// declared in this file) is a `byte`, and its static array size.
-    fn lookup(&self, name: &Identifier) -> Option<LocalInfo> {
-        if let Some(local) = self.code.locals.get(name) {
-            return Some(*local);
-        }
-        let declaration = self.variables.get(name)?;
-        let var_name = declaration
-            .names
-            .iter()
-            .find(|n| n.identifier.data == *name)?;
-        Some(LocalInfo {
-            is_byte: matches!(declaration.type_, Type::Pod(PodType::Byte)),
-            size: var_name.size.as_ref().and_then(|s| self.resolve_size(s)),
+    fn lookup_in(&self, scope: ScopeId, name: &Identifier) -> Option<VariableInfo> {
+        let id = self.symbols.lookup(scope, Namespace::Value, name)?;
+        let kind = &self.symbols.symbol(id).kind;
+        Some(VariableInfo {
+            is_byte: kind.type_()? == &TypeRef::Pod(PodType::Byte),
+            size: kind.array_size(),
         })
     }
 
-    fn declare_local(&mut self, type_: &Type, name: &AstNode<VarName>) {
-        let info = LocalInfo {
-            is_byte: matches!(type_, Type::Pod(PodType::Byte)),
-            size: name.size.as_ref().and_then(|s| self.resolve_size(s)),
-        };
-        self.code.locals.insert(name.identifier.data.clone(), info);
-    }
-
-    /// Declares a local variable (not an argument), whose usage is tracked.
-    fn declare_tracked_local(&mut self, type_: &Type, name: &AstNode<VarName>) {
-        self.declare_local(type_, name);
-        let identifier = &name.identifier;
-        // A redeclaration replaces the earlier one.
-        self.code
-            .local_usages
-            .retain(|u| u.name.data != identifier.data);
-        self.code.local_usages.push(LocalUsage {
-            name: AstNode {
-                data: identifier.data.clone(),
-                span: identifier.span,
-            },
-            read: false,
-            written: false,
-        });
-    }
-
-    fn local_usage(&mut self, name: &Identifier) -> Option<&mut LocalUsage> {
-        self.code
-            .local_usages
-            .iter_mut()
-            .find(|u| u.name.data == *name)
-    }
-
-    /// If `target` is a plain local (`X`, not `X[0]` or `X.Y`, which use `X`),
-    /// records that it's written to and returns `true`.
-    fn record_write(&mut self, target: &AstNode<Expression>) -> bool {
-        let Expression::Identifier(name) = &target.data else {
-            return false;
-        };
-        match self.local_usage(name) {
-            Some(usage) => {
-                usage.written = true;
-                true
+    /// Reports the locals of the function `scope` that are never used, or
+    /// only ever written to.
+    fn report_unused_locals(&mut self, scope: ScopeId) {
+        let symbols = self.symbols;
+        for &id in symbols.scope(scope).symbols() {
+            let symbol = symbols.symbol(id);
+            if !matches!(symbol.kind, SymbolKind::Local { .. }) {
+                continue;
             }
-            None => false,
-        }
-    }
-
-    /// Reports the locals tracked by [`declare_tracked_local`] that are never
-    /// used, or only ever written to.
-    fn report_unused_locals(&mut self) {
-        for usage in std::mem::take(&mut self.code.local_usages) {
-            match (usage.read, usage.written) {
-                (false, false) => self.report(
+            let mut references = symbols.references_to(id).peekable();
+            if references.peek().is_none() {
+                self.report(
                     Lint::UnusedLocal,
-                    format!("Local variable {:?} is never used", usage.name.string),
-                    usage.name.span,
-                ),
-                (false, true) => self.report(
+                    format!("Local variable {:?} is never used", symbol.name.string),
+                    symbol.span,
+                )
+            } else if references.all(|r| r.kind == ReferenceKind::Write) {
+                self.report(
                     Lint::LocalSetButNeverUsed,
                     format!(
                         "Local variable {:?} is assigned to, but its value is never used",
-                        usage.name.string
+                        symbol.name.string
                     ),
-                    usage.name.span,
-                ),
-                (true, _) => {}
+                    symbol.span,
+                )
             }
         }
     }
@@ -462,11 +397,6 @@ fn check_condition(predicate: &AstNode<Expression>, keyword: &str, visitor: &mut
 
 impl Visit for AstNode<ConstDeclaration> {
     fn visit(&self, visitor: &mut Visitor) {
-        if let Literal::Numeric(n) = &self.value.data {
-            if let NumericLiteral::Integer(i) = n.data {
-                visitor.consts.insert(self.name.data.clone(), i as i64);
-            }
-        }
         let name = &self.name.string;
         if name.to_case(Case::Constant).ne(name) {
             visitor.report(
@@ -680,15 +610,17 @@ fn visit_default_assignment(assignment: &t3d::syntax::Assignment, visitor: &mut 
     let name = Identifier {
         string: assignment.name.clone(),
     };
-    let Some(variable) = visitor.variables.get(&name).cloned() else {
+    let symbols = visitor.symbols;
+    let Some(variable) = symbols
+        .lookup(ScopeId::CLASS, Namespace::Value, &name)
+        .map(|id| &symbols.symbol(id).kind)
+        .filter(|kind| matches!(kind, SymbolKind::Variable { .. }))
+    else {
         return;
     };
     let span = ast_span(assignment.span);
 
-    if let (Some(Index::Int(index)), Some(size)) = (
-        &assignment.index,
-        visitor.lookup(&name).and_then(|v| v.size),
-    ) {
+    if let (Some(Index::Int(index)), Some(size)) = (&assignment.index, variable.array_size()) {
         if *index < 0 || *index >= size {
             visitor.report(
                 Lint::ArrayIndexOutOfBounds,
@@ -704,7 +636,7 @@ fn visit_default_assignment(assignment: &t3d::syntax::Assignment, visitor: &mut 
     let Some(value) = &assignment.value else {
         return;
     };
-    let Type::Pod(pod_type) = &variable.type_ else {
+    let Some(TypeRef::Pod(pod_type)) = variable.type_() else {
         return;
     };
     let is_array_assignment = assignment.index.is_some();
@@ -821,11 +753,7 @@ impl Visit for AstNode<CodeStatementOrBlock> {
 impl Visit for AstNode<Expression> {
     fn visit(&self, visitor: &mut Visitor) {
         match self.deref() {
-            Expression::Identifier(name) => {
-                if let Some(usage) = visitor.local_usage(name) {
-                    usage.read = true;
-                }
-            }
+            Expression::Identifier(_) => {}
             Expression::Literal(l) => l.visit(visitor),
             Expression::New { type_, arguments } => {
                 type_.visit(visitor);
@@ -833,16 +761,11 @@ impl Visit for AstNode<Expression> {
                     arguments.visit(visitor);
                 }
             }
-            // `X++` uses `X` here, as in `if (++X > 3)`; see `visit_discarded`.
             Expression::MonadicPreExpression { operand, verb: _ } => operand.visit(visitor),
             Expression::MonadicPostExpression { operand, verb: _ } => operand.visit(visitor),
             Expression::DyadicExpression { lhs, verb, rhs } => {
                 check_dyadic_expression(self, lhs, verb, rhs, visitor);
-                // Compound assignments (`X += 1`) read `X`, but only to
-                // update it, so they don't count as a use either.
-                if !(verb.is_assignment() && visitor.record_write(lhs)) {
-                    lhs.visit(visitor);
-                }
+                lhs.visit(visitor);
                 rhs.visit(visitor);
             }
             Expression::Call { operand, arguments } => {
@@ -1047,14 +970,14 @@ impl Visit for ForStatement {
     fn visit(&self, visitor: &mut Visitor) {
         if let Some(init) = &self.init {
             visitor.code.allow_self_assignment = true;
-            visit_discarded(init, visitor);
+            init.visit(visitor);
             visitor.code.allow_self_assignment = false;
         }
         if let Some(predicate) = &self.predicate {
             predicate.visit(visitor)
         }
         if let Some(post) = &self.post {
-            visit_discarded(post, visitor)
+            post.visit(visitor)
         }
         let may_be_empty = self.post.is_some();
         visit_loop_body(&self.body, "for", may_be_empty, visitor)
@@ -1136,21 +1059,6 @@ impl Visit for DoUntil {
     }
 }
 
-/// Visits an expression whose value isn't used: a statement, or a `for`
-/// loop's init or post clause. There, `X++` changes `X` without using it.
-fn visit_discarded(expression: &AstNode<Expression>, visitor: &mut Visitor) {
-    if let Expression::MonadicPreExpression { operand, verb }
-    | Expression::MonadicPostExpression { operand, verb } = &unparenthesize(expression).data
-    {
-        if matches!(verb, MonadicVerb::Increment | MonadicVerb::Decrement)
-            && visitor.record_write(operand)
-        {
-            return;
-        }
-    }
-    expression.visit(visitor)
-}
-
 /// Whether `expression`, as a statement on its own, does something.
 fn has_effect(expression: &AstNode<Expression>) -> bool {
     match &unparenthesize(expression).data {
@@ -1202,7 +1110,7 @@ impl Visit for AstNode<CodeStatement> {
                         }
                     }
                 }
-                visit_discarded(expression, visitor)
+                expression.visit(visitor)
             }
             CodeStatement::Return(expression) => {
                 if let Some(expression) = expression {
@@ -1266,9 +1174,6 @@ impl Visit for AstNode<VarName> {
 impl Visit for AstNode<LocalDeclaration> {
     fn visit(&self, visitor: &mut Visitor) {
         self.type_.visit(visitor);
-        for name in &self.names {
-            visitor.declare_tracked_local(&self.type_, name);
-        }
         if let Type::Pod(PodType::Bool) = &self.type_ {
             visit_bool_var_names(&self.names[..], visitor);
         }
@@ -1420,19 +1325,22 @@ impl Visit for AstNode<FunctionDeclaration> {
             }
         }
 
+        let Some(scope) = visitor.symbols.scope_of(self.name.span.start) else {
+            return;
+        };
         let context = CodeContext {
+            scope,
             function_name: Some(self.name.string.clone()),
             ..CodeContext::default()
         };
         visitor.with_code_context(context, |visitor| {
             for argument in &self.arguments {
                 argument.type_.visit(visitor);
-                visitor.declare_local(&argument.type_, &argument.name);
             }
             if let Some(body) = &self.body {
                 body.visit(visitor)
             }
-            visitor.report_unused_locals();
+            visitor.report_unused_locals(scope);
         });
     }
 }
@@ -1442,25 +1350,15 @@ impl Visit for Type {
         match self {
             Type::Pod(_) => {}
             Type::Array(t) => t.visit(visitor),
-            Type::Class(c) => {
-                visitor.types.insert(c.data.clone());
-            }
+            Type::Class(_) | Type::Identifier(_) => {}
             Type::Struct(e) => e.visit(visitor),
             Type::Enum(e) => e.visit(visitor),
-            Type::Identifier(id) => {
-                visitor.types.insert(id.clone());
-            }
         }
     }
 }
 
 impl Visit for Rc<AstNode<VarDeclaration>> {
     fn visit(&self, visitor: &mut Visitor) {
-        // add all the variables to the visitor context
-        let names = self.names.iter().map(|name| &name.identifier);
-        for name in names {
-            visitor.variables.insert(name.data.clone(), self.clone());
-        }
         self.type_.visit(visitor);
         if let Type::Pod(PodType::Bool) = &self.type_ {
             visit_bool_var_names(&self.names, visitor)
@@ -1535,6 +1433,10 @@ impl Visit for StateDeclaration {
             statement.visit(visitor)
         }
         let context = CodeContext {
+            scope: visitor
+                .symbols
+                .scope_of(self.name.span.start)
+                .unwrap_or(ScopeId::CLASS),
             in_state_code: true,
             ..CodeContext::default()
         };
@@ -1593,7 +1495,177 @@ impl Visit for Program {
                 ProgramStatement::CppText(_) => {}
             }
         }
+        check_symbols(visitor);
     }
+}
+
+/// Lints that look at the symbol table as a whole.
+fn check_symbols(visitor: &mut Visitor) {
+    let symbols = visitor.symbols;
+    let line = |id: SymbolId| symbols.symbol(id).span.line.unwrap_or(0);
+
+    // Duplicate declarations.
+    for (_, scope) in symbols.scopes() {
+        for ids in scope.duplicates() {
+            for (i, &id) in ids.iter().enumerate().skip(1) {
+                let Some(&first) = ids[..i]
+                    .iter()
+                    .find(|&&other| conflicts(symbols, other, id))
+                else {
+                    continue;
+                };
+                let symbol = symbols.symbol(id);
+                visitor.report(
+                    Lint::DuplicateDeclaration,
+                    format!(
+                        "{:?} is already declared on line {}",
+                        symbol.name.string,
+                        line(first)
+                    ),
+                    symbol.span,
+                )
+            }
+        }
+    }
+
+    for (id, symbol) in symbols.iter() {
+        // Locals and arguments that hide a class variable or const.
+        let what = match symbol.kind {
+            SymbolKind::Local { .. } => "Local variable",
+            SymbolKind::Argument { .. } => "Argument",
+            _ => "",
+        };
+        if !what.is_empty() {
+            let outer = symbols.scope(symbol.scope).parent;
+            let shadowed = outer
+                .and_then(|outer| symbols.lookup(outer, Namespace::Value, &symbol.name))
+                .filter(|&s| {
+                    matches!(
+                        symbols.symbol(s).kind,
+                        SymbolKind::Variable { .. } | SymbolKind::Const { .. }
+                    )
+                });
+            if let Some(shadowed) = shadowed {
+                visitor.report(
+                    Lint::ShadowedVariable,
+                    format!(
+                        "{} {:?} hides the {} declared on line {}",
+                        what,
+                        symbol.name.string,
+                        match symbols.symbol(shadowed).kind {
+                            SymbolKind::Const { .. } => "const",
+                            _ => "variable",
+                        },
+                        line(shadowed)
+                    ),
+                    symbol.span,
+                )
+            }
+        }
+
+        if is_unused_private_member(symbols, id) {
+            let what = match symbol.kind {
+                SymbolKind::Function { .. } => "function",
+                _ => "variable",
+            };
+            visitor.report(
+                Lint::UnusedPrivateMember,
+                format!("Private {} {:?} is never used", what, symbol.name.string),
+                symbol.span,
+            )
+        }
+    }
+
+    // References written in a different case than the declaration.
+    for reference in symbols.references() {
+        let declared = &symbols.symbol(reference.symbol).name.string;
+        if reference.text != *declared {
+            visitor.report(
+                Lint::IdentifierCaseMismatch,
+                format!("{:?} is declared as {:?}", reference.text, declared),
+                reference.span,
+            )
+        }
+    }
+}
+
+/// Whether two declarations of the same name in the same scope conflict.
+fn conflicts(symbols: &SymbolTable, a: SymbolId, b: SymbolId) -> bool {
+    let is_operator = |id: SymbolId| match &symbols.symbol(id).kind {
+        SymbolKind::Function { types, .. } => types.iter().any(|t| {
+            matches!(
+                t,
+                FunctionTypeType::Operator
+                    | FunctionTypeType::PreOperator
+                    | FunctionTypeType::PostOperator
+            )
+        }),
+        _ => false,
+    };
+    match (&symbols.symbol(a).kind, &symbols.symbol(b).kind) {
+        // Operators are overloaded by their operand types.
+        _ if is_operator(a) && is_operator(b) => false,
+        // UCC accepts the same value in different enums of a class.
+        (SymbolKind::EnumValue { enum_: x, .. }, SymbolKind::EnumValue { enum_: y, .. }) => x == y,
+        _ => true,
+    }
+}
+
+/// Whether `id` is a `private` variable or function of the class that
+/// nothing in the file uses.
+fn is_unused_private_member(symbols: &SymbolTable, id: SymbolId) -> bool {
+    let symbol = symbols.symbol(id);
+    if symbol.access != Access::Private
+        || symbol.scope != ScopeId::CLASS
+        || symbols.class().is_some_and(|c| c.is_native)
+    {
+        return false;
+    }
+    match &symbol.kind {
+        // Native code may use native variables.
+        SymbolKind::Variable { modifiers, .. } => {
+            if modifiers.contains(&VarModifier::Native) {
+                return false;
+            }
+        }
+        SymbolKind::Function {
+            types, modifiers, ..
+        } => {
+            // Called by native code, the engine or the console.
+            if modifiers.iter().any(|m| {
+                matches!(
+                    m,
+                    FunctionModifierType::Native
+                        | FunctionModifierType::Intrinsic
+                        | FunctionModifierType::Exec
+                )
+            }) || types
+                .iter()
+                .any(|t| matches!(t, FunctionTypeType::Event | FunctionTypeType::Delegate))
+            {
+                return false;
+            }
+        }
+        _ => return false,
+    }
+    if symbols.references_to(id).next().is_some() {
+        return false;
+    }
+    // A call from a state that overrides the function resolves to the
+    // state's version, which is still a use of the name.
+    if let SymbolKind::Function { .. } = symbol.kind {
+        let overridden_and_used = symbols.scopes().any(|(_, scope)| {
+            matches!(scope.kind, ScopeKind::State(_))
+                && scope
+                    .declarations(Namespace::Function, &symbol.name)
+                    .iter()
+                    .any(|&o| symbols.references_to(o).next().is_some())
+        });
+        if overridden_and_used {
+            return false;
+        }
+    }
+    true
 }
 
 fn visit_bool_var_names(names: &[AstNode<VarName>], visitor: &mut Visitor) {

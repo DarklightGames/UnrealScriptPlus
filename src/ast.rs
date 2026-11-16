@@ -86,7 +86,7 @@ pub enum FunctionModifierType {
     Static,
 }
 
-#[derive(Debug, PartialEq, Display, EnumString)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Display, EnumString)]
 #[strum(serialize_all = "lowercase", ascii_case_insensitive)]
 pub enum FunctionArgumentModifier {
     Coerce,
@@ -167,7 +167,7 @@ pub enum ReplicationReliability {
     Unreliable,
 }
 
-#[derive(Debug, PartialEq, Display, EnumString)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Display, EnumString)]
 #[strum(serialize_all = "lowercase", ascii_case_insensitive)]
 pub enum FunctionTypeType {
     Delegate,
@@ -347,7 +347,7 @@ pub struct VarDeclaration {
     pub names: Vec<AstNode<VarName>>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum PodType {
     Byte,
     Int,

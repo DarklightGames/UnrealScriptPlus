@@ -13,6 +13,7 @@ use std::rc::Rc;
 
 use crate::ast::*;
 use crate::lint::Lint;
+use crate::symbols::SymbolTable;
 use crate::visitor::{Visit, Visitor};
 pub use t3d::{ParseMode, ParseOptions};
 
@@ -1298,6 +1299,8 @@ pub struct ProgramError {
 pub struct ProgramResult {
     pub program: Program,
     pub errors: Vec<ProgramError>,
+    /// The declarations and resolved references of the program.
+    pub symbols: SymbolTable,
 }
 
 /// Returns the byte offset of every newline in `contents`.
@@ -1401,12 +1404,18 @@ pub fn parse_program_with(
         return Err(ParsingError::Strict(recovered));
     }
 
-    let mut visitor = Visitor::new(contents);
+    let mut symbols = SymbolTable::build(&program);
+    symbols.set_lines(|offset| line_of(&lines, offset));
+    let mut visitor = Visitor::new(contents, &symbols);
     program.visit(&mut visitor);
     let mut errors = recovered;
     errors.extend(with_lines(visitor.errors));
     errors.sort_by_key(|e| e.span.start);
-    Ok(ProgramResult { program, errors })
+    Ok(ProgramResult {
+        program,
+        errors,
+        symbols,
+    })
 }
 
 pub fn parse_expression(

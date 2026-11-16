@@ -462,3 +462,137 @@ fn locals_are_tracked_per_function() {
     assert_eq!(&source[hits[0].span.start..hits[0].span.end], "L");
     assert_eq!(hits[0].span.line, Some(2));
 }
+
+// Symbol table lints
+
+/// The lints among `codes` reported for `source`.
+#[track_caller]
+fn only(codes: &[&str], source: &str) -> Vec<&'static str> {
+    lints(source)
+        .into_iter()
+        .filter(|c| codes.contains(c))
+        .collect()
+}
+
+#[test]
+fn duplicate_declaration() {
+    for source in [
+        "class Foo extends Object;\nvar int A;\nvar int a;\n",
+        "class Foo extends Object;\nconst A = 1;\nvar int A;\n",
+        "class Foo extends Object;\nfunction F();\nfunction F();\n",
+        "class Foo extends Object;\nfunction F(int A) { local int A; }\n",
+        "class Foo extends Object;\nfunction F() { local int L, L; }\n",
+        "class Foo extends Object;\nenum EA\n{\n    X,\n    X\n};\n",
+        "class Foo extends Object;\nstruct S\n{\n    var int M, M;\n};\n",
+        "class Foo extends Actor;\nstate S {}\nstate S {}\n",
+        "class Foo extends Actor;\nstate S\n{\nBegin:\n    Stop;\nBegin:\n    Stop;\n}\n",
+    ] {
+        assert_eq!(only(&["C011"], source), vec!["C011"], "{}", source);
+    }
+    for source in [
+        // A state's function overrides the class's.
+        "class Foo extends Actor;\nfunction F();\nstate S\n{\n    function F();\n}\n",
+        // Operators are overloaded by type.
+        "class Foo extends Object;\n\
+         native(1) static final operator(24) bool == (int A, int B);\n\
+         native(2) static final operator(24) bool == (float A, float B);\n",
+        // UCC accepts the same value in different enums.
+        "class Foo extends Object;\nenum EA\n{\n    X\n};\nenum EB\n{\n    X\n};\n",
+        // Different namespaces.
+        "class Foo extends Object;\nvar int A;\nfunction A();\n",
+        // Different functions.
+        "class Foo extends Object;\nfunction F() { local int L; }\nfunction G() { local int L; }\n",
+    ] {
+        assert_eq!(only(&["C011"], source), Vec::<&str>::new(), "{}", source);
+    }
+    let result = parse_program("class Foo extends Object;\nvar int A;\nvar int A;\n").unwrap();
+    let e = result
+        .errors
+        .iter()
+        .find(|e| e.lint == Some(Lint::DuplicateDeclaration))
+        .unwrap();
+    assert_eq!(e.message, "\"A\" is already declared on line 2");
+    assert_eq!(e.span.line, Some(3));
+    assert_eq!(e.severity, ProgramErrorSeverity::Error);
+}
+
+#[test]
+fn shadowed_variable() {
+    let source = function("local int I;", "A = I;");
+    assert_eq!(only(&["S015"], &source), vec!["S015"]);
+    let source = "class Foo extends Object;\nvar int V;\nfunction F(int V) {}\n";
+    assert_eq!(only(&["S015"], source), vec!["S015"]);
+    let source =
+        "class Foo extends Object;\nconst K = 1;\nfunction F() { local int K; K = 2; G(K); }\n";
+    assert_eq!(only(&["S015"], source), vec!["S015"]);
+    // Within a state.
+    let source =
+        "class Foo extends Actor;\nstate S\n{\n    const K = 1;\n    function F(int K) {}\n}\n";
+    assert_eq!(only(&["S015"], source), vec!["S015"]);
+
+    assert_eq!(
+        only(&["S015"], &function("local int L;", "A = L;")),
+        Vec::<&str>::new()
+    );
+    // Enum values and functions aren't variables.
+    let source = "class Foo extends Object;\nenum EA\n{\n    X\n};\nfunction G();\n\
+                  function F(int X, int G) {}\n";
+    assert_eq!(only(&["S015"], source), Vec::<&str>::new());
+}
+
+#[test]
+fn identifier_case_mismatch() {
+    assert_eq!(
+        only(&["N006"], &function("local int L;", "l = 1; A = L;")),
+        vec!["N006"]
+    );
+    assert_eq!(only(&["N006"], &function("", "i = A;")), vec!["N006"]);
+    let source =
+        "class Foo extends Object;\nvar int Speed;\ndefaultproperties\n{\n    speed=1\n}\n";
+    assert_eq!(only(&["N006"], source), vec!["N006"]);
+    let source = "class Foo extends Object;\nfunction Fire();\nfunction F() { fire(); }\n";
+    assert_eq!(only(&["N006"], source), vec!["N006"]);
+
+    assert_eq!(
+        only(&["N006"], &function("local int L;", "L = 1; A = L;")),
+        Vec::<&str>::new()
+    );
+    // Names the table can't resolve aren't checked.
+    assert_eq!(
+        only(&["N006"], &function("", "health = 1;")),
+        Vec::<&str>::new()
+    );
+}
+
+#[test]
+fn unused_private_member() {
+    for source in [
+        "class Foo extends Object;\nvar private int V;\n",
+        "class Foo extends Object;\nprivate function F();\n",
+        // A local of the same name hides it.
+        "class Foo extends Object;\nvar private int V;\nfunction F() { local int V; V = 1; G(V); }\n",
+    ] {
+        assert_eq!(only(&["R011"], source), vec!["R011"], "{}", source);
+    }
+    for source in [
+        "class Foo extends Object;\nvar private int V;\nfunction F() { G(V); }\n",
+        "class Foo extends Object;\nvar private int V;\nfunction F() { V = 1; }\n",
+        "class Foo extends Object;\nprivate function F();\nfunction G() { F(); }\n",
+        "class Foo extends Object;\nvar private int V;\ndefaultproperties\n{\n    V=1\n}\n",
+        "class Foo extends Actor;\nvar private int V;\n\
+         replication\n{\n    reliable if (bNetInitial)\n        V;\n}\n",
+        // Not private.
+        "class Foo extends Object;\nvar int V;\nvar protected int W;\nfunction F();\n",
+        // Native code may use it.
+        "class Foo extends Object\n    native;\nvar private int V;\n",
+        "class Foo extends Object;\nvar private native int V;\n",
+        "class Foo extends Object;\nprivate native function F();\n",
+        // Called by the engine or the console.
+        "class Foo extends Object;\nprivate event F();\n",
+        "class Foo extends Object;\nprivate exec function F();\n",
+        // Called through a state's override.
+        "class Foo extends Actor;\nprivate function F();\nstate S\n{\n    function F();\nBegin:\n    F();\n}\n",
+    ] {
+        assert_eq!(only(&["R011"], source), Vec::<&str>::new(), "{}", source);
+    }
+}

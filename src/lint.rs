@@ -132,6 +132,8 @@ lints! {
         "More than one of `private`, `protected` and `public`."),
     ByteValueOutOfRange = ("C010", "byte-value-out-of-range", Correctness, Warning,
         "A literal outside [0..255] assigned to a `byte`."),
+    DuplicateDeclaration = ("C011", "duplicate-declaration", Correctness, Error,
+        "A name declared more than once in the same scope."),
 
     // Suspicious
     EmptyBody = ("S001", "empty-body", Suspicious, Warning,
@@ -162,6 +164,8 @@ lints! {
         "A `defaultproperties` value whose literal type doesn't match the variable's type."),
     DuplicateReplicatedMember = ("S014", "duplicate-replicated-member", Suspicious, Warning,
         "A member listed more than once in the replication block."),
+    ShadowedVariable = ("S015", "shadowed-variable", Suspicious, Warning,
+        "A local or argument with the same name as a variable or const of the class."),
 
     // Performance
     ActorIteratorInPerFrameFunction = ("P001", "actor-iterator-in-per-frame-function", Performance, Warning,
@@ -188,6 +192,8 @@ lints! {
         "A local variable that is never used."),
     LocalSetButNeverUsed = ("R010", "local-set-but-never-used", Redundancy, Warning,
         "A local variable that is assigned to, but whose value is never used."),
+    UnusedPrivateMember = ("R011", "unused-private-member", Redundancy, Warning,
+        "A `private` variable or function that is never used in its class."),
 
     // Naming
     ConstNameCase = ("N001", "const-name-case", Naming, Warning,
@@ -200,6 +206,8 @@ lints! {
         "A `bool` variable name that doesn't begin with `b`."),
     ObjectLiteralTypeCase = ("N005", "object-literal-type-case", Naming, Warning,
         "An object literal type that doesn't begin with a capital letter, e.g. `texture'Foo'`."),
+    IdentifierCaseMismatch = ("N006", "identifier-case-mismatch", Naming, Warning,
+        "A name written with different capitalization than its declaration."),
 
     // Formatting
     BooleanLiteralCase = ("F001", "boolean-literal-case", Formatting, Warning,
