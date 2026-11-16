@@ -397,6 +397,7 @@ fn check_condition(predicate: &AstNode<Expression>, keyword: &str, visitor: &mut
 
 impl Visit for AstNode<ConstDeclaration> {
     fn visit(&self, visitor: &mut Visitor) {
+        self.value.visit(visitor);
         let name = &self.name.string;
         if name.to_case(Case::Constant).ne(name) {
             visitor.report(
@@ -1519,6 +1520,11 @@ impl Visit for AstNode<ClassDeclaration> {
             self.span,
             visitor,
         );
+        for modifier in &self.modifiers {
+            if let Some(arguments) = &modifier.arguments {
+                arguments.visit(visitor);
+            }
+        }
     }
 }
 

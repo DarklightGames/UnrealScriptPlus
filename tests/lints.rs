@@ -689,3 +689,24 @@ fn every_lint_is_documented() {
         }
     }
 }
+
+#[test]
+fn const_values_and_class_modifier_arguments_are_visited() {
+    assert_eq!(
+        only(&["F001"], "class Foo extends Object;\nconst B = True;\n"),
+        vec!["F001"]
+    );
+    assert_eq!(
+        only(
+            &["S012"],
+            "class Foo extends Object;\nconst R = rot(0, 1.5, 0);\n"
+        ),
+        vec!["S012"]
+    );
+    let source = "class Foo extends Object;\nfunction F() { const B = TRUE; }\n";
+    assert_eq!(only(&["F001"], source), vec!["F001"]);
+    assert_eq!(
+        only(&["R008"], "class Foo extends Object\n    config(User,,);\n"),
+        vec!["R008"]
+    );
+}
