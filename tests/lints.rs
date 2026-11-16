@@ -596,3 +596,62 @@ fn unused_private_member() {
         assert_eq!(only(&["R011"], source), Vec::<&str>::new(), "{}", source);
     }
 }
+
+#[test]
+fn redundant_self() {
+    for body in [
+        "Self.I = 1;",
+        "A = Self.I;",
+        "self.SetTimer(1.0, false);",
+        "Self.Arr[0] = 1;",
+        // Inherited members too: nothing in the function hides them.
+        "Self.Health = 1;",
+        "if (Self.bHidden) {}",
+        "Self.Other.Health = 1;",
+    ] {
+        assert_eq!(
+            only(&["R012"], &function("", body)),
+            vec!["R012"],
+            "{}",
+            body
+        );
+    }
+    for body in [
+        "I = 1;",
+        // The argument `A` hides the member.
+        "Self.A = A;",
+        // As does a local.
+        "local int Health; Self.Health = Health;",
+        "Other.Self = 1;",
+        // `Name` and `Class` alone would be read as types.
+        "Other.Tag = Self.Name;",
+        "if (Self.Class == class'Foo') {}",
+        "Other.Owner = Self;",
+    ] {
+        let (locals, body) = match body.strip_prefix("local int Health; ") {
+            Some(rest) => ("local int Health;", rest),
+            None => ("", body),
+        };
+        assert_eq!(
+            only(&["R012"], &function(locals, body)),
+            Vec::<&str>::new(),
+            "{}",
+            body
+        );
+    }
+
+    // In state code and state functions.
+    let source = "class Foo extends Actor;\nstate S\n{\n    function F(int X) { Self.X = X; Self.Y = 1; }\n\
+                  Begin:\n    Self.Z = 1;\n}\n";
+    assert_eq!(only(&["R012"], source), vec!["R012", "R012"]);
+
+    // The span covers just the qualifier.
+    let source = function("", "Self.I = 1;");
+    let result = parse_program(&source).unwrap();
+    let e = result
+        .errors
+        .iter()
+        .find(|e| e.lint == Some(Lint::RedundantSelf))
+        .unwrap();
+    assert_eq!(&source[e.span.start..e.span.end], "Self.");
+}

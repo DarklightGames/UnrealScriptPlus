@@ -821,6 +821,7 @@ impl Visit for AstNode<Expression> {
                 target.visit(visitor)
             }
             Expression::MemberAccess { operand, target } => {
+                check_redundant_self(operand, target, visitor);
                 operand.visit(visitor);
                 target.visit(visitor)
             }
@@ -842,6 +843,52 @@ impl Visit for AstNode<Expression> {
             }
         }
     }
+}
+
+/// Names that can't be written without a qualifier, because on their own
+/// they'd be read as a keyword or type.
+const RESERVED_MEMBER_NAMES: &[&str] = &[
+    "array", "bool", "byte", "class", "const", "default", "delegate", "enum", "false", "float",
+    "global", "int", "name", "new", "none", "rot", "self", "state", "static", "string", "struct",
+    "super", "true", "vect",
+];
+
+/// Reports `Self.X` where `X` alone would mean the same thing: when no scope
+/// between the code and its state or class (i.e. the function) declares an
+/// `X` to hide the member. This holds even if the member is inherited.
+fn check_redundant_self(
+    operand: &AstNode<Expression>,
+    target: &AstNode<Identifier>,
+    visitor: &mut Visitor,
+) {
+    let Expression::Identifier(self_) = &operand.data else {
+        return;
+    };
+    if !self_.eq_ignore_ascii_case("self") || is_name(target, RESERVED_MEMBER_NAMES) {
+        return;
+    }
+    let symbols = visitor.symbols;
+    let object_scope = symbols.object_scope(visitor.code.scope);
+    let mut scope = Some(visitor.code.scope);
+    while let Some(id) = scope.filter(|&id| id != object_scope) {
+        let s = symbols.scope(id);
+        if [Namespace::Value, Namespace::Function]
+            .iter()
+            .any(|&ns| !s.declarations(ns, target).is_empty())
+        {
+            return;
+        }
+        scope = s.parent;
+    }
+    visitor.report(
+        Lint::RedundantSelf,
+        format!("Redundant `{}.` qualifier", self_.string),
+        AstSpan {
+            start: operand.span.start,
+            end: target.span.start,
+            line: None,
+        },
+    )
 }
 
 fn check_dyadic_expression(

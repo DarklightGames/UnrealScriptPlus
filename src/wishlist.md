@@ -15,7 +15,7 @@
 * [ ] Enforce the use of `(` and `)` as target index specifiers in `defaultproperties` assignment targets.
 * [ ] Do not allow statements prior to the `class_declaration` (also simplifies the `program` rule.)
 * [ ] Do not allow multiple `defaultproperties` blocks (allowed by native UnrealScript, but is thoroughly broken)
-* [ ] Redundant `self` qualifiers.
+* [x] Redundant `self` qualifiers (R012 `redundant-self`).
 * [ ] Redundant empty `return` statements as last statement in function.
 * [ ] Non-`Actor` derived `Object`s holding references to `Actor`s. 
 

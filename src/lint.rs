@@ -194,6 +194,8 @@ lints! {
         "A local variable that is assigned to, but whose value is never used."),
     UnusedPrivateMember = ("R011", "unused-private-member", Redundancy, Warning,
         "A `private` variable or function that is never used in its class."),
+    RedundantSelf = ("R012", "redundant-self", Redundancy, Warning,
+        "A `Self.` qualifier that doesn't change what a name refers to."),
 
     // Naming
     ConstNameCase = ("N001", "const-name-case", Naming, Warning,
