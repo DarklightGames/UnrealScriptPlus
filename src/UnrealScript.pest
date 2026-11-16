@@ -27,7 +27,12 @@ float_literal_decimal = @{ (digit+ ~ "." ~ digit*) | ("." ~ digit+) }
 float_literal_scientific = @{ digit+ ~ ("." ~ digit*)? ~ ^"e" ~ ("+" | "-")? ~ digit+ }
 
 // has to have *either* the decimal or the E in order to be a float literal!
-float_literal = @{ ("-" | "+")? ~ (float_literal_scientific | float_literal_decimal) ~ ^"f"?}
+// A number with more than one decimal point (e.g. `0.0.5`), which UE2's
+// compiler accepts. Its value is the longest valid prefix (`0.0`), and it is
+// reported as a recovered problem. It is silent so that it does not change
+// error messages; it is recognised by its second `.`.
+float_literal_malformed = _{ digit+ ~ "." ~ digit* ~ ("." ~ digit*)+ }
+float_literal = @{ ("-" | "+")? ~ (float_literal_malformed | float_literal_scientific | float_literal_decimal) ~ ^"f"?}
 numeric_literal = { float_literal | integer_literal }
 
 string_literal_character = @{

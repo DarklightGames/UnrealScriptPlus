@@ -327,8 +327,7 @@ impl UnrealScriptParser {
     }
 
     fn float_literal(input: Node) -> Result<AstNode<NumericLiteral>> {
-        input
-            .as_str()
+        malformed_float_prefix(input.as_str())
             .to_lowercase()
             .trim_end_matches("f")
             .to_string()
@@ -1308,9 +1307,36 @@ fn line_of(lines: &[usize], position: usize) -> usize {
     lines.partition_point(|&newline| newline < position) + 1
 }
 
+/// For a float literal with more than one decimal point (e.g. `0.0.5`),
+/// returns the part before the second point; otherwise returns `text`.
+fn malformed_float_prefix(text: &str) -> &str {
+    match text.match_indices('.').nth(1) {
+        Some((i, _)) => &text[..i],
+        None => text,
+    }
+}
+
 /// Problems that permissive parsing recovered from.
-fn recovered_problems(program: &Program) -> Vec<ProgramError> {
+fn recovered_problems(root: &Node, program: &Program) -> Vec<ProgramError> {
     let mut problems = Vec::new();
+    for pair in root.as_pair().clone().into_inner().flatten() {
+        let text = pair.as_str();
+        if pair.as_rule() == Rule::float_literal && malformed_float_prefix(text) != text {
+            problems.push(ProgramError {
+                message: format!(
+                    "Malformed numeric literal {:?} was read as {:?}",
+                    text,
+                    malformed_float_prefix(text)
+                ),
+                span: AstSpan {
+                    start: pair.as_span().start(),
+                    end: pair.as_span().end(),
+                    line: None,
+                },
+                severity: ProgramErrorSeverity::Warning,
+            });
+        }
+    }
     for statement in &program.statements {
         if let ProgramStatement::DefaultProperties(d) = &statement.data {
             for diagnostic in &d.diagnostics {
@@ -1353,8 +1379,8 @@ pub fn parse_program_with(
     contents: &str,
     options: &ParseOptions,
 ) -> std::result::Result<ProgramResult, ParsingError> {
-    let program =
-        UnrealScriptParser::program(UnrealScriptParser::parse(Rule::program, contents)?.single()?)?;
+    let root = UnrealScriptParser::parse(Rule::program, contents)?.single()?;
+    let program = UnrealScriptParser::program(root.clone())?;
     let lines = calculate_lines(contents);
     let with_lines = |mut errors: Vec<ProgramError>| {
         for error in &mut errors {
@@ -1363,7 +1389,7 @@ pub fn parse_program_with(
         errors
     };
 
-    let recovered = with_lines(recovered_problems(&program));
+    let recovered = with_lines(recovered_problems(&root, &program));
     if options.mode == ParseMode::Strict && !recovered.is_empty() {
         return Err(ParsingError::Strict(recovered));
     }

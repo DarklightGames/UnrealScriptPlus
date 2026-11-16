@@ -387,3 +387,18 @@ fn defaultproperties_redundant_default_lint() {
         1
     );
 }
+
+#[test]
+fn malformed_float_literal() {
+    // From XVoting/Classes/MapVoteGameConfigPage.uc.
+    let source =
+        "class Foo extends Object;\nfunction F() { local float A; A = 0.0.5; A = -1.25.; }\n";
+    let (_, problems) = parse_recovering(source);
+    assert_eq!(
+        problems,
+        vec![
+            "Malformed numeric literal \"0.0.5\" was read as \"0.0\"",
+            "Malformed numeric literal \"-1.25.\" was read as \"-1.25\"",
+        ]
+    );
+}
