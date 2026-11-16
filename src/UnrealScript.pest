@@ -15,6 +15,7 @@ unqualified_identifier = @{ (alpha | "_") ~ (alpha | digit | "_")* }
 unqualified_identifier_list = _{ unqualified_identifier ~ (WS* ~ "," ~ WS* ~  unqualified_identifier)* }
 qualified_identifier = @{ unqualified_identifier ~ "." ~ unqualified_identifier }
 identifier = @{ qualified_identifier | unqualified_identifier }
+object_path = @{ unqualified_identifier ~ ("." ~ unqualified_identifier){2,} }
 
 // literals
 hex_digits = { ASCII_HEX_DIGIT+ }
@@ -23,7 +24,7 @@ integer_literal_hexadecimal = { ^"0x" ~ hex_digits }
 numeric_sign = { "-" | "+" }
 integer_literal = { numeric_sign? ~ (integer_literal_hexadecimal | integer_literal_decimal) }
 
-float_literal_decimal = @{ digit+ ~ "." ~ digit* }
+float_literal_decimal = @{ (digit+ ~ "." ~ digit*) | ("." ~ digit+) }
 float_literal_scientific = @{ digit+ ~ ("." ~ digit*)? ~ ^"e" ~ ("+" | "-")? ~ digit+ }
 
 // has to have *either* the decimal or the E in order to be a float literal!
@@ -118,7 +119,7 @@ var_size = { "[" ~ WS* ~ (integer_literal | unqualified_identifier) ~ WS* ~ "]" 
 var_name = { unqualified_identifier ~ (WS* ~ var_size)? }
 var_category = { "(" ~ WS* ~ unqualified_identifier? ~ WS* ~ ")" }
 var_modifiers = _{ (var_modifier ~ WS+)* }
-var_declaration = { ^"var" ~ (WS* ~ var_category)? ~ (WS+ ~ var_modifiers)? ~ WS* ~ type_ ~ WS+ ~ var_names ~ ";" }
+var_declaration = { ^"var" ~ (WS* ~ var_category)? ~ (WS+ ~ var_modifiers)? ~ WS* ~ type_ ~ WS+ ~ var_names ~ WS* ~ ";" }
 struct_var_editable = { "(" ~ WS* ~ ")" }
 struct_var_modifier = @{
     ^"const" |
@@ -130,11 +131,11 @@ struct_var_modifier = @{
     ^"localized" |
     ^"transient" |
     ^"edfindable" |
-    ^"editconst" |
     ^"editconstarray" |
-    ^"editinline" |
+    ^"editconst" |
     ^"editinlineuse" |
     ^"editinlinenotify" |
+    ^"editinline" |
     ^"export" |
     ^"noexport"
 }
@@ -209,7 +210,7 @@ replication_block = { ^"replication" ~ WS* ~ "{" ~ WS* ~ replication_statements?
 
 type_declaration_statement = _{ (enum_declaration | struct_declaration) ~ ";" }
 program_statement = { statement_empty | compiler_directive | const_declaration | var_declaration  | type_declaration_statement | function_declaration | replication_block | state_declaration | defaultproperties | cpptext }
-program_statement_pre = _{ compiler_directive | const_declaration }
+program_statement_pre = { compiler_directive | const_declaration }
 program_statement_pres = _{ program_statement_pre ~ (WS* ~ program_statement_pre)* }
 program_statements = _{ program_statement ~ (WS* ~ program_statement)* }
 program = { SOI ~ WS* ~ program_statement_pres? ~ WS* ~ class_declaration ~ WS* ~ program_statements? ~ WS* ~ EOI}
@@ -269,7 +270,7 @@ code_statements = _{ code_statement ~ (WS* ~ code_statement)* }
 code_statement_or_block = { code_statement | code_block }
 
 while_statement = { ^"while" ~ WS* ~ "(" ~ WS* ~ expression ~ WS* ~ ")" ~ WS* ~ code_statement_or_block }
-return_statement = { ^"return" ~ (WS+ ~ expression)? ~ WS* ~ ";" }
+return_statement = { ^"return" ~ !(alpha | digit | "_") ~ (WS* ~ expression)? ~ WS* ~ ";" }
 // constant = _{ literal | unqualified_identifier }
 // For some reason unbeknownst to mere mortals, UnrealScript allows two default cases in switch statements.
 
@@ -289,7 +290,7 @@ for_post = { expression }
 for_statement_inner = _{ for_init? ~ WS* ~ ";" ~ WS* ~ for_predicate? ~ WS* ~ ";" ~ WS* ~ for_post? }
 for_statement = { ^"for" ~ WS* ~ "(" ~ WS* ~ for_statement_inner ~ WS* ~ ")" ~ WS* ~ code_statement_or_block }
 
-do_until_statement = { ^"do" ~ WS* ~ code_statement_or_block ~ (WS* ~ ^"until" ~ WS* ~ "(" ~ WS* ~ expression ~ WS* ~ ")" ~ WS* ~ ";")? }
+do_until_statement = { ^"do" ~ WS* ~ code_statement_or_block ~ (WS* ~ ^"until" ~ WS* ~ "(" ~ WS* ~ expression ~ WS* ~ ")" ~ (WS* ~ ";")?)? }
 
 foreach_expression_atom = _{ array_access | ("." ~ default_access) | ("." ~ static_access) | member_access | call }
 foreach_expression = { primary ~ WS* ~ (foreach_expression_atom ~ WS*)* }
@@ -341,7 +342,7 @@ dyadic_verb = { dyadic_verb_native | unqualified_identifier }
 LWS = _{ " " | "\t" }
 defaultproperties_opening_bracket = _{ "(" | "[" }
 defaultproperties_closing_bracket = _{ ")" | "]" }
-defaultproperties_value = { literal | identifier | defaultproperties_struct | defaultproperties_array }
+defaultproperties_value = { literal | object_path | identifier | defaultproperties_struct | defaultproperties_array }
 defaultproperties_assignment = { defaultproperties_target ~ LWS* ~ "=" ~ LWS* ~ defaultproperties_value? ~ (LWS* ~ ";")* }
 defaultproperties_struct = { ("(" | "[") ~ LWS* ~ (defaultproperties_assignment ~ LWS* ~ ("," ~ LWS* ~ defaultproperties_assignment)*)? ~ LWS* ~ (")" | "]") }
 defaultproperties_array_comma = { "," }

@@ -32,7 +32,7 @@ impl<T: PartialEq> PartialEq for AstNode<T> {
 }
 
 #[derive(Debug, Eq, PartialEq, Hash, Clone, Display, EnumString)]
-#[strum(serialize_all = "lowercase")]
+#[strum(serialize_all = "lowercase", ascii_case_insensitive)]
 pub enum ClassModifierType {
     Abstract,
     CacheExempt,
@@ -70,7 +70,7 @@ impl ClassModifierType {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Ord, PartialOrd, Display, EnumString, Hash)]
-#[strum(serialize_all = "lowercase")]
+#[strum(serialize_all = "lowercase", ascii_case_insensitive)]
 pub enum FunctionModifierType {
     Exec,
     Final,
@@ -87,7 +87,7 @@ pub enum FunctionModifierType {
 }
 
 #[derive(Debug, PartialEq, Display, EnumString)]
-#[strum(serialize_all = "lowercase")]
+#[strum(serialize_all = "lowercase", ascii_case_insensitive)]
 pub enum FunctionArgumentModifier {
     Coerce,
     Optional,
@@ -96,7 +96,7 @@ pub enum FunctionArgumentModifier {
 }
 
 #[derive(Debug, PartialEq, Display, EnumString)]
-#[strum(serialize_all = "lowercase")]
+#[strum(serialize_all = "lowercase", ascii_case_insensitive)]
 pub enum StructModifier {
     Export,
     Init,
@@ -106,7 +106,7 @@ pub enum StructModifier {
 }
 
 #[derive(Debug, PartialEq, Display, EnumString)]
-#[strum(serialize_all = "lowercase")]
+#[strum(serialize_all = "lowercase", ascii_case_insensitive)]
 pub enum StructVarModifier {
     Config,
     Const,
@@ -127,14 +127,14 @@ pub enum StructVarModifier {
 }
 
 #[derive(Debug, PartialEq, Display, EnumString)]
-#[strum(serialize_all = "lowercase")]
+#[strum(serialize_all = "lowercase", ascii_case_insensitive)]
 pub enum StateModifier {
     Auto,
     Simulated,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, PartialOrd, Ord, Copy, Display, EnumString)]
-#[strum(serialize_all = "lowercase")]
+#[strum(serialize_all = "lowercase", ascii_case_insensitive)]
 pub enum VarModifier {
     Automated,
     Cache,
@@ -161,14 +161,14 @@ pub enum VarModifier {
 }
 
 #[derive(Debug, PartialEq, Display, EnumString)]
-#[strum(serialize_all = "lowercase")]
+#[strum(serialize_all = "lowercase", ascii_case_insensitive)]
 pub enum ReplicationReliability {
     Reliable,
     Unreliable,
 }
 
 #[derive(Debug, PartialEq, Display, EnumString)]
-#[strum(serialize_all = "lowercase")]
+#[strum(serialize_all = "lowercase", ascii_case_insensitive)]
 pub enum FunctionTypeType {
     Delegate,
     Event,
@@ -266,6 +266,8 @@ pub enum DyadicVerb {
     Dot,
     #[strum(serialize = "cross")]
     Cross,
+    #[strum(serialize = "clockwisefrom")]
+    ClockwiseFrom,
 }
 
 impl DyadicVerb {

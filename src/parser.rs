@@ -277,7 +277,9 @@ fn parse_expression_from_nodes(nodes: &[Node]) -> Result<Box<AstNode<Expression>
                 span: AstSpan::from(nodes),
                 data: Expression::DyadicExpression {
                     lhs: parse_expression_from_nodes(&nodes[..index - 0])?,
-                    verb: DyadicVerb::from_str(operator.as_str()).unwrap(),
+                    verb: DyadicVerb::from_str(operator.as_str()).map_err(|_| {
+                        nodes[*index].error(format!("Unrecognized dyadic verb: '{}'", operator))
+                    })?,
                     rhs: parse_expression_from_nodes(&nodes[index + 1..])?,
                 },
             }));
@@ -408,6 +410,15 @@ impl UnrealScriptParser {
     }
 
     fn identifier(input: Node) -> Result<AstNode<Identifier>> {
+        Ok(AstNode {
+            span: AstSpan::from(&input),
+            data: Identifier {
+                string: input.as_str().to_string(),
+            },
+        })
+    }
+
+    fn object_path(input: Node) -> Result<AstNode<Identifier>> {
         Ok(AstNode {
             span: AstSpan::from(&input),
             data: Identifier {
@@ -1012,6 +1023,8 @@ impl UnrealScriptParser {
         match_nodes_any!(input.into_children();
             const_declaration(c) => statements.push(FunctionBodyStatement::ConstDeclaration(c)),
             local_declaration(l) => statements.push(FunctionBodyStatement::LocalDeclaration(l)),
+            // stray semicolons between local declarations (e.g. `local int A;;`)
+            statement_empty(_e) => {},
             code_statement(c) => statements.push(FunctionBodyStatement::CodeStatement(c))
         );
         Ok(AstNode {
@@ -1185,6 +1198,7 @@ impl UnrealScriptParser {
             span: AstSpan::from(&input),
             data: match_nodes!(input.into_children();
                 [literal(l)] => DefaultPropertiesValue::Literal(l),
+                [object_path(l)] => DefaultPropertiesValue::Identifier(l),
                 [identifier(l)] => DefaultPropertiesValue::Identifier(l),
                 [defaultproperties_struct(s)] => DefaultPropertiesValue::Struct(s),
                 [defaultproperties_array(a)] => DefaultPropertiesValue::Array(a)
@@ -1234,19 +1248,19 @@ impl UnrealScriptParser {
         )
     }
 
-    fn cpp_body(input: Node) -> Result<String> {
+    fn cpp_body_outer(input: Node) -> Result<String> {
         Ok(input.as_str().to_string())
     }
 
     fn cpptext(input: Node) -> Result<String> {
         match_nodes!(input.into_children();
-            [cpp_body(b)] => Ok(b)
+            [cpp_body_outer(b)] => Ok(b)
         )
     }
 
     fn cppstruct(input: Node) -> Result<String> {
         match_nodes!(input.into_children();
-            [cpp_body(b)] => Ok(b)
+            [cpp_body_outer(b)] => Ok(b)
         )
     }
 
@@ -1273,10 +1287,21 @@ impl UnrealScriptParser {
         Ok(())
     }
 
+    fn program_statement_pre(input: Node) -> Result<AstNode<ProgramStatement>> {
+        Ok(AstNode {
+            span: AstSpan::from(&input),
+            data: match_nodes!(input.into_children();
+                [compiler_directive(c)] => ProgramStatement::CompilerDirective(c),
+                [const_declaration(c)] => ProgramStatement::ConstDeclaration(c)
+            ),
+        })
+    }
+
     fn program(input: Node) -> Result<Program> {
         let mut statements = Vec::new();
         let span = AstSpan::from(&input);
         match_nodes_any!(input.into_children();
+            program_statement_pre(s) => statements.push(s),
             program_statement(s) => statements.push(s),
             class_declaration(c) => statements.push(AstNode {
                 span,
