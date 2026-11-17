@@ -289,6 +289,8 @@ elif_statements = _{ elif_statement ~ (WS* ~ elif_statement)* }
 else_statement = { ^"else" ~ WS* ~ code_statement_or_block }
 conditional_statement = { (if_statement ~ WS* ~ elif_statements? ~ WS* ~ else_statement?) | if_statement_empty }
 expression = { expression_inner }
+// A whole input that is one expression, for `parse_expression`.
+expression_input = { SOI ~ WS* ~ expression ~ WS* ~ EOI }
 
 for_init = { expression }
 for_predicate = { expression }

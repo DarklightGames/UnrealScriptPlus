@@ -676,3 +676,28 @@ fn errors_propagate_out_of_every_kind_of_expression() {
         }
     }
 }
+
+#[test]
+fn parse_expression_requires_the_whole_input() {
+    for source in [
+        "A +",
+        "A B",
+        "Foo(1) garbage",
+        "A = 1; B = 2;",
+        "X)",
+        "1 2 3",
+        "A + B ** ",
+    ] {
+        assert!(
+            matches!(
+                unrealscript_parser::parse_expression(source),
+                Err(ParsingError::PestError(_))
+            ),
+            "{} should not parse",
+            source
+        );
+    }
+    // Surrounding whitespace is fine.
+    let e = expression("  A + B \n");
+    assert_eq!(e.span.end - e.span.start, "A + B".len());
+}

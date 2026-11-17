@@ -1393,13 +1393,19 @@ pub fn parse_program_with(
     })
 }
 
+/// Parses `contents` as one expression. The whole input must be the
+/// expression, apart from surrounding whitespace.
 pub fn parse_expression(
     contents: &str,
 ) -> std::result::Result<Box<AstNode<Expression>>, ParsingError> {
-    let root = UnrealScriptParser::parse(Rule::expression, contents)?
+    let root = UnrealScriptParser::parse(Rule::expression_input, contents)?
         .single()
         .expect("a parse has exactly one root");
-    Ok(UnrealScriptParser::expression(root)?)
+    let expression = root
+        .into_children()
+        .next()
+        .expect("the grammar gives an expression input an expression");
+    Ok(UnrealScriptParser::expression(expression)?)
 }
 
 /// Parse text starting at a specific grammar rule.
