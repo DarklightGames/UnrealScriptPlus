@@ -203,6 +203,8 @@ lints! {
         "A `private` variable or function that is never used in its class."),
     RedundantSelf = ("R012", "redundant-self", Redundancy, Warning,
         "A `Self.` qualifier that doesn't change what a name refers to."),
+    RedundantReturn = ("R013", "redundant-return", Redundancy, Warning,
+        "A bare `return;` as the last statement of a function."),
 
     // Naming
     ConstNameCase = ("N001", "const-name-case", Naming, Warning,

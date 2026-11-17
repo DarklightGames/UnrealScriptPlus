@@ -1493,6 +1493,9 @@ impl Visit for AstNode<FunctionDeclaration> {
             }
             visitor.report_unused_locals(scope);
         });
+        if let (None, Some(body)) = (&self.return_type, &self.body) {
+            check_redundant_return(body, visitor);
+        }
         if let (Some(_), Some(body)) = (&self.return_type, &self.body) {
             let statements: Vec<_> = body
                 .statements
@@ -1512,6 +1515,29 @@ impl Visit for AstNode<FunctionDeclaration> {
                     self.name.span,
                 )
             }
+        }
+    }
+}
+
+/// Reports a bare `return;` that ends a function with no return type. A body
+/// that is nothing but `return;` is left alone: it's a deliberate stub that
+/// overrides the parent's behaviour.
+fn check_redundant_return(body: &AstNode<FunctionBody>, visitor: &mut Visitor) {
+    let code: Vec<_> = body
+        .statements
+        .iter()
+        .filter_map(|s| match s {
+            FunctionBodyStatement::CodeStatement(c) => Some(c),
+            _ => None,
+        })
+        .collect();
+    if let [_, .., last] = code.as_slice() {
+        if matches!(last.data, CodeStatement::Return(None)) {
+            visitor.report(
+                Lint::RedundantReturn,
+                "`return;` at the end of a function has no effect",
+                last.span,
+            )
         }
     }
 }

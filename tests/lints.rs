@@ -1208,3 +1208,32 @@ fn breaks_in_branches_leave_the_loop() {
         Vec::<&str>::new()
     );
 }
+
+#[test]
+fn redundant_return() {
+    let class = |body: &str| {
+        format!(
+            "class Foo extends Object;\nfunction F(int A) {{ {} }}\n",
+            body
+        )
+    };
+    for body in ["A = 1; return;", "local int B; B = A; return;"] {
+        assert_eq!(only(&["R013"], &class(body)), vec!["R013"], "{}", body);
+    }
+    for body in [
+        "",
+        "return;",
+        "local int B; return;",
+        "if (A > 0) return; A = 1;",
+        "A = 1; if (A > 0) return;",
+    ] {
+        assert_eq!(
+            only(&["R013"], &class(body)),
+            Vec::<&str>::new(),
+            "{}",
+            body
+        );
+    }
+    let source = "class Foo extends Object;\nfunction int F() { F(); return 1; }\nfunction G();\n";
+    assert_eq!(only(&["R013"], source), Vec::<&str>::new());
+}

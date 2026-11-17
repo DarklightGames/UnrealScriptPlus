@@ -7,7 +7,6 @@ Ideas that aren't implemented yet. For the lints that exist, see
 
 ### Per file
 
-* Redundant empty `return;` as the last statement of a function.
 * Non-exhaustive `switch` on an `enum` value, for enums declared in the file.
 * `[]` instead of `()` as the array index in a `defaultproperties` target.
 * Statements (`#exec`, `const`) before the class declaration. Parsing this

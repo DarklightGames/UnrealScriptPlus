@@ -109,6 +109,7 @@ number of problems and files for each lint.
 | R010 | `local-set-but-never-used` | Warning | A local variable that is only ever assigned, incremented or compound-assigned. Passing it to a function, `X.Y = ...` and `X[i] = ...` count as uses. |
 | R011 | `unused-private-member` | Warning | A `private` variable or function that nothing in the file uses. Replication and `defaultproperties` count as uses. Not reported for native classes or members, events, delegates or `exec` functions. |
 | R012 | `redundant-self` | Warning | A `Self.` qualifier that doesn't change what a name refers to: no argument, local or const of the enclosing function hides the member. |
+| R013 | `redundant-return` | Warning | A bare `return;` as the last statement of a function. A body that is only `return;` is allowed, since it deliberately stubs out the parent's version. |
 
 ### Naming
 
