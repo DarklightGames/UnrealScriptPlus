@@ -285,6 +285,7 @@ impl DyadicVerb {
     }
 }
 
+#[derive(Debug)]
 pub struct Program {
     pub statements: Vec<AstNode<ProgramStatement>>,
 }
