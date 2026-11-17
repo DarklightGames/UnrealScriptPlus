@@ -701,3 +701,28 @@ fn parse_expression_requires_the_whole_input() {
     let e = expression("  A + B \n");
     assert_eq!(e.span.end - e.span.start, "A + B".len());
 }
+
+#[test]
+fn expression_spans_cover_their_operands() {
+    for source in [
+        "Foo(1)",
+        "Other.Health",
+        "Arr[0]",
+        "Other.default.Health",
+        "class'Foo'.static.F()",
+        "Foo(1).Bar[2].Baz(3)",
+        "global.F(1)",
+        "default.Health",
+    ] {
+        let e = expression(source);
+        assert_eq!(&source[e.span.start..e.span.end], source);
+    }
+    // ...and an operand's span is its own.
+    use unrealscript_parser::ast::Expression;
+    let source = "Foo(1).Bar";
+    let e = expression(source);
+    let Expression::MemberAccess { operand, .. } = &e.data else {
+        panic!()
+    };
+    assert_eq!(&source[operand.span.start..operand.span.end], "Foo(1)");
+}

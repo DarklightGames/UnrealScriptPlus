@@ -1066,3 +1066,15 @@ fn more_expression_branches() {
     // A negation alone does nothing.
     assert_eq!(only(&["S002"], &function("", "!bX;")), vec!["S002"]);
 }
+
+#[test]
+fn problems_in_calls_cover_the_whole_call() {
+    let source = function("", "Sleep(1.0);");
+    let result = parse_program(&source).unwrap();
+    let e = result
+        .errors
+        .iter()
+        .find(|e| e.lint == Some(Lint::LatentCallOutsideStateCode))
+        .unwrap();
+    assert_eq!(&source[e.span.start..e.span.end], "Sleep(1.0)");
+}

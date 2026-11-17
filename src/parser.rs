@@ -122,7 +122,9 @@ fn only_child<'i>(node: &Node<'i>) -> Node<'i> {
 
 fn parse_target(nodes: &[Node]) -> Result<Box<AstNode<Expression>>> {
     let (node, remaining) = nodes.split_last().unwrap();
-    let span = AstSpan::from(node);
+    // The whole target, including any operand before the last node (e.g.
+    // `Foo` in `Foo(1)`).
+    let span = AstSpan::from(nodes);
     let operand = |remaining: &[Node]| match remaining.is_empty() {
         true => Ok(None),
         false => parse_expression_from_nodes(remaining).map(Some),
