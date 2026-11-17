@@ -726,3 +726,49 @@ fn expression_spans_cover_their_operands() {
     };
     assert_eq!(&source[operand.span.start..operand.span.end], "Foo(1)");
 }
+
+#[test]
+fn identifiers_starting_with_do_and_else() {
+    use unrealscript_parser::ast::{CodeStatement, FunctionBodyStatement, ProgramStatement};
+    // `DoJump();` once parsed as `do Jump();`, and `elseValue = 1;` as
+    // `else Value = 1;`.
+    let source = "class Foo extends Object;\nfunction F() { local int doValue, elseValue;\n\
+                  DoJump(); doValue = 1; if (doValue > 0) G(); elseValue = 2;\n\
+                  do { G(); } until (doValue > 0)\ndo{ G(); }\nif (doValue > 0) G(); else{ G(); } }\n";
+    let result = assert_parses(source);
+    let body = result
+        .program
+        .statements
+        .iter()
+        .find_map(|s| match &s.data {
+            ProgramStatement::FunctionDeclaration(f) => f.body.as_ref(),
+            _ => None,
+        })
+        .unwrap();
+    let kinds: Vec<&str> = body
+        .statements
+        .iter()
+        .filter_map(|s| match s {
+            FunctionBodyStatement::CodeStatement(s) => Some(match &s.data {
+                CodeStatement::Expression(_) => "expression",
+                CodeStatement::DoUntil(_) => "do",
+                CodeStatement::Conditional(c) if c.else_statement.is_some() => "if-else",
+                CodeStatement::Conditional(_) => "if",
+                _ => "other",
+            }),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        kinds,
+        vec![
+            "expression",
+            "expression",
+            "if",
+            "expression",
+            "do",
+            "do",
+            "if-else"
+        ]
+    );
+}

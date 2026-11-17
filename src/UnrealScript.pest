@@ -286,7 +286,7 @@ if_statement_empty = { ^"if" ~ WS* ~ "(" ~ WS* ~ expression ~ WS* ~ ")" }
 if_statement = { ^"if" ~ WS* ~ "(" ~ WS* ~ expression ~ WS* ~ ")" ~ WS* ~ code_statement_or_block }
 elif_statement = { ^"else" ~ WS+ ~ ^"if" ~ WS* ~ "(" ~ WS* ~ expression ~ WS* ~ ")" ~ WS* ~ code_statement_or_block }
 elif_statements = _{ elif_statement ~ (WS* ~ elif_statement)* }
-else_statement = { ^"else" ~ WS* ~ code_statement_or_block }
+else_statement = { ^"else" ~ !(alpha | digit | "_") ~ WS* ~ code_statement_or_block }
 conditional_statement = { (if_statement ~ WS* ~ elif_statements? ~ WS* ~ else_statement?) | if_statement_empty }
 expression = { expression_inner }
 // A whole input that is one expression, for `parse_expression`.
@@ -298,7 +298,7 @@ for_post = { expression }
 for_statement_inner = _{ for_init? ~ WS* ~ ";" ~ WS* ~ for_predicate? ~ WS* ~ ";" ~ WS* ~ for_post? }
 for_statement = { ^"for" ~ WS* ~ "(" ~ WS* ~ for_statement_inner ~ WS* ~ ")" ~ WS* ~ code_statement_or_block }
 
-do_until_statement = { ^"do" ~ WS* ~ code_statement_or_block ~ (WS* ~ ^"until" ~ WS* ~ "(" ~ WS* ~ expression ~ WS* ~ ")" ~ (WS* ~ ";")?)? }
+do_until_statement = { ^"do" ~ !(alpha | digit | "_") ~ WS* ~ code_statement_or_block ~ (WS* ~ ^"until" ~ WS* ~ "(" ~ WS* ~ expression ~ WS* ~ ")" ~ (WS* ~ ";")?)? }
 
 foreach_expression_atom = _{ array_access | ("." ~ default_access) | ("." ~ static_access) | member_access | call }
 foreach_expression = { primary ~ WS* ~ (foreach_expression_atom ~ WS*)* }
