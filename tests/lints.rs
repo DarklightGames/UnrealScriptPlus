@@ -326,9 +326,9 @@ fn duplicate_replicated_member() {
 #[test]
 fn actor_iterator_in_per_frame_function() {
     let source = "class Foo extends Actor;\nfunction Tick(float DT)\n{\n    local Pawn P;\n\
-                  \x20   foreach DynamicActors(class'Pawn', P) {}\n\
-                  \x20   foreach RadiusActors(class'Pawn', P, 100) {}\n}\n\
-                  function Timer()\n{\n    local Pawn P;\n    foreach AllActors(class'Pawn', P) {}\n}\n";
+                  \x20   foreach DynamicActors(Class'Pawn', P) {}\n\
+                  \x20   foreach RadiusActors(Class'Pawn', P, 100) {}\n}\n\
+                  function Timer()\n{\n    local Pawn P;\n    foreach AllActors(Class'Pawn', P) {}\n}\n";
     assert_eq!(lints(source), vec!["P001"]);
 }
 
@@ -751,11 +751,15 @@ fn const_name_case() {
 #[test]
 fn object_literal_case() {
     assert_eq!(
-        only(&["F002"], &function("", "G(Class'Actor');")),
+        only(&["F002"], &function("", "G(class'Actor');")),
         vec!["F002"]
     );
     assert_eq!(
-        only(&["F002"], &function("", "G(class'Actor');")),
+        only(&["F002"], &function("", "G(CLASS'Actor'); G(enum'EFoo');")),
+        vec!["F002", "F002"]
+    );
+    assert_eq!(
+        only(&["F002"], &function("", "G(Class'Actor'); G(Enum'EFoo');")),
         Vec::<&str>::new()
     );
     assert_eq!(

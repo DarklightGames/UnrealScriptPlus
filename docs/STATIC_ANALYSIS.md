@@ -127,7 +127,7 @@ number of problems and files for each lint.
 | Code | Name | Severity | Reports |
 |---|---|---|---|
 | F001 | `boolean-literal-case` | Warning | A boolean literal that isn't lowercase. |
-| F002 | `object-literal-keyword-case` | Warning | A `class'...'` or `enum'...'` keyword that isn't lowercase. |
+| F002 | `object-literal-keyword-case` | Warning | A `class'...'` or `enum'...'` keyword that isn't written `Class` or `Enum`, e.g. `class'Foo'` or `ENUM'Bar'`. |
 | F003 | `unsorted-modifiers` | Warning | Variable or function modifiers that aren't in alphabetical order. |
 
 ## Problems that aren't lints

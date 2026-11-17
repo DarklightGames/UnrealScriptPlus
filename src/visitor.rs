@@ -469,12 +469,14 @@ impl Visit for AstNode<Literal> {
             Literal::Vector(_) => {}
             Literal::Object { type_, .. } => match type_.to_lowercase().as_str() {
                 "class" | "enum" => {
-                    if type_.to_lowercase().as_str() != type_.as_str() {
+                    let lower = type_.to_lowercase();
+                    let expected = format!("{}{}", lower[..1].to_uppercase(), &lower[1..]);
+                    if expected != type_.as_str() {
                         visitor.report(
                             Lint::ObjectLiteralKeywordCase,
                             format!(
-                                "Type specifier for class and enum object literals should be lowercase (e.g., {} instead of {})",
-                                type_.to_lowercase(),
+                                "Type specifier for class and enum object literals should be capitalized (e.g., {} instead of {})",
+                                expected,
                                 type_.as_str()
                             ),
                             type_.span,

@@ -224,7 +224,7 @@ lints! {
     BooleanLiteralCase = ("F001", "boolean-literal-case", Formatting, Warning,
         "A boolean literal that isn't lowercase."),
     ObjectLiteralKeywordCase = ("F002", "object-literal-keyword-case", Formatting, Warning,
-        "A `class'...'` or `enum'...'` keyword that isn't lowercase."),
+        "A `class'...'` or `enum'...'` keyword that isn't written `Class` or `Enum`."),
     UnsortedModifiers = ("F003", "unsorted-modifiers", Formatting, Warning,
         "Modifiers that aren't in alphabetical order."),
 }
