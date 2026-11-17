@@ -10,6 +10,7 @@ UnrealScript and running static analysis on it:
 | Crate | Contents |
 |---|---|
 | `crates/usagi-core` | The library (`usagi_core`): parser, AST, symbol table and lints. |
+| `crates/usagi-cli` | The `usagi` binary: `parse`, `lint`, `rule` and configuration files. Its tests are in `tests/cli.rs`. |
 
 Paths below are relative to `crates/usagi-core`.
 
@@ -64,6 +65,16 @@ and quirks that are accepted silently, and it explains how to add a new rule.
 **Keep it up to date:** whenever the parser starts accepting or recovering
 from something new, add it to that document in the same change, together with
 a regression test in `tests/programs.rs`.
+
+## The CLI
+
+**Keep [`docs/CLI.md`](docs/CLI.md) up to date.** It documents every command,
+flag, output format, exit code and configuration setting of `usagi`. Update it
+in the same change as the CLI, and add a test to
+`crates/usagi-cli/tests/cli.rs`.
+
+Releases are built by `.github/workflows/release.yml` when a `v*` tag is
+pushed.
 
 ## Static analysis
 

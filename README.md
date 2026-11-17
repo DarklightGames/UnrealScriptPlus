@@ -8,6 +8,36 @@ The end-goal is to allow for the addition of new language features and to allow 
 
 This project is in the very early stages of development. More information will be added as the project develops.
 
+## Installation
+
+Download `usagi` for Linux or Windows from the
+[Releases](https://github.com/DarklightGames/UnrealScriptPlus/releases) page, or
+build it from source:
+
+```sh
+cargo install --path crates/usagi-cli
+```
+
+## Usage
+
+```sh
+usagi lint                          # lint every .uc file under the current directory
+usagi lint --select C,S MyPackage   # only correctness and suspicious lints
+usagi parse --statistics .          # check that everything parses
+usagi rule S003                     # explain a lint
+```
+
+Settings can be kept in a `usagi.toml`:
+
+```toml
+exclude = ["Engine", "UnrealGame"]
+
+[lint]
+ignore = ["naming"]
+```
+
+See [docs/CLI.md](docs/CLI.md) for every command, flag and setting.
+
 ## Static analysis
 
 UnrealScriptPlus reports likely bugs, redundant code and style problems. See

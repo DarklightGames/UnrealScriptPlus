@@ -22,6 +22,13 @@ Ideas that aren't implemented yet. For the lints that exist, see
 * A non-`Actor` `Object` that holds references to `Actor`s.
 * Exhaustive `switch` checking for enums declared in other classes.
 
+## CLI
+
+* Inline suppression comments, e.g. `// usagi: ignore[S008]`.
+* `usagi format`.
+* `usagi lint --fix` for lints with an obvious fix (R002, R008, R012, R013, F001, F002).
+* SARIF output, for GitHub code scanning.
+
 ## Syntax sugar
 
 ### Initializers on local declarations
