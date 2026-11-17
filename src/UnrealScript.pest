@@ -278,10 +278,10 @@ code_statement_or_block = { code_statement | code_block }
 while_statement = { ^"while" ~ WS* ~ "(" ~ WS* ~ expression ~ WS* ~ ")" ~ WS* ~ code_statement_or_block }
 return_statement = { ^"return" ~ !(alpha | digit | "_") ~ (WS* ~ expression)? ~ WS* ~ ";" }
 // constant = _{ literal | unqualified_identifier }
-// For some reason unbeknownst to mere mortals, UnrealScript allows two default cases in switch statements.
 
 // CONTROL FLOW
-jump_label = { unqualified_identifier ~ WS* ~ ":" }
+// `default:` starts a switch's default case; it is not a label.
+jump_label = { !(^"default" ~ WS* ~ ":") ~ unqualified_identifier ~ WS* ~ ":" }
 if_statement_empty = { ^"if" ~ WS* ~ "(" ~ WS* ~ expression ~ WS* ~ ")" }
 if_statement = { ^"if" ~ WS* ~ "(" ~ WS* ~ expression ~ WS* ~ ")" ~ WS* ~ code_statement_or_block }
 elif_statement = { ^"else" ~ WS+ ~ ^"if" ~ WS* ~ "(" ~ WS* ~ expression ~ WS* ~ ")" ~ WS* ~ code_statement_or_block }
@@ -301,7 +301,9 @@ do_until_statement = { ^"do" ~ WS* ~ code_statement_or_block ~ (WS* ~ ^"until" ~
 foreach_expression_atom = _{ array_access | ("." ~ default_access) | ("." ~ static_access) | member_access | call }
 foreach_expression = { primary ~ WS* ~ (foreach_expression_atom ~ WS*)* }
 foreach_statement = { ^"foreach" ~ WS+ ~ foreach_expression ~ WS* ~ code_statement_or_block }
-switch_statement = { ^"switch" ~ WS* ~ "(" ~ WS* ~ expression ~ WS* ~ ")" ~ WS* ~ "{" ~ (WS* ~ switch_case)* ~ WS* ~ switch_default_case? ~ WS* ~ "}" }
+// For some reason unbeknownst to mere mortals, UnrealScript allows more than
+// one default case, and default cases anywhere in a switch statement.
+switch_statement = { ^"switch" ~ WS* ~ "(" ~ WS* ~ expression ~ WS* ~ ")" ~ WS* ~ "{" ~ (WS* ~ (switch_case | switch_default_case))* ~ WS* ~ "}" }
 switch_case_label = { ^"case" ~ WS+ ~ expression ~ WS* ~ ":" }
 switch_default_case_label = _{ ^"default" ~ WS* ~ ":" }
 switch_case = { switch_case_label ~ WS* ~ code_statements? }

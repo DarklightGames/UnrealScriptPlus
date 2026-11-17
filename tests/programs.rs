@@ -427,3 +427,68 @@ fn argument_list_slots() {
         assert_eq!(slots, expected, "{}", source);
     }
 }
+#[test]
+fn switch_default_cases() {
+    use unrealscript_parser::ast::{
+        CodeStatement, FunctionBodyStatement, ProgramStatement, SwitchCaseType,
+    };
+    // `true` for a `case`, `false` for a `default`, with each one's
+    // statement count.
+    for (cases, expected) in [
+        (
+            "case 1: break; default: break;",
+            vec![(true, 1), (false, 1)],
+        ),
+        // `default:` after a case's statements used to be read as a label.
+        (
+            "case 1: A = 1; default: A = 2;",
+            vec![(true, 1), (false, 1)],
+        ),
+        (
+            "default: A = 1; case 1: break;",
+            vec![(false, 1), (true, 1)],
+        ),
+        (
+            "default: break; default: break;",
+            vec![(false, 1), (false, 1)],
+        ),
+        // Labels named like `default` are still labels.
+        ("case 1: defaultX: A = 1;", vec![(true, 2)]),
+    ] {
+        let source = format!(
+            "class Foo extends Object;\nfunction F(int A) {{ switch (A) {{ {} }} }}\n",
+            cases
+        );
+        let result = assert_parses(&source);
+        let switch = result
+            .program
+            .statements
+            .iter()
+            .find_map(|s| match &s.data {
+                ProgramStatement::FunctionDeclaration(f) => f.body.as_ref(),
+                _ => None,
+            })
+            .and_then(|body| {
+                body.statements.iter().find_map(|s| match s {
+                    FunctionBodyStatement::CodeStatement(s) => match &s.data {
+                        CodeStatement::Switch(switch) => Some(switch),
+                        _ => None,
+                    },
+                    _ => None,
+                })
+            })
+            .unwrap();
+        let actual: Vec<_> = switch
+            .cases
+            .iter()
+            .map(|c| {
+                (
+                    matches!(c.type_, SwitchCaseType::Expression(_)),
+                    c.statements.len(),
+                )
+            })
+            .collect();
+        assert_eq!(actual, expected, "{}", cases);
+    }
+}
+

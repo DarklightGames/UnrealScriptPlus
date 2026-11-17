@@ -730,3 +730,26 @@ fn trailing_empty_arguments() {
         );
     }
 }
+#[test]
+fn default_case_fallthrough() {
+    // A `default` that isn't last can fall through too.
+    let source = function("", "switch (A) { default: A = 1; case 1: break; }");
+    assert_eq!(only(&["S008"], &source), vec!["S008"]);
+    let result = parse_program(&source).unwrap();
+    let e = result
+        .errors
+        .iter()
+        .find(|e| e.lint == Some(Lint::SwitchCaseFallthrough))
+        .unwrap();
+    // Reported at the last statement, as a `default` has no value to point at.
+    assert_eq!(&source[e.span.start..e.span.end], "A = 1;");
+    // A case before `default` is checked like any other.
+    assert_eq!(
+        only(
+            &["S008"],
+            &function("", "switch (A) { case 1: A = 1; default: break; }")
+        ),
+        vec!["S008"]
+    );
+}
+

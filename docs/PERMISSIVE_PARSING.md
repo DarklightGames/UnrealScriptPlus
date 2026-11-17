@@ -98,7 +98,7 @@ These are accepted silently in both modes.
 |---|---|
 | The `;` after `do ... until (...)` is optional. | `do { I++; } until (I > 3)` |
 | An `if` with no body at all, usually because the body was commented out. This is reported by lint S001 `empty-body`. | `if (A > 0)`<br>`// DoSomething();`<br>`}` |
-| Two `default:` labels in a `switch`. The second is currently parsed as a jump label inside the first default case. | `default: break; default: break;` |
+| More than one `default:` in a `switch`, and `default:` before other cases. Each is parsed as a default case. | `default: break; default: break;`<br>`default: A = 1; case 1: break;` |
 | A `goto` label may be quoted or not. | `goto 'Begin';`, `goto Begin;` |
 
 ### `defaultproperties`
