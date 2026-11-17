@@ -126,7 +126,10 @@ pub enum SymbolKind {
         modifiers: Vec<FunctionModifierType>,
         has_body: bool,
     },
-    State,
+    State {
+        /// The state it `extends`, if any.
+        extends: Option<Identifier>,
+    },
     Label,
 }
 
@@ -141,7 +144,7 @@ impl SymbolKind {
             | SymbolKind::StructMember { .. } => Namespace::Value,
             SymbolKind::Function { .. } => Namespace::Function,
             SymbolKind::Enum | SymbolKind::Struct => Namespace::Type,
-            SymbolKind::State => Namespace::State,
+            SymbolKind::State { .. } => Namespace::State,
             SymbolKind::Label => Namespace::Label,
         }
     }
@@ -570,7 +573,9 @@ impl SymbolTable {
         let id = self.add(
             ScopeId::CLASS,
             &state.name,
-            SymbolKind::State,
+            SymbolKind::State {
+                extends: state.parent.as_ref().map(|p| p.data.clone()),
+            },
             Access::Public,
         );
         let scope = self.add_scope(ScopeKind::State(id), Some(ScopeId::CLASS));
@@ -584,12 +589,48 @@ impl SymbolTable {
         }
         for label in &state.labels {
             self.add(scope, &label.label, SymbolKind::Label, Access::Public);
-            // Later labels can be parsed as jump labels in this one's code.
-            for statement in &label.statements {
-                if let CodeStatement::JumpLabel(name) = &statement.data {
+            // Labels can also appear anywhere in the code, even in blocks.
+            self.declare_labels(scope, &label.statements);
+        }
+    }
+
+    fn declare_labels(&mut self, scope: ScopeId, statements: &[AstNode<CodeStatement>]) {
+        for statement in statements {
+            match &statement.data {
+                CodeStatement::JumpLabel(name) => {
                     self.add(scope, name, SymbolKind::Label, Access::Public);
                 }
+                CodeStatement::Conditional(c) => {
+                    let bodies = c
+                        .if_statement
+                        .body
+                        .iter()
+                        .chain(c.elif_statements.iter().map(|e| &e.body))
+                        .chain(c.else_statement.iter().map(|e| &e.body));
+                    for body in bodies {
+                        self.declare_labels_in(scope, body);
+                    }
+                }
+                CodeStatement::ForEach(f) => self.declare_labels_in(scope, &f.body),
+                CodeStatement::For(f) => self.declare_labels_in(scope, &f.body),
+                CodeStatement::While(w) => self.declare_labels_in(scope, &w.body),
+                CodeStatement::DoUntil(d) => self.declare_labels_in(scope, &d.body),
+                CodeStatement::Switch(s) => {
+                    for case in &s.cases {
+                        self.declare_labels(scope, &case.statements);
+                    }
+                }
+                _ => {}
             }
+        }
+    }
+
+    fn declare_labels_in(&mut self, scope: ScopeId, body: &AstNode<CodeStatementOrBlock>) {
+        match &body.data {
+            CodeStatementOrBlock::CodeStatement(s) => {
+                self.declare_labels(scope, std::slice::from_ref(s))
+            }
+            CodeStatementOrBlock::CodeBlock(b) => self.declare_labels(scope, &b.statements),
         }
     }
 
@@ -678,6 +719,28 @@ fn unparenthesize(mut expression: &AstNode<Expression>) -> &AstNode<Expression> 
         expression = inner;
     }
     expression
+}
+
+/// The name in a name literal such as `'Begin'`, spanning the text between
+/// the quotes. `''` (no name) is `None`.
+pub fn name_literal(expression: &AstNode<Expression>) -> Option<AstNode<Identifier>> {
+    let Expression::Literal(literal) = &expression.data else {
+        return None;
+    };
+    let Literal::Name(name) = &literal.data else {
+        return None;
+    };
+    if name.is_empty() {
+        return None;
+    }
+    Some(AstNode {
+        data: Identifier::new(name),
+        span: AstSpan {
+            start: literal.span.start + 1,
+            end: literal.span.end - 1,
+            line: None,
+        },
+    })
 }
 
 fn is_self(expression: &AstNode<Expression>) -> bool {
@@ -998,6 +1061,93 @@ impl Resolver<'_> {
         }
     }
 
+    /// Records the state and label named by `Goto('Label')` and
+    /// `GotoState('State', 'Label')`.
+    fn state_transition(
+        &mut self,
+        callee: &AstNode<Expression>,
+        arguments: &AstNode<ExpressionList>,
+    ) {
+        let Expression::Identifier(function) = &callee.data else {
+            return;
+        };
+        let names: Vec<Option<AstNode<Identifier>>> = arguments
+            .expressions
+            .iter()
+            .map(|a| a.as_deref().and_then(name_literal))
+            .collect();
+        if function.eq_ignore_ascii_case("goto") {
+            if let Some(Some(label)) = names.first() {
+                self.refer_here(&[Namespace::Label], label, ReferenceKind::Name);
+            }
+        } else if function.eq_ignore_ascii_case("gotostate") {
+            let label = names.get(1).and_then(|l| l.as_ref());
+            match (arguments.expressions.first(), names.first()) {
+                // `GotoState('State', 'Label')`
+                (_, Some(Some(state))) => {
+                    self.refer(
+                        ScopeId::CLASS,
+                        &[Namespace::State],
+                        state,
+                        state.span,
+                        ReferenceKind::Name,
+                    );
+                    let state_scope = self
+                        .table
+                        .lookup(ScopeId::CLASS, Namespace::State, state)
+                        .and_then(|id| self.table.scope_of(self.table.symbol(id).span.start));
+                    if let (Some(label), Some(state_scope)) = (label, state_scope) {
+                        self.refer(
+                            state_scope,
+                            &[Namespace::Label],
+                            label,
+                            label.span,
+                            ReferenceKind::Name,
+                        );
+                    }
+                }
+                // `GotoState(SomeExpression, 'Label')`: it may be any state.
+                (Some(Some(_)), _) => {
+                    if let Some(label) = label {
+                        self.refer_in_every_state(label);
+                    }
+                }
+                // `GotoState( , 'Label')`: the current state.
+                _ => {
+                    if let Some(label) = label {
+                        let scope = self.table.object_scope(self.scope);
+                        self.refer(
+                            scope,
+                            &[Namespace::Label],
+                            label,
+                            label.span,
+                            ReferenceKind::Name,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// Records a reference to `label` in every state that declares it.
+    fn refer_in_every_state(&mut self, label: &AstNode<Identifier>) {
+        let symbols: Vec<SymbolId> = self
+            .table
+            .scopes
+            .iter()
+            .filter(|s| matches!(s.kind, ScopeKind::State(_)))
+            .flat_map(|s| s.declarations(Namespace::Label, label).iter().copied())
+            .collect();
+        for symbol in symbols {
+            self.table.references.push(Reference {
+                symbol,
+                span: label.span,
+                text: label.string.clone(),
+                kind: ReferenceKind::Name,
+            });
+        }
+    }
+
     fn arguments(&mut self, arguments: &AstNode<ExpressionList>) {
         for argument in arguments.expressions.iter().flatten() {
             self.expression(argument);
@@ -1031,6 +1181,7 @@ impl Resolver<'_> {
             Expression::Call { operand, arguments } => {
                 self.callee(operand);
                 self.arguments(arguments);
+                self.state_transition(operand, arguments);
             }
             Expression::GlobalCall { name, arguments } => {
                 // `global.F()` calls the class's version, not a state's.

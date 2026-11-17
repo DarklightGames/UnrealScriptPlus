@@ -323,3 +323,30 @@ fn native_classes() {
     let t = table("class Foo extends Object\n    native;\n");
     assert!(t.class().unwrap().is_native);
 }
+
+#[test]
+fn labels_and_state_transitions() {
+    let source = "class Foo extends Actor;\nvar name N;\n\
+        state S\n{\n    function F() { GotoState( , 'Inner'); }\nBegin:\n    if (bHidden) { Inner: Stop; }\n}\n\
+        state T\n{\nInner:\n    Stop;\n}\n\
+        function G() { GotoState('S', 'Begin'); GotoState(N, 'Inner'); Goto('Begin'); }\n";
+    let t = table(source);
+    let s = scope_named(&t, source, "state ", "S");
+    let inner = find(&t, s, Namespace::Label, "Inner");
+    // From `GotoState( , 'Inner')` in S, and `GotoState(N, 'Inner')`.
+    assert_eq!(t.references_to(inner).count(), 2);
+    let state_t = scope_named(&t, source, "state ", "T");
+    let t_inner = find(&t, state_t, Namespace::Label, "Inner");
+    assert_eq!(t.references_to(t_inner).count(), 1);
+    let begin = find(&t, s, Namespace::Label, "Begin");
+    assert_eq!(t.references_to(begin).count(), 1);
+    let state_s = find(&t, ScopeId::CLASS, Namespace::State, "S");
+    assert_eq!(
+        references(&t, source, state_s),
+        vec![(ReferenceKind::Name, "S".into())]
+    );
+    match &t.symbol(state_s).kind {
+        SymbolKind::State { extends } => assert!(extends.is_none()),
+        other => panic!("{:?}", other),
+    }
+}
