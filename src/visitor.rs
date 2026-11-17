@@ -640,8 +640,19 @@ fn visit_default_assignment(assignment: &t3d::syntax::Assignment, visitor: &mut 
     let Some(TypeRef::Pod(pod_type)) = variable.type_() else {
         return;
     };
-    let is_array_assignment = assignment.index.is_some();
-    let redundant = |visitor: &mut Visitor, default: &dyn std::fmt::Display| {
+    // The value, if it's the type's zero value. Assigning that to the whole
+    // variable is redundant (but not to an array element, which may override
+    // an inherited non-zero value).
+    let zero: Option<&dyn std::fmt::Display> = match (pod_type, &value.kind) {
+        (PodType::Byte | PodType::Int | PodType::Float, ValueKind::Int(i)) => {
+            (*i == 0).then_some(&0)
+        }
+        (PodType::Int | PodType::Float, ValueKind::Float(f)) => (*f == 0.0).then_some(&0.0),
+        (PodType::String | PodType::Name, ValueKind::String(s)) => s.is_empty().then_some(&""),
+        (PodType::Bool, ValueKind::Bool(b)) => (!b).then_some(&false),
+        _ => None,
+    };
+    if let Some(default) = zero.filter(|_| assignment.index.is_none()) {
         visitor.report(
             Lint::RedundantDefaultValue,
             format!(
@@ -650,50 +661,28 @@ fn visit_default_assignment(assignment: &t3d::syntax::Assignment, visitor: &mut 
             ),
             span,
         )
-    };
+    }
 
-    match (pod_type, &value.kind) {
-        (PodType::Byte, ValueKind::Int(i)) => {
-            if !is_array_assignment && *i == 0 {
-                redundant(visitor, &0)
-            }
-            if *i < u8::MIN as i64 || *i > u8::MAX as i64 {
-                let effective_value = (*i & 0xFF) as u8;
-                visitor.report(
-                    Lint::ByteValueOutOfRange,
-                    format!(
-                        "Value {} is outside the range of [{}..{}]; effective value: {}",
-                        i,
-                        u8::MIN,
-                        u8::MAX,
-                        effective_value
-                    ),
-                    span,
-                )
-            }
+    if *pod_type == PodType::Byte {
+        match &value.kind {
+            ValueKind::Int(i) if !(0..=255).contains(i) => visitor.report(
+                Lint::ByteValueOutOfRange,
+                format!(
+                    "Value {} is outside the range of [{}..{}]; effective value: {}",
+                    i,
+                    u8::MIN,
+                    u8::MAX,
+                    (*i & 0xFF) as u8
+                ),
+                span,
+            ),
+            ValueKind::Float(_) => visitor.report(
+                Lint::DefaultPropertyTypeMismatch,
+                "Incorrect literal type",
+                span,
+            ),
+            _ => {}
         }
-        (PodType::Byte, ValueKind::Float(_)) => visitor.report(
-            Lint::DefaultPropertyTypeMismatch,
-            "Incorrect literal type",
-            span,
-        ),
-        (PodType::Int | PodType::Float, ValueKind::Int(0)) if !is_array_assignment => {
-            redundant(visitor, &0)
-        }
-        (PodType::Int | PodType::Float, ValueKind::Float(f))
-            if !is_array_assignment && *f == 0.0 =>
-        {
-            redundant(visitor, &0.0)
-        }
-        (PodType::String | PodType::Name, ValueKind::String(s))
-            if !is_array_assignment && s.is_empty() =>
-        {
-            redundant(visitor, &"")
-        }
-        (PodType::Bool, ValueKind::Bool(false)) if !is_array_assignment => {
-            redundant(visitor, &false)
-        }
-        _ => {}
     }
 }
 
@@ -1064,9 +1053,8 @@ impl Visit for SwitchStatement {
         }
         visitor.code.switch_depth -= 1;
 
-        let Some((_, preceding)) = self.cases.split_last() else {
-            return;
-        };
+        // Every case but the last can fall through.
+        let preceding = &self.cases[..self.cases.len().saturating_sub(1)];
         for case in preceding {
             let Some(last) = case.statements.iter().rev().find(|s| !is_inert(s)) else {
                 // An empty case shares the next case's code.
@@ -1199,24 +1187,6 @@ impl Visit for AstNode<CodeStatement> {
 
 impl Visit for AstNode<Identifier> {
     fn visit(&self, _visitor: &mut Visitor) {}
-}
-
-impl Visit for AstNode<VarSize> {
-    fn visit(&self, visitor: &mut Visitor) {
-        match &self.data {
-            VarSize::IntegerLiteral(_) => {}
-            VarSize::Identifier(id) => id.visit(visitor),
-        }
-    }
-}
-
-impl Visit for AstNode<VarName> {
-    fn visit(&self, visitor: &mut Visitor) {
-        self.identifier.visit(visitor);
-        if let Some(size) = &self.size {
-            size.visit(visitor);
-        }
-    }
 }
 
 impl Visit for AstNode<LocalDeclaration> {
@@ -1373,9 +1343,10 @@ impl Visit for AstNode<FunctionDeclaration> {
             }
         }
 
-        let Some(scope) = visitor.symbols.scope_of(self.name.span.start) else {
-            return;
-        };
+        let scope = visitor
+            .symbols
+            .scope_of(self.name.span.start)
+            .expect("the symbol table has a scope for every function");
         let context = CodeContext {
             scope,
             function_name: Some(self.name.string.clone()),
@@ -1668,24 +1639,14 @@ fn conflicts(symbols: &SymbolTable, a: SymbolId, b: SymbolId) -> bool {
 /// nothing in the file uses.
 fn is_unused_private_member(symbols: &SymbolTable, id: SymbolId) -> bool {
     let symbol = symbols.symbol(id);
-    if symbol.access != Access::Private
-        || symbol.scope != ScopeId::CLASS
-        || symbols.class().is_some_and(|c| c.is_native)
-    {
-        return false;
-    }
-    match &symbol.kind {
-        // Native code may use native variables.
-        SymbolKind::Variable { modifiers, .. } => {
-            if modifiers.contains(&VarModifier::Native) {
-                return false;
-            }
-        }
+    // Whether native code, the engine or the console may use it.
+    let (is_function, used_externally) = match &symbol.kind {
+        SymbolKind::Variable { modifiers, .. } => (false, modifiers.contains(&VarModifier::Native)),
         SymbolKind::Function {
             types, modifiers, ..
-        } => {
-            // Called by native code, the engine or the console.
-            if modifiers.iter().any(|m| {
+        } => (
+            true,
+            modifiers.iter().any(|m| {
                 matches!(
                     m,
                     FunctionModifierType::Native
@@ -1694,31 +1655,30 @@ fn is_unused_private_member(symbols: &SymbolTable, id: SymbolId) -> bool {
                 )
             }) || types
                 .iter()
-                .any(|t| matches!(t, FunctionTypeType::Event | FunctionTypeType::Delegate))
-            {
-                return false;
-            }
-        }
+                .any(|t| matches!(t, FunctionTypeType::Event | FunctionTypeType::Delegate)),
+        ),
+        // Only variables and functions can be private.
         _ => return false,
-    }
-    if symbols.references_to(id).next().is_some() {
+    };
+    if used_externally
+        || symbol.access != Access::Private
+        || symbol.scope != ScopeId::CLASS
+        || symbols.class().is_some_and(|c| c.is_native)
+        || symbols.references_to(id).next().is_some()
+    {
         return false;
     }
     // A call from a state that overrides the function resolves to the
     // state's version, which is still a use of the name.
-    if let SymbolKind::Function { .. } = symbol.kind {
-        let overridden_and_used = symbols.scopes().any(|(_, scope)| {
+    let overridden_and_used = is_function
+        && symbols.scopes().any(|(_, scope)| {
             matches!(scope.kind, ScopeKind::State(_))
                 && scope
                     .declarations(Namespace::Function, &symbol.name)
                     .iter()
                     .any(|&o| symbols.references_to(o).next().is_some())
         });
-        if overridden_and_used {
-            return false;
-        }
-    }
-    true
+    !overridden_and_used
 }
 
 fn visit_bool_var_names(names: &[AstNode<VarName>], visitor: &mut Visitor) {

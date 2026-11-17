@@ -730,6 +730,261 @@ fn trailing_empty_arguments() {
         );
     }
 }
+
+// Lints and branches that the tests above don't reach.
+
+#[test]
+fn const_name_case() {
+    assert_eq!(
+        only(&["N001"], "class Foo extends Object;\nconst myConst = 1;\n"),
+        vec!["N001"]
+    );
+    assert_eq!(
+        only(
+            &["N001"],
+            "class Foo extends Object;\nconst MY_CONST = 1;\n"
+        ),
+        Vec::<&str>::new()
+    );
+}
+
+#[test]
+fn object_literal_case() {
+    assert_eq!(
+        only(&["F002"], &function("", "G(Class'Actor');")),
+        vec!["F002"]
+    );
+    assert_eq!(
+        only(&["F002"], &function("", "G(class'Actor');")),
+        Vec::<&str>::new()
+    );
+    assert_eq!(
+        only(&["N005"], &function("", "G(texture'Foo.Bar');")),
+        vec!["N005"]
+    );
+    assert_eq!(
+        only(&["N005"], &function("", "G(Texture'Foo.Bar');")),
+        Vec::<&str>::new()
+    );
+    // Vector literals have nothing to check.
+    assert_eq!(
+        lints(&function("", "G(vect(1, 2, 3));")),
+        Vec::<&str>::new()
+    );
+}
+
+#[test]
+fn enum_and_bool_name_prefixes() {
+    assert_eq!(
+        only(
+            &["N003"],
+            "class Foo extends Object;\nenum Color\n{\n    A\n};\n"
+        ),
+        vec!["N003"]
+    );
+    assert_eq!(
+        only(
+            &["N003"],
+            "class Foo extends Object;\nenum EColor\n{\n    A\n};\n"
+        ),
+        Vec::<&str>::new()
+    );
+    assert_eq!(
+        only(&["N004"], "class Foo extends Object;\nvar bool Flag;\n"),
+        vec!["N004"]
+    );
+    assert_eq!(
+        only(&["N004"], &function("local bool Flag;", "G(Flag);")),
+        vec!["N004"]
+    );
+    assert_eq!(
+        only(&["N004"], &function("local bool bFlag;", "G(bFlag);")),
+        Vec::<&str>::new()
+    );
+}
+
+#[test]
+fn multiple_function_types() {
+    let source = "class Foo extends Object;\nevent function F();\n";
+    assert_eq!(only(&["C001"], source), vec!["C001"]);
+    let result = parse_program(source).unwrap();
+    let e = result
+        .errors
+        .iter()
+        .find(|e| e.lint == Some(Lint::MultipleFunctionTypes))
+        .unwrap();
+    assert_eq!(e.severity, ProgramErrorSeverity::Error);
+}
+
+#[test]
+fn exec_consecutive_float_arguments() {
+    let source = "class Foo extends Object;\nexec function F(float A, float B);\n";
+    assert_eq!(only(&["C002"], source), vec!["C002"]);
+    for source in [
+        "class Foo extends Object;\nexec function F(float A, int B, float C);\n",
+        "class Foo extends Object;\nfunction F(float A, float B);\n",
+    ] {
+        assert_eq!(only(&["C002"], source), Vec::<&str>::new(), "{}", source);
+    }
+}
+
+#[test]
+fn empty_statement_at_the_top_level() {
+    assert_eq!(
+        only(&["R001"], "class Foo extends Object;\n;\n"),
+        vec!["R001"]
+    );
+}
+
+#[test]
+fn replication_block_lints() {
+    assert_eq!(
+        only(&["R006"], "class Foo extends Actor;\nreplication\n{\n}\n"),
+        vec!["R006"]
+    );
+    let source = "class Foo extends Actor;\nvar int X, Y, Z;\nreplication\n{\n\
+                  \x20   reliable if (bNetInitial)\n        X;\n\
+                  \x20   reliable if (bNetInitial)\n        Y;\n\
+                  \x20   unreliable if (bNetInitial)\n        Z;\n}\n";
+    // The first two match; the third differs in reliability.
+    assert_eq!(only(&["R007"], source), vec!["R007"]);
+}
+
+#[test]
+fn default_property_values() {
+    let class = |properties: &str| {
+        format!(
+            "class Foo extends Object;\nvar byte B;\nvar float F;\nvar string S;\nvar Actor A;\n\
+             defaultproperties\n{{\n{}}}\n",
+            properties
+        )
+    };
+    for (properties, expected) in [
+        ("    B=0\n", vec!["R004"]),
+        ("    B=5\n", vec![]),
+        ("    B=1.5\n", vec!["S013"]),
+        ("    F=0.0\n", vec!["R004"]),
+        ("    F=1.5\n", vec![]),
+        ("    S=\"\"\n", vec!["R004"]),
+        ("    S=\"x\"\n", vec![]),
+        // No value, and a variable that isn't a plain type.
+        ("    B=\n", vec![]),
+        ("    A=None\n", vec![]),
+        // Lines that are a struct or a vector on their own.
+        ("    Pan U=57 V=99\n    Origin 1,2,3\n", vec![]),
+    ] {
+        assert_eq!(
+            only(&["R004", "S013"], &class(properties)),
+            expected,
+            "{}",
+            properties
+        );
+    }
+}
+
+#[test]
+fn expression_kinds_are_visited() {
+    // Each of these contains a redundant `(I)` somewhere only reached by
+    // visiting that kind of expression.
+    for body in [
+        "G(new ((I)) class'Object');",
+        "A = Other.default.I + (I);",
+        "Other.default.I = (I);",
+        "static.G((I));",
+        "class'Foo'.static.G((I));",
+        "A = (new class'Object').I + (I);",
+    ] {
+        assert_eq!(
+            only(&["R002"], &function("", body)),
+            vec!["R002"],
+            "{}",
+            body
+        );
+    }
+    // Parentheses around `new` aren't redundant.
+    assert_eq!(
+        only(&["R002"], &function("", "G((new class'Object'));")),
+        Vec::<&str>::new()
+    );
+}
+
+#[test]
+fn statement_kinds_are_visited() {
+    for body in [
+        // `for` without parts, `do` without `until`, and `switch` without
+        // cases.
+        "for (;;) { A = (I); break; }",
+        "do { A = (I); break; }",
+        "switch (A) {}\nA = (I);",
+        "switch (A) { case 1: break; default: A = (I); }",
+        "foreach Arr { A = (I); }",
+        "#exec OBJ LOAD FILE=Foo.utx\nA = (I);",
+    ] {
+        assert_eq!(
+            only(&["R002"], &function("", body)),
+            vec!["R002"],
+            "{}",
+            body
+        );
+    }
+    assert_eq!(
+        only(&["S001"], &function("", "if (A > 0)\n// G();")),
+        vec!["S001"]
+    );
+}
+
+#[test]
+fn side_effects_in_loop_conditions() {
+    // A condition with side effects can drive an empty loop.
+    for body in [
+        "while (A++ < 3);",
+        "while (!G());",
+        "while (class<Actor>(G()) != None);",
+        "while ((G()));",
+    ] {
+        assert_eq!(
+            only(&["S001"], &function("", body)),
+            Vec::<&str>::new(),
+            "{}",
+            body
+        );
+    }
+    for body in [
+        "while (!bX);",
+        "while (default.I > A);",
+        "while (class<Actor>(Other) != None);",
+        "while ((A > 0));",
+    ] {
+        assert_eq!(
+            only(&["S001"], &function("", body)),
+            vec!["S001"],
+            "{}",
+            body
+        );
+    }
+}
+
+#[test]
+fn literal_helpers() {
+    // A negated, parenthesized literal.
+    assert_eq!(only(&["C010"], &function("", "B = -(300);")), vec!["C010"]);
+    assert_eq!(
+        only(&["C010"], &function("", "B = -(A);")),
+        Vec::<&str>::new()
+    );
+    // Divisors that aren't numeric literals.
+    assert_eq!(
+        only(&["C006"], &function("", "A = A / Z;")),
+        Vec::<&str>::new()
+    );
+    assert_eq!(
+        only(&["C006"], &function("", "A = A / None;")),
+        Vec::<&str>::new()
+    );
+    // A statement that is only a member access.
+    assert_eq!(only(&["S002"], &function("", "Other.Tag;")), vec!["S002"]);
+}
+
 #[test]
 fn default_case_fallthrough() {
     // A `default` that isn't last can fall through too.
@@ -753,3 +1008,61 @@ fn default_case_fallthrough() {
     );
 }
 
+#[test]
+fn more_declarations_are_visited() {
+    // A const inside a block of code.
+    assert_eq!(
+        only(&["N001"], &function("", "if (A > 0) { const k = 1; }")),
+        vec!["N001"]
+    );
+    // Inline struct and enum types.
+    let source = "class Foo extends Object;\nvar struct SFoo { var bool Flag; } Foo;\n\
+                  var enum Color { C_Red } MyColor;\n";
+    assert_eq!(only(&["N003", "N004"], source), vec!["N004", "N003"]);
+    // A bool struct member.
+    let source = "class Foo extends Object;\nstruct SFoo\n{\n    var bool Flag;\n};\n";
+    assert_eq!(only(&["N004"], source), vec!["N004"]);
+}
+
+#[test]
+fn array_element_defaults_are_not_redundant() {
+    // A zero element of an array may override a non-zero inherited value.
+    let source = "class Foo extends Object;\nvar byte B[2];\nvar float F[2];\nvar string S[2];\n\
+                  defaultproperties\n{\n    B(1)=0\n    F(1)=0.0\n    F(1)=0\n    S(1)=\"\"\n}\n";
+    assert_eq!(only(&["R004"], source), Vec::<&str>::new());
+}
+
+#[test]
+fn private_state_functions_are_not_class_members() {
+    let source = "class Foo extends Actor;\nstate S\n{\n    private function F();\n}\n";
+    assert_eq!(only(&["R011"], source), Vec::<&str>::new());
+}
+
+#[test]
+fn more_expression_branches() {
+    // A name whose declaration has no type isn't checked like a variable.
+    let source = "class Foo extends Object;\nconst K = 1;\nfunction F(int A) { A = K[9]; }\n";
+    assert_eq!(only(&["C007"], source), Vec::<&str>::new());
+    // `default.` and `static.` with operands, in loop conditions.
+    for body in [
+        "while (Other.default.I > 0);",
+        "while (class'Foo'.static.X > 0);",
+    ] {
+        assert_eq!(
+            only(&["S001"], &function("", body)),
+            vec!["S001"],
+            "{}",
+            body
+        );
+    }
+    assert_eq!(
+        only(&["S001"], &function("", "while (G().default.I > 0);")),
+        Vec::<&str>::new()
+    );
+    // A conditional that always jumps, with an `else if`.
+    let body = "switch (A) { case 1: if (A > 0) return; else if (A < 0) return; else return; \
+                case 2: break; }";
+    assert_eq!(only(&["S008"], &function("", body)), Vec::<&str>::new());
+    // A negation alone does nothing.
+    assert_eq!(only(&["S002"], &function("", "!bX;")), vec!["S002"]);
+}
