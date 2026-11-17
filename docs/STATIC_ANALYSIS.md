@@ -35,15 +35,15 @@ let mut result = usagi_core::parse_program(source)?;
 LintSelection::new(["C", "S"], ["S008"]).retain(&mut result.errors);
 ```
 
-The examples accept the same selectors:
+`usagi lint` accepts the same selectors, on the command line or in a
+`usagi.toml` (see [CLI.md](CLI.md)):
 
 ```sh
-cargo run --example parse_file -- --select=C,S --ignore=S008 Foo.uc
-cargo run --release --example parse_corpus -- --lints lints.tsv <root> report.tsv
+usagi lint --select C,S --ignore S008 Foo.uc
+usagi lint --format tsv --statistics <root> > lints.tsv
 ```
 
-`parse_corpus --lints` writes every problem to a TSV file and prints the
-number of problems and files for each lint.
+`--statistics` prints the number of problems and files for each lint.
 
 ## Lints
 

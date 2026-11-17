@@ -22,8 +22,6 @@ Paths below are relative to `crates/usagi-core`.
 | `src/visitor.rs` | The lint checks. |
 | `src/lint.rs` | The lint registry (codes, names, categories, severities) and `LintSelection`. |
 | `tests/` | Integration tests. `tests/lints.rs` covers the lints and `tests/symbols.rs` the symbol table. |
-| `examples/parse_file.rs` | Parses one file and prints its problems. |
-| `examples/parse_corpus.rs` | Parses every `.uc` file under a directory and writes a TSV report. |
 
 `defaultproperties` blocks aren't parsed by the grammar. They are parsed by the
 `t3d` crate (a git dependency pinned by `rev` in `Cargo.toml`).
@@ -33,7 +31,6 @@ Paths below are relative to `crates/usagi-core`.
 ```sh
 cargo build --workspace --all-targets   # should finish with no warnings
 cargo test --workspace      # all tests
-cargo test -p usagi-core --example parse_corpus   # the corpus tool's own tests (not run by `cargo test`)
 cargo fmt
 cargo llvm-cov --summary-only   # test coverage (needs cargo-llvm-cov)
 ```
@@ -48,7 +45,10 @@ Validate parser and lint changes against a large body of real UnrealScript
 (such as a UE2 game's source tree):
 
 ```sh
-cargo run --release --example parse_corpus -- [--strict] [--lints lints.tsv] [--include <pattern>]... <root> report.tsv
+cargo build --release -p usagi-cli
+cd <root>
+usagi parse --no-config --format quiet --statistics .   # every file should parse
+usagi lint --no-config --format tsv . > lints.tsv       # then diff against a previous run
 ```
 
 Every file should still parse. Shipped engine code is treated as read-only:

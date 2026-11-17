@@ -16,7 +16,7 @@ The parser handles this leniency in two ways:
 
 Regression tests for these rules are in [`tests/programs.rs`](../crates/usagi-core/tests/programs.rs).
 Most of them reproduce failures found by parsing the Red Orchestra / Darkest
-Hour codebase (7,633 files) with `examples/parse_corpus.rs`.
+Hour codebase (7,633 files) with `usagi parse`.
 
 ## Parse modes
 
@@ -34,12 +34,12 @@ let result = parse_program_with(source, &ParseOptions { mode: ParseMode::Strict 
 
 The two modes produce the same AST. Recovered problems have no lint code, so
 `LintSelection` can't filter them out (see [STATIC_ANALYSIS.md](STATIC_ANALYSIS.md)).
-`examples/parse_corpus.rs` reports a file with recovered problems as
-`recovered`, or as `strict_error` when run with `--strict`.
+`usagi parse --statistics` counts a file with recovered problems as
+`recovered`, or as `strict_error` when run with `--strict` (see [CLI.md](CLI.md)).
 
 The parser takes a `&str`. Legacy source is often Windows-1252 rather than
-UTF-8, so decoding is the caller's job. The examples strip a UTF-8 BOM and fall
-back to Windows-1252.
+UTF-8, so decoding is the caller's job. `usagi_core::decode` strips a UTF-8 BOM
+and falls back to Windows-1252.
 
 ## Recovered problems
 
