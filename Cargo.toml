@@ -13,7 +13,6 @@ crate-type = ["lib"]
 [dependencies]
 pest = "2.9"
 pest_derive = "2.9"
-lazy_static = "1.5"
 encoding = "0.2"
 strum = { version = "0.28", features = ["derive"] }
 strum_macros = "0.28"

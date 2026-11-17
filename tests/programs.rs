@@ -427,6 +427,160 @@ fn argument_list_slots() {
         assert_eq!(slots, expected, "{}", source);
     }
 }
+
+// --- Expressions ---
+
+/// Parses `source` as an expression.
+#[track_caller]
+fn expression(
+    source: &str,
+) -> Box<unrealscript_parser::ast::AstNode<unrealscript_parser::ast::Expression>> {
+    unrealscript_parser::parse_expression(source)
+        .unwrap_or_else(|e| panic!("{} failed to parse: {:?}", source, e))
+}
+
+#[test]
+fn operator_precedence() {
+    use unrealscript_parser::ast::{DyadicVerb, Expression};
+    // An expression is split at its loosest operator.
+    for (source, verb) in [
+        ("A ** B", DyadicVerb::Exponentiate),
+        ("A ** B * C", DyadicVerb::Multiply),
+        ("A << B", DyadicVerb::ShiftLeft),
+        ("A >> B", DyadicVerb::ShiftRight),
+        ("A >>> B", DyadicVerb::DoubleShiftRight),
+        ("A << B < C", DyadicVerb::CompareLessThan),
+        ("A && B", DyadicVerb::LogicalAnd),
+        ("A ^^ B", DyadicVerb::LogicalExclusiveOr),
+        ("A ^^ B || C", DyadicVerb::LogicalOr),
+        ("A != B && C", DyadicVerb::LogicalAnd),
+        ("A -= B + C", DyadicVerb::SubtractAssign),
+        ("A = B -= C", DyadicVerb::Assign),
+        ("A dot B + C", DyadicVerb::Add),
+        ("A dot B * C", DyadicVerb::Dot), // a tie goes to the first
+        ("A ClockwiseFrom B", DyadicVerb::ClockwiseFrom),
+    ] {
+        match &expression(source).data {
+            Expression::DyadicExpression { verb: v, .. } => assert_eq!(*v, verb, "{}", source),
+            other => panic!("{}: {:?}", source, other),
+        }
+    }
+}
+
+#[test]
+fn unknown_operator_is_an_error() {
+    // The grammar accepts any identifier as an operator.
+    match unrealscript_parser::parse_expression("A Foo B") {
+        Err(ParsingError::PestError(e)) => {
+            assert!(e.to_string().contains("unregistered dyadic verb"), "{}", e)
+        }
+        other => panic!("{:?}", other.map(|e| e.data)),
+    }
+    let source = "class Foo extends Object;\nfunction F() { local int A; A = A Foo 1; }\n";
+    assert!(matches!(
+        parse_program(source),
+        Err(ParsingError::PestError(_))
+    ));
+}
+
+#[test]
+fn new_with_arguments() {
+    use unrealscript_parser::ast::Expression;
+    match &expression("new (Outer) class'Foo'").data {
+        Expression::New {
+            arguments: Some(arguments),
+            type_,
+        } => {
+            assert_eq!(arguments.expressions.len(), 1);
+            assert!(matches!(type_.data, Expression::Literal(_)));
+        }
+        other => panic!("{:?}", other),
+    }
+    assert!(matches!(
+        expression("new class'Foo'").data,
+        Expression::New {
+            arguments: None,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn default_and_static_access() {
+    use unrealscript_parser::ast::Expression;
+    match &expression("Other.default.Health").data {
+        Expression::DefaultAccess {
+            operand: Some(operand),
+            target,
+        } => {
+            assert!(matches!(operand.data, Expression::Identifier(_)));
+            assert_eq!(target.string, "Health");
+        }
+        other => panic!("{:?}", other),
+    }
+    let Expression::Call { operand, .. } = &expression("static.F()").data else {
+        panic!()
+    };
+    assert!(matches!(
+        &operand.data,
+        Expression::StaticAccess { operand: None, target } if target.string == "F"
+    ));
+    let Expression::Call { operand, .. } = &expression("class'Foo'.static.F()").data else {
+        panic!()
+    };
+    assert!(matches!(
+        &operand.data,
+        Expression::StaticAccess {
+            operand: Some(_),
+            ..
+        }
+    ));
+}
+
+#[test]
+fn hexadecimal_integers() {
+    use unrealscript_parser::ast::{Expression, Literal, NumericLiteral};
+    for (source, value) in [("0xFF", 255), ("0x7FFFFFFF", i32::MAX), ("0xFFFFFFFF", -1)] {
+        let e = expression(source);
+        let Expression::Literal(literal) = &e.data else {
+            panic!("{}", source)
+        };
+        let Literal::Numeric(n) = &literal.data else {
+            panic!("{}", source)
+        };
+        assert_eq!(n.data, NumericLiteral::Integer(value), "{}", source);
+    }
+}
+
+#[test]
+fn integer_overflow_is_an_error_wherever_it_appears() {
+    for source in [
+        "9999999999",
+        "0x1FFFFFFFF",
+        "-9999999999",
+        "vect(9999999999, 0, 0)",
+        "(9999999999)",
+        "F(9999999999)",
+        "new 9999999999",
+        "new (9999999999) Foo",
+        "new (None) 9999999999",
+        "F(9999999999).default.X",
+        "F(9999999999).static.G()",
+        "A + 9999999999",
+    ] {
+        match unrealscript_parser::parse_expression(source) {
+            Err(ParsingError::PestError(_)) => {}
+            other => panic!("{} should fail: {:?}", source, other.map(|e| e.data)),
+        }
+    }
+}
+
+#[test]
+fn io_errors_convert_to_parsing_errors() {
+    let error = ParsingError::from(std::io::Error::other("disk on fire"));
+    assert!(matches!(error, ParsingError::IoError(_)));
+}
+
 #[test]
 fn switch_default_cases() {
     use unrealscript_parser::ast::{
@@ -492,3 +646,33 @@ fn switch_default_cases() {
     }
 }
 
+#[test]
+fn syntax_errors() {
+    assert!(matches!(
+        unrealscript_parser::parse_expression(")"),
+        Err(ParsingError::PestError(_))
+    ));
+    assert!(matches!(
+        parse_program("class Foo extends Object;\nvar int;\n"),
+        Err(ParsingError::PestError(_))
+    ));
+}
+
+#[test]
+fn errors_propagate_out_of_every_kind_of_expression() {
+    for source in [
+        "class<Foo>(9999999999)",
+        "global.F(9999999999)",
+        "F(9999999999)[0]",
+        "A[9999999999]",
+        "F(9999999999).X",
+        "9999999999 + A",
+        "F(9999999999)++",
+        "!F(9999999999)",
+    ] {
+        match unrealscript_parser::parse_expression(source) {
+            Err(ParsingError::PestError(_)) => {}
+            other => panic!("{} should fail: {:?}", source, other.map(|e| e.data)),
+        }
+    }
+}

@@ -4,9 +4,7 @@ use pest_consume::Parser;
 #[grammar = "UnrealScript.pest"]
 pub struct UnrealScriptParser;
 
-use lazy_static::lazy_static;
 use pest_consume::{Error, match_nodes};
-use std::collections::HashMap;
 use std::str::FromStr;
 
 use std::rc::Rc;
@@ -66,67 +64,73 @@ macro_rules! match_nodes_any {
     )
 }
 
-lazy_static! {
-    static ref OPERATOR_PRECEDENCES: HashMap<&'static str, u8> = {
-        let mut map = HashMap::new();
-        map.insert("==", 24);
-        map.insert("!=", 26);
-        map.insert("&&", 30);
-        map.insert("^^", 30);
-        map.insert("||", 32);
-        map.insert("*=", 34);
-        map.insert("/=", 34);
-        map.insert("+=", 34);
-        map.insert("-=", 34);
-        map.insert("*", 16);
-        map.insert("/", 16);
-        map.insert("%", 18);
-        map.insert("+", 20);
-        map.insert("-", 20);
-        map.insert("<<", 22);
-        map.insert(">>", 22);
-        map.insert(">>>", 22);
-        map.insert("<", 24);
-        map.insert(">", 24);
-        map.insert("<=", 24);
-        map.insert(">=", 24);
-        map.insert("==", 24);
-        map.insert("~=", 24);
-        map.insert("!=", 26);
-        map.insert("&", 28);
-        map.insert("^", 28);
-        map.insert("|", 28);
-        map.insert("!=", 28);
-        map.insert("**", 12);
-        map.insert("^", 28);
-        map.insert("|", 28);
-        map.insert("!=", 28);
-        map.insert("$", 40);
-        map.insert("@", 40);
-        map.insert("$=", 44);
-        map.insert("@=", 44);
-        map.insert("-=", 45);
-        map.insert("=", 46);    // TODO: just a guess
+/// The precedence of a dyadic operator: an expression is split at its
+/// operator with the highest value, so higher values bind more loosely.
+// TODO: precedence relies on the TYPE also!
+// TODO: all of these should be read from Object.uc before proper parsing, so
+// that we don't need to have this table at all.
+fn precedence(verb: &DyadicVerb) -> u8 {
+    match verb {
+        DyadicVerb::Exponentiate => 12,
+        DyadicVerb::Multiply | DyadicVerb::Divide | DyadicVerb::Dot | DyadicVerb::Cross => 16,
+        DyadicVerb::Modulo => 18,
+        DyadicVerb::Add | DyadicVerb::Subtract => 20,
+        DyadicVerb::ShiftLeft | DyadicVerb::ShiftRight | DyadicVerb::DoubleShiftRight => 22,
+        DyadicVerb::CompareLessThan
+        | DyadicVerb::CompareGreaterThan
+        | DyadicVerb::CompareLessThanOrEqual
+        | DyadicVerb::CompareGreaterThanOrEqual
+        | DyadicVerb::CompareEqual
+        | DyadicVerb::CompareApproximatelyEqual
+        | DyadicVerb::ClockwiseFrom => 24,
+        DyadicVerb::CompareNotEqual
+        | DyadicVerb::BitwiseAnd
+        | DyadicVerb::BitwiseExclusiveOr
+        | DyadicVerb::BitwiseOr => 28,
+        DyadicVerb::LogicalAnd | DyadicVerb::LogicalExclusiveOr => 30,
+        DyadicVerb::LogicalOr => 32,
+        DyadicVerb::MultiplyAssign | DyadicVerb::DivideAssign | DyadicVerb::AddAssign => 34,
+        DyadicVerb::Concatenate | DyadicVerb::ConcatenateSpace => 40,
+        DyadicVerb::ConcatenateAssign | DyadicVerb::ConcatenateSpaceAssign => 44,
+        DyadicVerb::SubtractAssign => 45,
+        DyadicVerb::Assign => 46, // TODO: just a guess
+    }
+}
 
-        // TODO: precedence relies on the TYPE also!
-        // TODO: all of these should be read from Object.uc before proper parsing, so that we don't
-        // need to have this table at all.
-        map.insert("clockwisefrom", 24);
-        map.insert("dot", 16);
-        map.insert("cross", 16);
-        map
-    };
+/// The identifier spelled by `node`'s text.
+fn identifier_of(node: &Node) -> AstNode<Identifier> {
+    AstNode {
+        span: AstSpan::from(node),
+        data: Identifier {
+            string: node.as_str().to_string(),
+        },
+    }
+}
+
+/// The type named by a `class_type` node (`class<Name>`).
+fn class_type_of(node: &Node) -> Type {
+    Type::Class(identifier_of(&only_child(node)))
+}
+
+/// The only child of `node`, for rules the grammar gives exactly one child.
+fn only_child<'i>(node: &Node<'i>) -> Node<'i> {
+    node.clone()
+        .into_children()
+        .single()
+        .expect("the grammar gives this rule exactly one child")
 }
 
 fn parse_target(nodes: &[Node]) -> Result<Box<AstNode<Expression>>> {
     let (node, remaining) = nodes.split_last().unwrap();
     let span = AstSpan::from(node);
+    let operand = |remaining: &[Node]| match remaining.is_empty() {
+        true => Ok(None),
+        false => parse_expression_from_nodes(remaining).map(Some),
+    };
     match node.as_rule() {
         Rule::unqualified_identifier => Ok(Box::new(AstNode {
             span,
-            data: Expression::Identifier(UnrealScriptParser::unqualified_identifier(Node::new(
-                node.clone().into_pair(),
-            ))?),
+            data: Expression::Identifier(identifier_of(node)),
         })),
         Rule::new => {
             let mut inner_iter = node.clone().into_children().into_iter();
@@ -158,7 +162,7 @@ fn parse_target(nodes: &[Node]) -> Result<Box<AstNode<Expression>>> {
             Ok(Box::new(AstNode {
                 span,
                 data: Expression::Cast {
-                    type_: UnrealScriptParser::class_type(inner_iter.next().unwrap())?,
+                    type_: class_type_of(&inner_iter.next().unwrap()),
                     operand: UnrealScriptParser::expression(inner_iter.next().unwrap())?,
                 },
             }))
@@ -183,30 +187,20 @@ fn parse_target(nodes: &[Node]) -> Result<Box<AstNode<Expression>>> {
         Rule::default_access => Ok(Box::new(AstNode {
             span,
             data: Expression::DefaultAccess {
-                operand: match remaining.is_empty() {
-                    true => None,
-                    false => Some(parse_expression_from_nodes(remaining)?),
-                },
-                target: UnrealScriptParser::unqualified_identifier(
-                    node.clone().into_children().single()?,
-                )?,
+                operand: operand(remaining)?,
+                target: identifier_of(&only_child(node)),
             },
         })),
         Rule::static_access => Ok(Box::new(AstNode {
             span,
             data: Expression::StaticAccess {
-                operand: match remaining.is_empty() {
-                    true => None,
-                    false => Some(parse_expression_from_nodes(remaining)?),
-                },
-                target: UnrealScriptParser::unqualified_identifier(
-                    node.clone().into_children().single()?,
-                )?,
+                operand: operand(remaining)?,
+                target: identifier_of(&only_child(node)),
             },
         })),
         Rule::global_call => {
             let mut inner_iter = node.clone().into_children().into_iter();
-            let name = UnrealScriptParser::unqualified_identifier(inner_iter.next().unwrap())?;
+            let name = identifier_of(&inner_iter.next().unwrap());
             let arguments = UnrealScriptParser::expression_list(inner_iter.next().unwrap())?;
             Ok(Box::new(AstNode {
                 span,
@@ -214,13 +208,7 @@ fn parse_target(nodes: &[Node]) -> Result<Box<AstNode<Expression>>> {
             }))
         }
         Rule::parenthetical_expression => {
-            let children: Vec<Node> = node
-                .clone()
-                .into_children()
-                .single()?
-                .into_children()
-                .into_iter()
-                .collect();
+            let children: Vec<Node> = only_child(node).into_children().into_iter().collect();
             Ok(Box::new(AstNode {
                 span,
                 data: Expression::ParentheticalExpression(parse_expression_from_nodes(
@@ -232,61 +220,51 @@ fn parse_target(nodes: &[Node]) -> Result<Box<AstNode<Expression>>> {
             span,
             data: Expression::Call {
                 operand: parse_expression_from_nodes(remaining)?,
-                arguments: UnrealScriptParser::expression_list(
-                    node.clone().into_children().single()?,
-                )?,
+                arguments: UnrealScriptParser::expression_list(only_child(node))?,
             },
         })),
         Rule::array_access => Ok(Box::new(AstNode {
             span,
             data: Expression::ArrayAccess {
                 operand: parse_expression_from_nodes(remaining)?,
-                argument: UnrealScriptParser::expression(node.clone().into_children().single()?)?,
+                argument: UnrealScriptParser::expression(only_child(node))?,
             },
         })),
-        Rule::member_access => Ok(Box::new(AstNode {
+        // The only other rule a target can end with is `member_access`.
+        _ => Ok(Box::new(AstNode {
             span,
             data: Expression::MemberAccess {
                 operand: parse_expression_from_nodes(remaining)?,
-                target: UnrealScriptParser::unqualified_identifier(
-                    node.clone().into_children().single()?,
-                )?,
+                target: identifier_of(&only_child(node)),
             },
         })),
-        _ => panic!("unhandled rule {:?}", node.as_pair()),
     }
 }
 
 fn parse_expression_from_nodes(nodes: &[Node]) -> Result<Box<AstNode<Expression>>> {
     let mut dyadic_verbs = Vec::new();
-    for (index, node) in nodes.into_iter().enumerate() {
+    for (index, node) in nodes.iter().enumerate() {
         if let Rule::dyadic_verb = node.as_rule() {
-            let operator_precedence =
-                OPERATOR_PRECEDENCES.get(node.as_str().to_lowercase().as_str());
-            if let Some(operator_precedence) = operator_precedence {
-                dyadic_verbs.push((operator_precedence, index, node.as_str().to_lowercase()))
-            } else {
-                return Err(node.error("Encountered unregistered dyadic verb"));
-            }
+            // The grammar accepts any identifier as an operator, such as a
+            // user-defined one; only the known ones can be parsed.
+            let verb = DyadicVerb::from_str(node.as_str().to_lowercase().as_str())
+                .map_err(|_| node.error("Encountered unregistered dyadic verb"))?;
+            dyadic_verbs.push((precedence(&verb), index, verb));
         }
     }
-    if !dyadic_verbs.is_empty() {
-        // Sort dyadic verbs by precedence
-        // TODO: secondarily, sort by order!
-        dyadic_verbs.sort_by(|a, b| b.0.cmp(a.0));
-        // Split expression on either side of the verb and return a dyadic expression node
-        if let Some((_, index, operator)) = dyadic_verbs.first() {
-            return Ok(Box::new(AstNode {
-                span: AstSpan::from(nodes),
-                data: Expression::DyadicExpression {
-                    lhs: parse_expression_from_nodes(&nodes[..index - 0])?,
-                    verb: DyadicVerb::from_str(operator.as_str()).map_err(|_| {
-                        nodes[*index].error(format!("Unrecognized dyadic verb: '{}'", operator))
-                    })?,
-                    rhs: parse_expression_from_nodes(&nodes[index + 1..])?,
-                },
-            }));
-        }
+    // Split the expression at the operator with the highest precedence value
+    // (the first one, if there's a tie; the sort is stable).
+    // TODO: secondarily, sort by order!
+    dyadic_verbs.sort_by(|a, b| b.0.cmp(&a.0));
+    if let Some((_, index, verb)) = dyadic_verbs.into_iter().next() {
+        return Ok(Box::new(AstNode {
+            span: AstSpan::from(nodes),
+            data: Expression::DyadicExpression {
+                lhs: parse_expression_from_nodes(&nodes[..index])?,
+                verb,
+                rhs: parse_expression_from_nodes(&nodes[index + 1..])?,
+            },
+        }));
     }
     // Next, search for monadic verbs at the beginning and end of the expression
     if let Rule::monadic_post_verb = nodes.last().unwrap().as_rule() {
@@ -329,19 +307,16 @@ impl UnrealScriptParser {
     }
 
     fn float_literal(input: Node) -> Result<AstNode<NumericLiteral>> {
-        malformed_float_prefix(input.as_str())
+        let value = malformed_float_prefix(input.as_str())
             .to_lowercase()
             .trim_end_matches("f")
-            .to_string()
-            .as_str()
             .parse::<f32>()
-            .map_err(|e| input.error(e))
-            .and_then(|v| {
-                Ok(AstNode {
-                    span: AstSpan::from(&input),
-                    data: NumericLiteral::Float(v),
-                })
-            })
+            // Out of range floats parse as infinity, not an error.
+            .expect("the grammar only matches valid floats");
+        Ok(AstNode {
+            span: AstSpan::from(&input),
+            data: NumericLiteral::Float(value),
+        })
     }
 
     fn single_quoted_string(input: Node) -> Result<String> {
@@ -349,9 +324,7 @@ impl UnrealScriptParser {
     }
 
     fn name_literal(input: Node) -> Result<Literal> {
-        Ok(Literal::Name(
-            input.into_children().single()?.as_str().to_string(),
-        ))
+        Ok(Literal::Name(only_child(&input).as_str().to_string()))
     }
 
     fn string_literal(input: Node) -> Result<Literal> {
@@ -394,12 +367,7 @@ impl UnrealScriptParser {
     }
 
     fn unqualified_identifier(input: Node) -> Result<AstNode<Identifier>> {
-        Ok(AstNode {
-            span: AstSpan::from(&input),
-            data: Identifier {
-                string: input.as_str().to_string(),
-            },
-        })
+        Ok(identifier_of(&input))
     }
 
     fn qualified_identifier(input: Node) -> Result<AstNode<Identifier>> {
@@ -587,9 +555,7 @@ impl UnrealScriptParser {
     }
 
     fn class_type(input: Node) -> Result<Type> {
-        match_nodes!(input.into_children();
-            [identifier(id)] => Ok(Type::Class(id))
-        )
+        Ok(class_type_of(&input))
     }
 
     fn type_(input: Node) -> Result<Type> {
@@ -696,9 +662,10 @@ impl UnrealScriptParser {
     }
 
     fn boolean_literal(input: Node) -> Result<Literal> {
-        bool::from_str(input.as_str().to_lowercase().as_str())
-            .map_err(|e| input.error(e))
-            .and_then(|v| Ok(Literal::Boolean(v)))
+        // The grammar only matches `true` and `false`, in any case.
+        Ok(Literal::Boolean(
+            input.as_str().eq_ignore_ascii_case("true"),
+        ))
     }
 
     fn const_declaration(input: Node) -> Result<AstNode<ConstDeclaration>> {
@@ -729,8 +696,8 @@ impl UnrealScriptParser {
     }
 
     fn function_type_no_arguments_type(input: Node) -> Result<FunctionTypeType> {
-        FunctionTypeType::from_str(input.as_str())
-            .map_err(|_| input.error(format!("Unrecognized function type: '{}'", input.as_str())))
+        Ok(FunctionTypeType::from_str(input.as_str())
+            .expect("the grammar only matches function type keywords"))
     }
 
     fn function_type_with_arguments_type(input: Node) -> Result<FunctionTypeType> {
@@ -1395,7 +1362,9 @@ pub fn parse_program_with(
     contents: &str,
     options: &ParseOptions,
 ) -> std::result::Result<ProgramResult, ParsingError> {
-    let root = UnrealScriptParser::parse(Rule::program, contents)?.single()?;
+    let root = UnrealScriptParser::parse(Rule::program, contents)?
+        .single()
+        .expect("a parse has exactly one root");
     let program = UnrealScriptParser::program(root.clone())?;
     let lines = calculate_lines(contents);
     let with_lines = |mut errors: Vec<ProgramError>| {
@@ -1427,12 +1396,10 @@ pub fn parse_program_with(
 pub fn parse_expression(
     contents: &str,
 ) -> std::result::Result<Box<AstNode<Expression>>, ParsingError> {
-    match UnrealScriptParser::expression(
-        UnrealScriptParser::parse(Rule::expression, contents)?.single()?,
-    ) {
-        Ok(e) => Ok(e),
-        Err(e) => Err(ParsingError::from(e)),
-    }
+    let root = UnrealScriptParser::parse(Rule::expression, contents)?
+        .single()
+        .expect("a parse has exactly one root");
+    Ok(UnrealScriptParser::expression(root)?)
 }
 
 /// Parse text starting at a specific grammar rule.
