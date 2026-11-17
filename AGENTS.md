@@ -29,7 +29,14 @@ cargo build --all-targets   # should finish with no warnings
 cargo test                  # all tests
 cargo test --example parse_corpus   # the corpus tool's own tests (not run by `cargo test`)
 cargo fmt
+cargo llvm-cov --summary-only   # test coverage (needs cargo-llvm-cov)
 ```
+
+`src/parser.rs` and `src/visitor.rs` have 100% line, region and function
+coverage from the tests alone (not counting the corpus). Keep it that way: test
+every new branch, and when the grammar makes a branch impossible, restructure
+the code (e.g. an infallible helper, or `expect` stating the guarantee) rather
+than leaving a branch that no test can reach.
 
 Validate parser and lint changes against a large body of real UnrealScript
 (such as a UE2 game's source tree):
