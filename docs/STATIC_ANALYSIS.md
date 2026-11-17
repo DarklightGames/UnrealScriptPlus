@@ -62,6 +62,9 @@ number of problems and files for each lint.
 | C009 | `conflicting-access-modifiers` | Warning | More than one of `private`, `protected` and `public`. |
 | C010 | `byte-value-out-of-range` | Warning | A literal outside [0..255] assigned to a `byte`, in code or in `defaultproperties`. |
 | C011 | `duplicate-declaration` | Error | A name declared more than once in the same scope. Operator overloads, and the same value in different enums, are allowed. |
+| C012 | `assignment-to-constant` | Error | An assignment (including `+=` and `++`) to a const, an enum value or a function. Assigning a function to a delegate is allowed. |
+| C014 | `undeclared-replicated-member` | Error | A member in the replication block that isn't declared in the class itself. UE2 only lets a class replicate its own members. |
+| C015 | `return-form-mismatch` | Error | `return X;` in a function with no return type, or a bare `return;` in a function that has one. |
 
 ### Suspicious
 
@@ -82,6 +85,7 @@ number of problems and files for each lint.
 | S013 | `default-property-type-mismatch` | Warning | A `defaultproperties` value whose literal type doesn't match the variable's type. |
 | S014 | `duplicate-replicated-member` | Warning | A member listed more than once in the replication block. |
 | S015 | `shadowed-variable` | Warning | A local or argument with the same name as a variable or const of the class (or state). |
+| S016 | `missing-return` | Warning | A function with a return type where some path reaches the end without `return`; UCC returns zero or `None` there. Understands `if`/`else`, `switch` with `default` (including fallthrough into a case that returns) and `while (true)`/`for (;;)` loops without `break`. |
 
 ### Performance
 

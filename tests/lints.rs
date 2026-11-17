@@ -1078,3 +1078,133 @@ fn problems_in_calls_cover_the_whole_call() {
         .unwrap();
     assert_eq!(&source[e.span.start..e.span.end], "Sleep(1.0)");
 }
+
+#[test]
+fn assignment_to_constant() {
+    let class = |body: &str| {
+        format!(
+            "class Foo extends Object;\nconst K = 1;\nenum EColor\n{{\n    C_Red\n}};\n\
+             function G();\ndelegate OnDone();\nfunction Handler();\n\
+             function F(int A) {{ {} }}\n",
+            body
+        )
+    };
+    for body in [
+        "K = 2;",
+        "K += 1;",
+        "K++;",
+        "C_Red = 1;",
+        "G = None;",
+        "Self.K = 2;",
+    ] {
+        assert_eq!(only(&["C012"], &class(body)), vec!["C012"], "{}", body);
+    }
+    for body in ["A = K;", "OnDone = Handler;", "A = C_Red;"] {
+        assert_eq!(
+            only(&["C012"], &class(body)),
+            Vec::<&str>::new(),
+            "{}",
+            body
+        );
+    }
+}
+
+#[test]
+fn undeclared_replicated_member() {
+    let source = "class Foo extends Actor;\nvar int X;\nfunction ServerF();\n\
+                  replication\n{\n    reliable if (bNetInitial)\n        X, ServerF, Health;\n}\n";
+    let result = parse_program(source).unwrap();
+    let hits: Vec<_> = result
+        .errors
+        .iter()
+        .filter(|e| e.lint == Some(Lint::UndeclaredReplicatedMember))
+        .map(|e| &source[e.span.start..e.span.end])
+        .collect();
+    assert_eq!(hits, vec!["Health"]);
+}
+
+#[test]
+fn return_form_mismatch() {
+    let source =
+        "class Foo extends Object;\nfunction F() { return 1; }\nfunction int G() { return; }\n";
+    assert_eq!(only(&["C015"], source), vec!["C015", "C015"]);
+    let source =
+        "class Foo extends Object;\nfunction F() { return; }\nfunction int G() { return 1; }\n";
+    assert_eq!(only(&["C015"], source), Vec::<&str>::new());
+}
+
+#[test]
+fn missing_return() {
+    let class = |body: &str| {
+        format!(
+            "class Foo extends Object;\nfunction int F(int A) {{ {} }}\n",
+            body
+        )
+    };
+    for body in [
+        "",
+        "A = 1;",
+        "if (A > 0) return 1;",
+        "if (A > 0) return 1; else if (A < 0) return 2;",
+        "if (A > 0) { return 1; } else { A = 2; }",
+        "switch (A) { case 1: return 1; }",
+        "switch (A) { case 1: break; default: return 2; }",
+        "switch (A) { case 1: if (A > 0) break; return 1; default: return 2; }",
+        "switch (A) { case 1: A = 2; default: A = 3; }",
+        "switch (A) { default: return 1; case 2: A = 2; }",
+        "while (true) { if (A > 0) break; }",
+        "while (A > 0) { return 1; }",
+        "for (A = 0; A < 3; A++) { return 1; }",
+    ] {
+        assert_eq!(only(&["S016"], &class(body)), vec!["S016"], "{}", body);
+    }
+    for body in [
+        "return 1;",
+        "if (A > 0) return 1; else return 2;",
+        "if (A > 0) return 1; else if (A < 0) return 2; else return 3;",
+        "if (A > 0) { return 1; } else { A = 2; return A; }",
+        "switch (A) { case 1: return 1; default: return 2; }",
+        "switch (A) { case 1: A = 2; case 2: return A; default: return 3; }",
+        "switch (A) { case 1: case 2: return 1; default: return 2; }",
+        "while (true) { A++; }",
+        "while (true) { while (A > 0) { break; } }",
+        "while (true) { switch (A) { case 1: break; } }",
+        "for (;;) { A++; }",
+        "for (A = 0; true; A++) { }",
+        "A = 1; return A; ;",
+    ] {
+        assert_eq!(
+            only(&["S016"], &class(body)),
+            Vec::<&str>::new(),
+            "{}",
+            body
+        );
+    }
+    // Declarations without a body.
+    let source = "class Foo extends Object;\nnative function int F();\n";
+    assert_eq!(only(&["S016"], source), Vec::<&str>::new());
+}
+
+#[test]
+fn breaks_in_branches_leave_the_loop() {
+    // A `break` in any branch of an `if` leaves the loop.
+    let class = |body: &str| {
+        format!(
+            "class Foo extends Object;\nfunction int F(int A) {{ local int L; {} }}\n",
+            body
+        )
+    };
+    for body in [
+        "while (true) { if (A > 0) A++; else if (A < 0) break; }",
+        "while (true) { if (A > 0) A++; else break; }",
+    ] {
+        assert_eq!(only(&["S016"], &class(body)), vec!["S016"], "{}", body);
+    }
+    assert_eq!(
+        only(
+            &["S016"],
+            &class("while (true) { if (A > 0) A++; else A--; }")
+        ),
+        Vec::<&str>::new()
+    );
+}

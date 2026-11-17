@@ -134,6 +134,12 @@ lints! {
         "A literal outside [0..255] assigned to a `byte`."),
     DuplicateDeclaration = ("C011", "duplicate-declaration", Correctness, Error,
         "A name declared more than once in the same scope."),
+    AssignmentToConstant = ("C012", "assignment-to-constant", Correctness, Error,
+        "An assignment to a const, an enum value or a function."),
+    UndeclaredReplicatedMember = ("C014", "undeclared-replicated-member", Correctness, Error,
+        "A replicated member that isn't declared in the class itself."),
+    ReturnFormMismatch = ("C015", "return-form-mismatch", Correctness, Error,
+        "`return X;` in a function with no return type, or `return;` in one with a return type."),
 
     // Suspicious
     EmptyBody = ("S001", "empty-body", Suspicious, Warning,
@@ -166,7 +172,8 @@ lints! {
         "A member listed more than once in the replication block."),
     ShadowedVariable = ("S015", "shadowed-variable", Suspicious, Warning,
         "A local or argument with the same name as a variable or const of the class."),
-
+    MissingReturn = ("S016", "missing-return", Suspicious, Warning,
+        "A function with a return type where a path doesn't end in `return`."),
     // Performance
     ActorIteratorInPerFrameFunction = ("P001", "actor-iterator-in-per-frame-function", Performance, Warning,
         "`foreach AllActors`/`DynamicActors` in a function called every frame, such as `Tick`."),

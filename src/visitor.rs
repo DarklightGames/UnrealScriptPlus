@@ -61,6 +61,8 @@ struct CodeContext {
     /// Whether `X = X` is allowed, as in `for (i = i; ...)`, which continues
     /// a loop from the current value of `i`.
     allow_self_assignment: bool,
+    /// In a function, whether it has a return type. `None` in state code.
+    returns_value: Option<bool>,
 }
 
 pub struct Visitor<'a> {
@@ -712,6 +714,19 @@ impl Visit for AstNode<ReplicationBlock> {
         for statement in &self.statements {
             statement.condition.visit(visitor);
             for member in &statement.variables {
+                let declared = [Namespace::Value, Namespace::Function]
+                    .iter()
+                    .any(|&ns| visitor.symbols.lookup(ScopeId::CLASS, ns, member).is_some());
+                if !declared {
+                    visitor.report(
+                        Lint::UndeclaredReplicatedMember,
+                        format!(
+                            "{} isn't declared in this class; a class can only replicate its own members",
+                            member.string
+                        ),
+                        member.span,
+                    )
+                }
                 if !seen.insert(member.data.clone()) {
                     visitor.report(
                         Lint::DuplicateReplicatedMember,
@@ -842,6 +857,105 @@ const RESERVED_MEMBER_NAMES: &[&str] = &[
     "global", "int", "name", "new", "none", "rot", "self", "state", "static", "string", "struct",
     "super", "true", "vect",
 ];
+
+/// Whether control can't run off the end of `statements`: every path
+/// returns, or loops forever.
+fn always_returns(statements: &[&AstNode<CodeStatement>]) -> bool {
+    statements
+        .iter()
+        .rev()
+        .find(|s| !is_inert(s))
+        .is_some_and(|s| returns(s))
+}
+
+fn body_returns(body: &CodeStatementOrBlock) -> bool {
+    match body {
+        CodeStatementOrBlock::CodeStatement(s) => returns(s),
+        CodeStatementOrBlock::CodeBlock(b) => {
+            always_returns(&b.statements.iter().collect::<Vec<_>>())
+        }
+    }
+}
+
+/// Whether every path through `statement` returns, or loops forever.
+fn returns(statement: &CodeStatement) -> bool {
+    match statement {
+        CodeStatement::Return(_) => true,
+        CodeStatement::Conditional(c) => {
+            c.else_statement
+                .as_ref()
+                .is_some_and(|e| body_returns(&e.body))
+                && c.if_statement
+                    .body
+                    .as_ref()
+                    .is_some_and(|b| body_returns(b))
+                && c.elif_statements.iter().all(|e| body_returns(&e.body))
+        }
+        // With a default case, every case must return, by itself or by
+        // falling through into a case that does.
+        CodeStatement::Switch(s) => {
+            s.cases
+                .iter()
+                .any(|c| matches!(c.type_, SwitchCaseType::Default))
+                && (0..s.cases.len()).all(|i| case_returns(&s.cases[i..]))
+        }
+        CodeStatement::While(w) => is_true_literal(&w.predicate) && !body_breaks(&w.body),
+        CodeStatement::For(f) => {
+            f.predicate.as_deref().is_none_or(is_true_literal) && !body_breaks(&f.body)
+        }
+        _ => false,
+    }
+}
+
+/// Whether entering the first of `cases` always returns: it doesn't
+/// `break`, and its code either returns or falls through into a case that
+/// does.
+fn case_returns(cases: &[SwitchCase]) -> bool {
+    let statements: Vec<_> = cases[0].statements.iter().collect();
+    !cases[0].statements.iter().any(|s| breaks(s))
+        && (always_returns(&statements)
+            || (!always_jumps_out(&statements) && cases.len() > 1 && case_returns(&cases[1..])))
+}
+
+/// Whether `statements` end in a jump out of their case, so it can't fall
+/// through.
+fn always_jumps_out(statements: &[&AstNode<CodeStatement>]) -> bool {
+    statements
+        .iter()
+        .rev()
+        .find(|s| !is_inert(s))
+        .is_some_and(|s| always_jumps(s))
+}
+
+fn is_true_literal(expression: &AstNode<Expression>) -> bool {
+    matches!(
+        &unparenthesize(expression).data,
+        Expression::Literal(l) if l.data == Literal::Boolean(true)
+    )
+}
+
+/// Whether a `break` in `body` can leave the loop it's the body of. (A
+/// `break` in a nested loop or switch leaves that instead.)
+fn body_breaks(body: &CodeStatementOrBlock) -> bool {
+    match body {
+        CodeStatementOrBlock::CodeStatement(s) => breaks(s),
+        CodeStatementOrBlock::CodeBlock(b) => b.statements.iter().any(|s| breaks(s)),
+    }
+}
+
+fn breaks(statement: &CodeStatement) -> bool {
+    match statement {
+        CodeStatement::Break => true,
+        CodeStatement::Conditional(c) => {
+            c.if_statement.body.as_ref().is_some_and(|b| body_breaks(b))
+                || c.elif_statements.iter().any(|e| body_breaks(&e.body))
+                || c.else_statement
+                    .as_ref()
+                    .is_some_and(|e| body_breaks(&e.body))
+        }
+        _ => false,
+    }
+}
 
 /// Reports `Self.X` where `X` alone would mean the same thing: when no scope
 /// between the code and its state or class (i.e. the function) declares an
@@ -1149,6 +1263,23 @@ impl Visit for AstNode<CodeStatement> {
                 expression.visit(visitor)
             }
             CodeStatement::Return(expression) => {
+                let function = visitor.code.function_name.clone().unwrap_or_default();
+                match (visitor.code.returns_value, expression) {
+                    (Some(false), Some(_)) => visitor.report(
+                        Lint::ReturnFormMismatch,
+                        format!(
+                            "{} has no return type, so it can't return a value",
+                            function
+                        ),
+                        self.span,
+                    ),
+                    (Some(true), None) => visitor.report(
+                        Lint::ReturnFormMismatch,
+                        format!("{} has a return type, so `return` needs a value", function),
+                        self.span,
+                    ),
+                    _ => {}
+                }
                 if let Some(expression) = expression {
                     expression.visit(visitor)
                 }
@@ -1350,6 +1481,7 @@ impl Visit for AstNode<FunctionDeclaration> {
         let context = CodeContext {
             scope,
             function_name: Some(self.name.string.clone()),
+            returns_value: Some(self.return_type.is_some()),
             ..CodeContext::default()
         };
         visitor.with_code_context(context, |visitor| {
@@ -1361,6 +1493,26 @@ impl Visit for AstNode<FunctionDeclaration> {
             }
             visitor.report_unused_locals(scope);
         });
+        if let (Some(_), Some(body)) = (&self.return_type, &self.body) {
+            let statements: Vec<_> = body
+                .statements
+                .iter()
+                .filter_map(|s| match s {
+                    FunctionBodyStatement::CodeStatement(c) => Some(c),
+                    _ => None,
+                })
+                .collect();
+            if !always_returns(&statements) {
+                visitor.report(
+                    Lint::MissingReturn,
+                    format!(
+                        "{} returns a value, but not every path through it ends in `return`",
+                        self.name.string
+                    ),
+                    self.name.span,
+                )
+            }
+        }
     }
 }
 
@@ -1596,6 +1748,30 @@ fn check_symbols(visitor: &mut Visitor) {
                 Lint::UnusedPrivateMember,
                 format!("Private {} {:?} is never used", what, symbol.name.string),
                 symbol.span,
+            )
+        }
+    }
+
+    // Assignments to things that can't be assigned.
+    for reference in symbols.references() {
+        if reference.kind != ReferenceKind::Write {
+            continue;
+        }
+        let symbol = symbols.symbol(reference.symbol);
+        let what = match &symbol.kind {
+            SymbolKind::Const { .. } => Some("a const"),
+            SymbolKind::EnumValue { .. } => Some("an enum value"),
+            // Assigning to a delegate sets its function.
+            SymbolKind::Function { types, .. } => {
+                (!types.contains(&FunctionTypeType::Delegate)).then_some("a function")
+            }
+            _ => None,
+        };
+        if let Some(what) = what {
+            visitor.report(
+                Lint::AssignmentToConstant,
+                format!("{} is {} and can't be assigned to", reference.text, what),
+                reference.span,
             )
         }
     }
