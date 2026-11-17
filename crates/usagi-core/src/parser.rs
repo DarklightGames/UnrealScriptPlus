@@ -1278,17 +1278,6 @@ pub struct ProgramResult {
     pub symbols: SymbolTable,
 }
 
-/// Returns the byte offset of every newline in `contents`.
-fn calculate_lines(contents: &str) -> Vec<usize> {
-    contents.match_indices('\n').map(|(i, _)| i).collect()
-}
-
-/// Returns the 1-based line number of the byte offset `position`.
-fn line_of(lines: &[usize], position: usize) -> usize {
-    // The number of newlines strictly before `position`, plus one.
-    lines.partition_point(|&newline| newline < position) + 1
-}
-
 /// For a float literal with more than one decimal point (e.g. `0.0.5`),
 /// returns the part before the second point; otherwise returns `text`.
 fn malformed_float_prefix(text: &str) -> &str {
@@ -1368,10 +1357,10 @@ pub fn parse_program_with(
         .single()
         .expect("a parse has exactly one root");
     let program = UnrealScriptParser::program(root.clone())?;
-    let lines = calculate_lines(contents);
+    let lines = crate::source::LineIndex::new(contents);
     let with_lines = |mut errors: Vec<ProgramError>| {
         for error in &mut errors {
-            error.span.line = Some(line_of(&lines, error.span.start));
+            error.span.line = Some(lines.line(error.span.start));
         }
         errors
     };
@@ -1382,7 +1371,7 @@ pub fn parse_program_with(
     }
 
     let mut symbols = SymbolTable::build(&program);
-    symbols.set_lines(|offset| line_of(&lines, offset));
+    symbols.set_lines(|offset| lines.line(offset));
     let mut visitor = Visitor::new(contents, &symbols);
     program.visit(&mut visitor);
     let mut errors = recovered;

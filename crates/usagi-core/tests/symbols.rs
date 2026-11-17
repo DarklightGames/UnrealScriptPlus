@@ -1,8 +1,6 @@
 // Tests for the symbol table: declarations, scopes and resolved references.
 use usagi_core::ast::{Identifier, PodType};
-use usagi_core::symbols::{
-    Access, ConstValue, Namespace, ScopeId, ScopeKind, SymbolId, TypeRef,
-};
+use usagi_core::symbols::{Access, ConstValue, Namespace, ScopeId, ScopeKind, SymbolId, TypeRef};
 use usagi_core::{ReferenceKind, SymbolKind, SymbolTable, parse_program};
 
 fn table(source: &str) -> SymbolTable {

@@ -5,11 +5,7 @@
 //! `--select` and `--ignore` take comma-separated lint codes, code prefixes,
 //! names or categories (see `LintSelection`). By default every lint is shown.
 
-use encoding::all::WINDOWS_1252;
-use encoding::{DecoderTrap, Encoding};
-use usagi_core::{
-    LintSelection, ParseMode, ParseOptions, ParsingError, parse_program_with,
-};
+use usagi_core::{LintSelection, ParseMode, ParseOptions, ParsingError, parse_program_with};
 
 fn main() {
     let strict = std::env::args().any(|a| a == "--strict");
@@ -41,11 +37,7 @@ fn main() {
         ParseMode::Permissive
     };
     let bytes = std::fs::read(&path).expect("failed to read file");
-    let bytes = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(&bytes);
-    let contents = match std::str::from_utf8(bytes) {
-        Ok(s) => s.to_string(),
-        Err(_) => WINDOWS_1252.decode(bytes, DecoderTrap::Replace).unwrap(),
-    };
+    let contents = usagi_core::decode(&bytes);
     match parse_program_with(&contents, &ParseOptions { mode }) {
         Ok(mut result) => {
             selection.retain(&mut result.errors);

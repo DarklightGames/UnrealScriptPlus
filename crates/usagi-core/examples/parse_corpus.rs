@@ -34,12 +34,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use encoding::all::WINDOWS_1252;
-use encoding::{DecoderTrap, Encoding};
 use pest::error::LineColLocation;
-use usagi_core::{
-    Lint, ParseMode, ParseOptions, ParsingError, parse_program, parse_program_with,
-};
+use usagi_core::{Lint, ParseMode, ParseOptions, ParsingError, parse_program, parse_program_with};
 
 /// A lint problem: (lint, line, message).
 type LintHit = (Lint, usize, String);
@@ -153,15 +149,6 @@ fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-fn decode(bytes: &[u8]) -> String {
-    // Strip a UTF-8 BOM and accept valid UTF-8; otherwise the project mandates Windows-1252.
-    let bytes = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
-    match std::str::from_utf8(bytes) {
-        Ok(s) => s.to_string(),
-        Err(_) => WINDOWS_1252.decode(bytes, DecoderTrap::Replace).unwrap(),
-    }
-}
-
 fn one_line(s: &str) -> String {
     s.replace(['\t', '\r', '\n'], " ")
 }
@@ -185,7 +172,7 @@ fn parse_file(
     lints: bool,
 ) -> ((&'static str, usize, usize, String), Vec<LintHit>) {
     let contents = match fs::read(path) {
-        Ok(b) => decode(&b),
+        Ok(b) => usagi_core::decode(&b),
         Err(e) => return (("io_error", 0, 0, e.to_string()), Vec::new()),
     };
     let hits = if lints {

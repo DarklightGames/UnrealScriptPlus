@@ -432,9 +432,7 @@ fn argument_list_slots() {
 
 /// Parses `source` as an expression.
 #[track_caller]
-fn expression(
-    source: &str,
-) -> Box<usagi_core::ast::AstNode<usagi_core::ast::Expression>> {
+fn expression(source: &str) -> Box<usagi_core::ast::AstNode<usagi_core::ast::Expression>> {
     usagi_core::parse_expression(source)
         .unwrap_or_else(|e| panic!("{} failed to parse: {:?}", source, e))
 }
@@ -583,9 +581,7 @@ fn io_errors_convert_to_parsing_errors() {
 
 #[test]
 fn switch_default_cases() {
-    use usagi_core::ast::{
-        CodeStatement, FunctionBodyStatement, ProgramStatement, SwitchCaseType,
-    };
+    use usagi_core::ast::{CodeStatement, FunctionBodyStatement, ProgramStatement, SwitchCaseType};
     // `true` for a `case`, `false` for a `default`, with each one's
     // statement count.
     for (cases, expected) in [
