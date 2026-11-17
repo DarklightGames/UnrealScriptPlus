@@ -4,8 +4,14 @@ Guidance for AI coding agents working on this repository.
 
 ## Project
 
-UnrealScriptPlus is a Rust library (`unrealscript_parser`) that parses Unreal
-Engine 2 UnrealScript and runs static analysis on it.
+UnrealScriptPlus is a Cargo workspace for parsing Unreal Engine 2
+UnrealScript and running static analysis on it:
+
+| Crate | Contents |
+|---|---|
+| `crates/usagi-core` | The library (`usagi_core`): parser, AST, symbol table and lints. |
+
+Paths below are relative to `crates/usagi-core`.
 
 | Path | Contents |
 |---|---|
@@ -25,9 +31,9 @@ Engine 2 UnrealScript and runs static analysis on it.
 ## Commands
 
 ```sh
-cargo build --all-targets   # should finish with no warnings
-cargo test                  # all tests
-cargo test --example parse_corpus   # the corpus tool's own tests (not run by `cargo test`)
+cargo build --workspace --all-targets   # should finish with no warnings
+cargo test --workspace      # all tests
+cargo test -p usagi-core --example parse_corpus   # the corpus tool's own tests (not run by `cargo test`)
 cargo fmt
 cargo llvm-cov --summary-only   # test coverage (needs cargo-llvm-cov)
 ```

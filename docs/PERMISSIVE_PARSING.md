@@ -14,14 +14,14 @@ The parser handles this leniency in two ways:
 2. **Accepted quirks.** These are things UE2's compiler accepts without
    complaint. The parser accepts them silently in both modes.
 
-Regression tests for these rules are in [`tests/programs.rs`](../tests/programs.rs).
+Regression tests for these rules are in [`tests/programs.rs`](../crates/usagi-core/tests/programs.rs).
 Most of them reproduce failures found by parsing the Red Orchestra / Darkest
 Hour codebase (7,633 files) with `examples/parse_corpus.rs`.
 
 ## Parse modes
 
 ```rust
-use unrealscript_parser::{parse_program, parse_program_with, ParseMode, ParseOptions};
+use usagi_core::{parse_program, parse_program_with, ParseMode, ParseOptions};
 
 // Permissive (the default): recovered problems are warnings in
 // `ProgramResult::errors`, with `lint: None`.
@@ -124,7 +124,7 @@ When shipped code fails to parse:
 2. For an accepted quirk, change the grammar so that the code parses silently.
    For a recovered problem, recover from it the way UE2 does, and report it as
    a recovered problem in `recovered_problems` in
-   [`src/parser.rs`](../src/parser.rs) so that strict mode rejects it. Problems
+   [`src/parser.rs`](../crates/usagi-core/src/parser.rs) so that strict mode rejects it. Problems
    inside `defaultproperties` belong in the `t3d` crate.
 3. Add a regression test to `tests/programs.rs`.
 4. Add the rule to this document.

@@ -1,9 +1,9 @@
 // Tests for the symbol table: declarations, scopes and resolved references.
-use unrealscript_parser::ast::{Identifier, PodType};
-use unrealscript_parser::symbols::{
+use usagi_core::ast::{Identifier, PodType};
+use usagi_core::symbols::{
     Access, ConstValue, Namespace, ScopeId, ScopeKind, SymbolId, TypeRef,
 };
-use unrealscript_parser::{ReferenceKind, SymbolKind, SymbolTable, parse_program};
+use usagi_core::{ReferenceKind, SymbolKind, SymbolTable, parse_program};
 
 fn table(source: &str) -> SymbolTable {
     parse_program(source)

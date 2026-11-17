@@ -1,5 +1,5 @@
 // Integration tests for public API functions
-use unrealscript_parser::{Rule, parse_expression, parse_with_rule};
+use usagi_core::{Rule, parse_expression, parse_with_rule};
 
 #[test]
 fn test_parse_with_rule_expression() {

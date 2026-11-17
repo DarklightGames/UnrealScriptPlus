@@ -1,8 +1,8 @@
 // End-to-end tests that run the full `parse_program` pipeline (grammar + AST
 // construction + visitor). Many of these are minimal reproductions of failures
 // found by running `examples/parse_corpus.rs` against real UnrealScript code.
-use unrealscript_parser::ast::{DefaultProperties, ProgramStatement};
-use unrealscript_parser::{
+use usagi_core::ast::{DefaultProperties, ProgramStatement};
+use usagi_core::{
     ParseMode, ParseOptions, ParsingError, ProgramErrorSeverity, ProgramResult, parse_program,
     parse_program_with,
 };
@@ -405,8 +405,8 @@ fn malformed_float_literal() {
 
 #[test]
 fn argument_list_slots() {
-    use unrealscript_parser::ast::Expression;
-    use unrealscript_parser::parse_expression;
+    use usagi_core::ast::Expression;
+    use usagi_core::parse_expression;
     // `Some` for an argument, `None` for an empty slot.
     for (source, expected) in [
         ("F()", vec![]),
@@ -434,14 +434,14 @@ fn argument_list_slots() {
 #[track_caller]
 fn expression(
     source: &str,
-) -> Box<unrealscript_parser::ast::AstNode<unrealscript_parser::ast::Expression>> {
-    unrealscript_parser::parse_expression(source)
+) -> Box<usagi_core::ast::AstNode<usagi_core::ast::Expression>> {
+    usagi_core::parse_expression(source)
         .unwrap_or_else(|e| panic!("{} failed to parse: {:?}", source, e))
 }
 
 #[test]
 fn operator_precedence() {
-    use unrealscript_parser::ast::{DyadicVerb, Expression};
+    use usagi_core::ast::{DyadicVerb, Expression};
     // An expression is split at its loosest operator.
     for (source, verb) in [
         ("A ** B", DyadicVerb::Exponentiate),
@@ -470,7 +470,7 @@ fn operator_precedence() {
 #[test]
 fn unknown_operator_is_an_error() {
     // The grammar accepts any identifier as an operator.
-    match unrealscript_parser::parse_expression("A Foo B") {
+    match usagi_core::parse_expression("A Foo B") {
         Err(ParsingError::PestError(e)) => {
             assert!(e.to_string().contains("unregistered dyadic verb"), "{}", e)
         }
@@ -485,7 +485,7 @@ fn unknown_operator_is_an_error() {
 
 #[test]
 fn new_with_arguments() {
-    use unrealscript_parser::ast::Expression;
+    use usagi_core::ast::Expression;
     match &expression("new (Outer) class'Foo'").data {
         Expression::New {
             arguments: Some(arguments),
@@ -507,7 +507,7 @@ fn new_with_arguments() {
 
 #[test]
 fn default_and_static_access() {
-    use unrealscript_parser::ast::Expression;
+    use usagi_core::ast::Expression;
     match &expression("Other.default.Health").data {
         Expression::DefaultAccess {
             operand: Some(operand),
@@ -539,7 +539,7 @@ fn default_and_static_access() {
 
 #[test]
 fn hexadecimal_integers() {
-    use unrealscript_parser::ast::{Expression, Literal, NumericLiteral};
+    use usagi_core::ast::{Expression, Literal, NumericLiteral};
     for (source, value) in [("0xFF", 255), ("0x7FFFFFFF", i32::MAX), ("0xFFFFFFFF", -1)] {
         let e = expression(source);
         let Expression::Literal(literal) = &e.data else {
@@ -568,7 +568,7 @@ fn integer_overflow_is_an_error_wherever_it_appears() {
         "F(9999999999).static.G()",
         "A + 9999999999",
     ] {
-        match unrealscript_parser::parse_expression(source) {
+        match usagi_core::parse_expression(source) {
             Err(ParsingError::PestError(_)) => {}
             other => panic!("{} should fail: {:?}", source, other.map(|e| e.data)),
         }
@@ -583,7 +583,7 @@ fn io_errors_convert_to_parsing_errors() {
 
 #[test]
 fn switch_default_cases() {
-    use unrealscript_parser::ast::{
+    use usagi_core::ast::{
         CodeStatement, FunctionBodyStatement, ProgramStatement, SwitchCaseType,
     };
     // `true` for a `case`, `false` for a `default`, with each one's
@@ -649,7 +649,7 @@ fn switch_default_cases() {
 #[test]
 fn syntax_errors() {
     assert!(matches!(
-        unrealscript_parser::parse_expression(")"),
+        usagi_core::parse_expression(")"),
         Err(ParsingError::PestError(_))
     ));
     assert!(matches!(
@@ -670,7 +670,7 @@ fn errors_propagate_out_of_every_kind_of_expression() {
         "F(9999999999)++",
         "!F(9999999999)",
     ] {
-        match unrealscript_parser::parse_expression(source) {
+        match usagi_core::parse_expression(source) {
             Err(ParsingError::PestError(_)) => {}
             other => panic!("{} should fail: {:?}", source, other.map(|e| e.data)),
         }
@@ -690,7 +690,7 @@ fn parse_expression_requires_the_whole_input() {
     ] {
         assert!(
             matches!(
-                unrealscript_parser::parse_expression(source),
+                usagi_core::parse_expression(source),
                 Err(ParsingError::PestError(_))
             ),
             "{} should not parse",
@@ -718,7 +718,7 @@ fn expression_spans_cover_their_operands() {
         assert_eq!(&source[e.span.start..e.span.end], source);
     }
     // ...and an operand's span is its own.
-    use unrealscript_parser::ast::Expression;
+    use usagi_core::ast::Expression;
     let source = "Foo(1).Bar";
     let e = expression(source);
     let Expression::MemberAccess { operand, .. } = &e.data else {
@@ -729,7 +729,7 @@ fn expression_spans_cover_their_operands() {
 
 #[test]
 fn identifiers_starting_with_do_and_else() {
-    use unrealscript_parser::ast::{CodeStatement, FunctionBodyStatement, ProgramStatement};
+    use usagi_core::ast::{CodeStatement, FunctionBodyStatement, ProgramStatement};
     // `DoJump();` once parsed as `do Jump();`, and `elseValue = 1;` as
     // `else Value = 1;`.
     let source = "class Foo extends Object;\nfunction F() { local int doValue, elseValue;\n\

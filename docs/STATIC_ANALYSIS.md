@@ -5,9 +5,9 @@ style problems. Every problem found by a lint carries the lint's **code** and
 **name** (e.g. `S003 self-assignment`) on `ProgramError::lint`, alongside a
 severity (`Error` or `Warning`).
 
-The registry of lints is in [`src/lint.rs`](../src/lint.rs). The checks are in
-[`src/visitor.rs`](../src/visitor.rs), and some of them use the per-file symbol
-table in [`src/symbols.rs`](../src/symbols.rs).
+The registry of lints is in [`src/lint.rs`](../crates/usagi-core/src/lint.rs). The checks are in
+[`src/visitor.rs`](../crates/usagi-core/src/visitor.rs), and some of them use the per-file symbol
+table in [`src/symbols.rs`](../crates/usagi-core/src/symbols.rs).
 
 ## Categories
 
@@ -31,7 +31,7 @@ Ruff's `select` and `ignore`. A selector is `ALL`, a code or code prefix (`S`,
 matches it and no `ignore` selector does.
 
 ```rust
-let mut result = unrealscript_parser::parse_program(source)?;
+let mut result = usagi_core::parse_program(source)?;
 LintSelection::new(["C", "S"], ["S008"]).retain(&mut result.errors);
 ```
 

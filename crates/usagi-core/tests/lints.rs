@@ -1,7 +1,7 @@
 // Tests for the lints reported by the visitor. Each lint has a case that
 // triggers it and, where there is a known false positive to avoid, a case
 // that must not.
-use unrealscript_parser::{Lint, LintSelection, ProgramErrorSeverity, parse_program};
+use usagi_core::{Lint, LintSelection, ProgramErrorSeverity, parse_program};
 
 /// Parses `source` and returns the codes of the lints it reports, in order.
 #[track_caller]
@@ -658,7 +658,7 @@ fn redundant_self() {
 
 #[test]
 fn every_lint_is_documented() {
-    let doc = include_str!("../docs/STATIC_ANALYSIS.md");
+    let doc = include_str!("../../../docs/STATIC_ANALYSIS.md");
     for &lint in Lint::ALL {
         let row = format!(
             "| {} | `{}` | {:?} |",

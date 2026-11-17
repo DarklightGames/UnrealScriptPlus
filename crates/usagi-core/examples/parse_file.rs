@@ -7,7 +7,7 @@
 
 use encoding::all::WINDOWS_1252;
 use encoding::{DecoderTrap, Encoding};
-use unrealscript_parser::{
+use usagi_core::{
     LintSelection, ParseMode, ParseOptions, ParsingError, parse_program_with,
 };
 

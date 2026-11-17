@@ -1422,7 +1422,7 @@ pub fn parse_expression(
 ///
 /// # Example
 /// ```ignore
-/// use unrealscript_parser::{parse_with_rule, Rule};
+/// use usagi_core::{parse_with_rule, Rule};
 /// let result = parse_with_rule(Rule::expression, "1 + 2");
 /// ```
 pub fn parse_with_rule(

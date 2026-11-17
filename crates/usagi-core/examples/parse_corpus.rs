@@ -37,7 +37,7 @@ use std::time::{Duration, Instant};
 use encoding::all::WINDOWS_1252;
 use encoding::{DecoderTrap, Encoding};
 use pest::error::LineColLocation;
-use unrealscript_parser::{
+use usagi_core::{
     Lint, ParseMode, ParseOptions, ParsingError, parse_program, parse_program_with,
 };
 
