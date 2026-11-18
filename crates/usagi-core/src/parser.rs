@@ -689,10 +689,11 @@ impl UnrealScriptParser {
         Ok(FunctionModifierType::from_str(input.as_str().to_lowercase().as_str()).unwrap())
     }
 
-    fn function_modifier(input: Node) -> Result<FunctionModifier> {
+    fn function_modifier(input: Node) -> Result<AstNode<FunctionModifier>> {
+        let span = AstSpan::from(&input);
         match_nodes!(input.into_children();
             [function_modifier_type(type_), integer_literal(arguments)..] => {
-                Ok(FunctionModifier { type_, arguments: arguments.collect() })
+                Ok(AstNode { span, data: FunctionModifier { type_, arguments: arguments.collect() } })
             }
         )
     }
@@ -1278,6 +1279,8 @@ pub struct ProgramResult {
     pub errors: Vec<ProgramError>,
     /// The declarations and resolved references of the program.
     pub symbols: SymbolTable,
+    /// The byte ranges of the comments, in order.
+    pub comments: Vec<std::ops::Range<usize>>,
 }
 
 /// For a float literal with more than one decimal point (e.g. `0.0.5`),
@@ -1377,7 +1380,8 @@ pub fn parse_program_with(
 
     let mut symbols = SymbolTable::build(&program);
     symbols.set_lines(|offset| lines.line(offset));
-    let mut visitor = Visitor::new(contents, &symbols);
+    let comments = crate::source::comment_ranges(contents);
+    let mut visitor = Visitor::new(contents, &symbols, &comments);
     program.visit(&mut visitor);
     let mut errors = recovered;
     errors.extend(with_lines(visitor.errors));
@@ -1386,6 +1390,7 @@ pub fn parse_program_with(
         program,
         errors,
         symbols,
+        comments,
     })
 }
 

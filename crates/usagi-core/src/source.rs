@@ -159,6 +159,70 @@ pub fn encoding_problems(decoded: &Decoded) -> Vec<(Range<usize>, String)> {
     problems
 }
 
+/// The byte ranges of the comments in `text`, in order: `// ...` up to the
+/// end of the line, and `/* ... */`, which nests. An unterminated block
+/// comment runs to the end of the text.
+///
+/// String (`"..."`) and name (`'...'`) literals are skipped, so `"a//b"` has
+/// no comment. A literal ends at its closing quote or at the end of its line,
+/// as UE2's `defaultproperties` importer reads it (shipped code has
+/// unterminated strings).
+pub fn comment_ranges(text: &str) -> Vec<Range<usize>> {
+    let bytes = text.as_bytes();
+    let mut comments = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'/' if bytes.get(i + 1) == Some(&b'/') => {
+                let end = memchr_newline(bytes, i);
+                comments.push(i..end);
+                i = end;
+            }
+            b'/' if bytes.get(i + 1) == Some(&b'*') => {
+                let start = i;
+                let mut depth = 0;
+                while i < bytes.len() {
+                    if bytes[i..].starts_with(b"/*") {
+                        depth += 1;
+                        i += 2;
+                    } else if bytes[i..].starts_with(b"*/") {
+                        depth -= 1;
+                        i += 2;
+                        if depth == 0 {
+                            break;
+                        }
+                    } else {
+                        i += 1;
+                    }
+                }
+                comments.push(start..i);
+            }
+            quote @ (b'"' | b'\'') => {
+                i += 1;
+                while i < bytes.len() && bytes[i] != quote && bytes[i] != b'\n' {
+                    // `\"` doesn't end a string.
+                    i += if bytes[i] == b'\\' && quote == b'"' {
+                        2
+                    } else {
+                        1
+                    };
+                }
+                i += 1;
+            }
+            _ => i += 1,
+        }
+    }
+    comments
+}
+
+/// The offset of the next `\n` at or after `from`, or the end of `bytes`.
+fn memchr_newline(bytes: &[u8], from: usize) -> usize {
+    bytes[from..]
+        .iter()
+        .position(|&b| b == b'\n')
+        .map_or(bytes.len(), |i| from + i)
+}
+
 /// Converts byte offsets in a source text to line and column numbers.
 #[derive(Debug, Clone)]
 pub struct LineIndex {
@@ -275,6 +339,29 @@ mod tests {
             );
         }
         assert_eq!(encode("\u{20ac}", SourceEncoding::Latin1), None);
+    }
+
+    #[test]
+    fn finds_comments() {
+        fn comments(text: &str) -> Vec<&str> {
+            comment_ranges(text).into_iter().map(|r| &text[r]).collect()
+        }
+        assert_eq!(
+            comments("A = 1; // one\r\nB /* two */ = 2;\n"),
+            vec!["// one\r", "/* two */"]
+        );
+        assert_eq!(comments("/* a /* b */ c */ X"), vec!["/* a /* b */ c */"]);
+        assert_eq!(comments("X // last"), vec!["// last"]);
+        assert_eq!(comments("X /* open /* "), vec!["/* open /* "]);
+        // Not in literals, and a `*/` alone isn't a comment.
+        assert!(comments("S = \"a//b\"; N = 'x/*y'; */").is_empty());
+        assert_eq!(comments("S = \"a\\\"//b\"; // c"), vec!["// c"]);
+        // A literal ends at the end of its line.
+        assert_eq!(comments("S = \"open\n// c"), vec!["// c"]);
+        assert_eq!(comments("N = 'open\n// c"), vec!["// c"]);
+        // A backslash in a name literal isn't an escape.
+        assert_eq!(comments("N = 'a\\'; // c"), vec!["// c"]);
+        assert_eq!(comments("S = \"\\"), Vec::<&str>::new());
     }
 
     #[test]

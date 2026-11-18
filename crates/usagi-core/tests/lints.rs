@@ -1295,11 +1295,6 @@ fn fixes() {
         &class_with("    A = 1;\r\n"),
     );
     assert_fix(
-        "R013",
-        &class_with("    A = 1; return; // done\n"),
-        &class_with("    A = 1;  // done\n"),
-    );
-    assert_fix(
         "R008",
         &class_with("    F(A, , );\n    F(,);\n    G(A,B,);\n"),
         &class_with("    F(A);\n    F();\n    G(A,B);\n"),
@@ -1326,4 +1321,96 @@ fn trailing_empty_arguments_with_a_comment_have_no_fix() {
         .find(|e| e.lint.is_some_and(|l| l.code() == "R008"))
         .unwrap();
     assert!(problem.fix.is_none());
+}
+
+#[test]
+fn redundancy_fixes() {
+    // R001: a `;` in a list of statements, or at the top level.
+    assert_fix(
+        "R001",
+        &class_with("    A = 1;;\n    ;\n"),
+        &class_with("    A = 1;\n"),
+    );
+    assert_fix(
+        "R001",
+        "class Foo extends Object;\nvar int X;;\n",
+        "class Foo extends Object;\nvar int X;\n",
+    );
+    // R002
+    assert_fix(
+        "R002",
+        &class_with("    A = (I);\n    A = ( I + 1 );\n    G((A), (1));\n"),
+        &class_with("    A = I;\n    A = I + 1;\n    G(A, 1);\n"),
+    );
+    assert_fix(
+        "R002",
+        &class_with("    A = I-(-1);\n    return(A);\n"),
+        &class_with("    A = I- -1;\n    return A;\n"),
+    );
+    // R003
+    assert_fix(
+        "R003",
+        "class Foo extends Object\n    abstract abstract;\nvar config  config int X;\n\
+         final simulated final final function F();\n",
+        "class Foo extends Object\n    abstract;\nvar config int X;\n\
+         final simulated function F();\n",
+    );
+    // R004
+    assert_fix(
+        "R004",
+        "class Foo extends Object;\nvar int X;\nvar int Y;\n\
+         defaultproperties\n{\n    X=0;\n    Y=1\n}\n",
+        "class Foo extends Object;\nvar int X;\nvar int Y;\n\
+         defaultproperties\n{\n    Y=1\n}\n",
+    );
+    // R005 and R006
+    assert_fix(
+        "R005",
+        "class Foo extends Object;\n\ndefaultproperties\n{\n}\n",
+        "class Foo extends Object;\n\n",
+    );
+    assert_fix(
+        "R006",
+        "class Foo extends Actor;\nreplication\n{\n}\nvar int X;\n",
+        "class Foo extends Actor;\nvar int X;\n",
+    );
+}
+
+#[test]
+fn redundancy_problems_without_a_fix() {
+    let fix_of = |code: &str, source: &str| {
+        let result = parse_program(source).unwrap();
+        let problem = result
+            .errors
+            .into_iter()
+            .find(|e| e.lint.is_some_and(|l| l.code() == code))
+            .unwrap_or_else(|| panic!("{} isn't reported", code));
+        problem.fix
+    };
+    // A unary operand, or a comment inside the parentheses.
+    assert!(fix_of("R002", &class_with("    A = (-I);\n")).is_none());
+    assert!(fix_of("R002", &class_with("    A = (I /* x */);\n")).is_none());
+    assert!(fix_of("R002", &class_with("    A = (I); // fine\n")).is_some());
+    assert!(fix_of("R002", &class_with("    A = (/* x */ I + 1);\n")).is_none());
+    // A comment on the line of a statement the fix would delete.
+    assert!(fix_of("R013", &class_with("    A = 1;\n    return; // done\n")).is_none());
+    assert!(fix_of("R013", &class_with("    A = 1;\n    /* x */ return;\n")).is_none());
+    assert!(fix_of("R001", &class_with("    A = 1;\n    ; // why\n")).is_none());
+    let source = "class Foo extends Object;\nvar int X;\n\
+                  defaultproperties\n{\n    X=0 // off for now\n}\n";
+    assert!(fix_of("R004", source).is_none());
+    // A block comment that ends on the line counts too.
+    let source = "class Foo extends Object;\nvar int X;\n\
+                  defaultproperties\n{\n    /* old:\n    X=1 */ X=0\n}\n";
+    assert!(fix_of("R004", source).is_none());
+    // Comment markers in strings aren't comments.
+    let source = "class Foo extends Object;\nvar string S;\nvar int X;\n\
+                  defaultproperties\n{\n    X=0\n    S=\"http://example.com\"\n}\n";
+    assert!(fix_of("R004", source).is_some());
+    assert!(fix_of("R008", &class_with("    G(\"//\", A,);\n")).is_some());
+    // A comment in the empty block.
+    let source = "class Foo extends Object;\ndefaultproperties\n{\n    // none\n}\n";
+    assert!(fix_of("R005", source).is_none());
+    let source = "class Foo extends Actor;\nreplication\n{\n    /* none */\n}\n";
+    assert!(fix_of("R006", source).is_none());
 }

@@ -95,7 +95,9 @@ To add a lint:
    one-line summary. Codes are stable, so never reuse or renumber one.
 2. Report it from `src/visitor.rs` with `visitor.report(Lint::..., message, span)`,
    or `visitor.report_with_fix(...)` with a `Fix` (see `src/fix.rs`). A safe
-   fix must never change what the code does; test it with `assert_fix` in
+   fix must never change what the code does, or lose or orphan a comment:
+   use `visitor.deletion(...)`, which offers no fix when a comment is on the
+   deleted lines, and `visitor.has_comment_in(...)`; test it with `assert_fix` in
    `tests/lints.rs`, and check it on a copy of the corpus with `usagi lint
    --diff` and `--fix`, never on the corpus itself.
    Make the span cover only the offending text. For anything that depends on

@@ -26,7 +26,7 @@ Ideas that aren't implemented yet. For the lints that exist, see
 
 * Inline suppression comments, e.g. `// usagi: ignore[S008]`.
 * `usagi format`.
-* Fixes for more lints: R001, R002, R003, R005, R006, F003 and N006 (safe), and unsafe fixes for an editor to offer.
+* Fixes for more lints: F003 and N006 (safe), and unsafe fixes for an editor to offer.
 * SARIF output, for GitHub code scanning.
 
 ## Syntax sugar

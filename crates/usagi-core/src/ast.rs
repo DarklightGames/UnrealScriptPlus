@@ -548,7 +548,7 @@ pub struct FunctionModifier {
 #[derive(Debug)]
 pub struct FunctionDeclaration {
     pub types: Vec<FunctionType>,
-    pub modifiers: Vec<FunctionModifier>,
+    pub modifiers: Vec<AstNode<FunctionModifier>>,
     pub return_type: Option<Type>,
     pub arguments: Vec<AstNode<FunctionArgument>>,
     pub name: AstNode<Identifier>,

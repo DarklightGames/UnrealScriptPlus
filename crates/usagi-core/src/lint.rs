@@ -195,17 +195,17 @@ lints! {
         "`foreach AllActors`/`DynamicActors` in a function called every frame, such as `Tick`."),
 
     // Redundancy
-    EmptyStatement = ("R001", "empty-statement", Redundancy, Warning, Never,
+    EmptyStatement = ("R001", "empty-statement", Redundancy, Warning, Sometimes,
         "A lone `;`."),
-    RedundantParentheses = ("R002", "redundant-parentheses", Redundancy, Warning, Never,
+    RedundantParentheses = ("R002", "redundant-parentheses", Redundancy, Warning, Sometimes,
         "Parentheses that don't change the meaning of an expression."),
-    DuplicateModifier = ("R003", "duplicate-modifier", Redundancy, Warning, Never,
+    DuplicateModifier = ("R003", "duplicate-modifier", Redundancy, Warning, Always,
         "The same modifier appears more than once."),
-    RedundantDefaultValue = ("R004", "redundant-default-value", Redundancy, Warning, Never,
+    RedundantDefaultValue = ("R004", "redundant-default-value", Redundancy, Warning, Sometimes,
         "A `defaultproperties` value equal to the type's zero value."),
-    EmptyDefaultProperties = ("R005", "empty-defaultproperties", Redundancy, Warning, Never,
+    EmptyDefaultProperties = ("R005", "empty-defaultproperties", Redundancy, Warning, Sometimes,
         "An empty `defaultproperties` block."),
-    EmptyReplicationBlock = ("R006", "empty-replication-block", Redundancy, Warning, Never,
+    EmptyReplicationBlock = ("R006", "empty-replication-block", Redundancy, Warning, Sometimes,
         "An empty `replication` block."),
     DuplicateReplicationCondition = ("R007", "duplicate-replication-condition", Redundancy, Warning, Never,
         "Two replication statements with the same reliability and condition."),
@@ -219,7 +219,7 @@ lints! {
         "A `private` variable or function that is never used in its class."),
     RedundantSelf = ("R012", "redundant-self", Redundancy, Warning, Always,
         "A `Self.` qualifier that doesn't change what a name refers to."),
-    RedundantReturn = ("R013", "redundant-return", Redundancy, Warning, Always,
+    RedundantReturn = ("R013", "redundant-return", Redundancy, Warning, Sometimes,
         "A bare `return;` as the last statement of a function."),
 
     // Naming

@@ -51,6 +51,13 @@ Some problems come with a suggested fix (`ProgramError::fix`): a list of text
 edits. The **Fix** column below says whether a lint's problems have one:
 **Yes** for every problem, **Sometimes** for some of them.
 
+A fix is never offered if it would delete or move a comment, or leave one
+describing code that's gone: a fix that deletes a statement or block isn't
+offered if a comment is on any of its lines (`X=0 // off for now`), and
+removing parentheses or trailing commas isn't offered if a comment is among
+them. Comments are found by `usagi_core::source::comment_ranges`, which skips
+string and name literals, so `"http://..."` isn't a comment.
+
 A fix is either *safe* (it never changes what the code does) or *unsafe*.
 `usagi lint --fix` applies safe fixes, and `usagi lint --diff` shows what they
 would change without writing anything (see [CLI.md](CLI.md)). Unsafe fixes are
@@ -108,19 +115,19 @@ never applied from the command line; they are for an editor to offer.
 
 | Code | Name | Severity | Fix | Reports |
 |---|---|---|---|---|
-| R001 | `empty-statement` | Warning |  | A lone `;`. |
-| R002 | `redundant-parentheses` | Warning |  | Parentheses that don't change the meaning of an expression. |
-| R003 | `duplicate-modifier` | Warning |  | The same modifier more than once on a class, variable or function. |
-| R004 | `redundant-default-value` | Warning |  | A `defaultproperties` value equal to the type's zero value. |
-| R005 | `empty-defaultproperties` | Warning |  | An empty `defaultproperties` block. |
-| R006 | `empty-replication-block` | Warning |  | An empty `replication` block. |
+| R001 | `empty-statement` | Warning | Sometimes | A lone `;`. |
+| R002 | `redundant-parentheses` | Warning | Sometimes | Parentheses that don't change the meaning of an expression. |
+| R003 | `duplicate-modifier` | Warning | Yes | The same modifier more than once on a class, variable or function. |
+| R004 | `redundant-default-value` | Warning | Sometimes | A `defaultproperties` value equal to the type's zero value. |
+| R005 | `empty-defaultproperties` | Warning | Sometimes | An empty `defaultproperties` block. |
+| R006 | `empty-replication-block` | Warning | Sometimes | An empty `replication` block. |
 | R007 | `duplicate-replication-condition` | Warning |  | Two replication statements with the same reliability and condition. |
 | R008 | `trailing-empty-arguments` | Warning | Sometimes | Empty arguments at the end of a call, e.g. `Foo(A,,)`. |
 | R009 | `unused-local` | Warning |  | A local variable that is never used. |
 | R010 | `local-set-but-never-used` | Warning |  | A local variable that is only ever assigned, incremented or compound-assigned. Passing it to a function, `X.Y = ...` and `X[i] = ...` count as uses. |
 | R011 | `unused-private-member` | Warning |  | A `private` variable or function that nothing in the file uses. Replication and `defaultproperties` count as uses. Not reported for native classes or members, events, delegates or `exec` functions. |
 | R012 | `redundant-self` | Warning | Yes | A `Self.` qualifier that doesn't change what a name refers to: no argument, local or const of the enclosing function hides the member. |
-| R013 | `redundant-return` | Warning | Yes | A bare `return;` as the last statement of a function. A body that is only `return;` is allowed, since it deliberately stubs out the parent's version. |
+| R013 | `redundant-return` | Warning | Sometimes | A bare `return;` as the last statement of a function. A body that is only `return;` is allowed, since it deliberately stubs out the parent's version. |
 
 ### Naming
 

@@ -70,15 +70,22 @@ pub struct Visitor<'a> {
     pub errors: Vec<ProgramError>,
     contents: &'a str,
     symbols: &'a SymbolTable,
+    /// The byte ranges of the comments, in order.
+    comments: &'a [std::ops::Range<usize>],
     code: CodeContext,
 }
 
 impl<'a> Visitor<'a> {
-    pub fn new(contents: &'a str, symbols: &'a SymbolTable) -> Visitor<'a> {
+    pub fn new(
+        contents: &'a str,
+        symbols: &'a SymbolTable,
+        comments: &'a [std::ops::Range<usize>],
+    ) -> Visitor<'a> {
         Visitor {
             contents,
             errors: vec![],
             symbols,
+            comments,
             code: CodeContext::default(),
         }
     }
@@ -101,6 +108,50 @@ impl<'a> Visitor<'a> {
         // A lint registered as having no fix mustn't report one.
         debug_assert_ne!(lint.fix_availability(), FixAvailability::Never);
         self.push(lint, message.into(), span, Some(fix))
+    }
+
+    /// Reports a problem with a fix if there is one.
+    fn report_with_optional_fix(
+        &mut self,
+        lint: Lint,
+        message: impl Into<String>,
+        span: AstSpan,
+        fix: Option<Fix>,
+    ) {
+        match fix {
+            Some(fix) => self.report_with_fix(lint, message, span, fix),
+            None => self.report(lint, message, span),
+        }
+    }
+
+    /// A fix that deletes `span`, and its line if nothing else is on it.
+    /// There's none if a comment is on any line of `span`: the comment would
+    /// be left describing code that's gone.
+    fn deletion(&self, title: &str, span: AstSpan) -> Option<Fix> {
+        if self.has_comment_on_lines(span.start..span.end) {
+            return None;
+        }
+        let range = line_aware_deletion(self.contents, span.start..span.end);
+        Some(Fix::safe(title, vec![Edit::delete(range)]))
+    }
+
+    /// Whether a comment overlaps `range`.
+    fn has_comment_in(&self, range: std::ops::Range<usize>) -> bool {
+        let first = self.comments.partition_point(|c| c.end <= range.start);
+        self.comments
+            .get(first)
+            .is_some_and(|c| c.start < range.end)
+    }
+
+    /// Whether a comment is on any of the lines that `range` covers.
+    fn has_comment_on_lines(&self, range: std::ops::Range<usize>) -> bool {
+        let start = self.contents[..range.start]
+            .rfind('\n')
+            .map_or(0, |i| i + 1);
+        let end = self.contents[range.end..]
+            .find('\n')
+            .map_or(self.contents.len(), |i| range.end + i);
+        self.has_comment_in(start..end)
     }
 
     fn push(&mut self, lint: Lint, message: String, span: AstSpan, fix: Option<Fix>) {
@@ -538,10 +589,12 @@ impl Visit for AstNode<Literal> {
 impl Visit for AstNode<DefaultProperties> {
     fn visit(&self, visitor: &mut Visitor) {
         if self.statements.is_empty() {
-            visitor.report(
+            let fix = empty_block_deletion(self.span, visitor, "defaultproperties");
+            visitor.report_with_optional_fix(
                 Lint::EmptyDefaultProperties,
                 "DefaultProperties block should not be empty.",
                 self.span,
+                fix,
             )
         }
         for statement in &self.statements {
@@ -691,13 +744,25 @@ fn visit_default_assignment(assignment: &t3d::syntax::Assignment, visitor: &mut 
         _ => None,
     };
     if let Some(default) = zero.filter(|_| assignment.index.is_none()) {
-        visitor.report(
+        // Delete the assignment with any `;`s after it.
+        let rest = &visitor.contents[span.end..];
+        let end = span.end + rest.len() - rest.trim_start_matches([';', ' ', '\t']).len();
+        let fix = visitor.deletion(
+            "Remove the assignment",
+            AstSpan {
+                start: span.start,
+                end,
+                line: None,
+            },
+        );
+        visitor.report_with_optional_fix(
             Lint::RedundantDefaultValue,
             format!(
                 "Redundant specification of default value ({}) of variable ({}) declared in this class",
                 default, assignment.name
             ),
             span,
+            fix,
         )
     }
 
@@ -724,13 +789,22 @@ fn visit_default_assignment(assignment: &t3d::syntax::Assignment, visitor: &mut 
     }
 }
 
+/// A fix that deletes the empty block at `span`, unless it has a comment.
+/// A fix that deletes the empty block at `span`, unless a comment is in it
+/// or on its lines.
+fn empty_block_deletion(span: AstSpan, visitor: &Visitor, keyword: &str) -> Option<Fix> {
+    visitor.deletion(&format!("Remove the empty `{}` block", keyword), span)
+}
+
 impl Visit for AstNode<ReplicationBlock> {
     fn visit(&self, visitor: &mut Visitor) {
         if self.statements.is_empty() {
-            visitor.report(
+            let fix = empty_block_deletion(self.span, visitor, "replication");
+            visitor.report_with_optional_fix(
                 Lint::EmptyReplicationBlock,
                 "Replication block should not be empty",
                 self.span,
+                fix,
             )
         }
         for (i, statement) in self.statements.iter().enumerate() {
@@ -874,16 +948,69 @@ impl Visit for AstNode<Expression> {
                 match &expression.data {
                     Expression::New { .. } => {}
                     Expression::DyadicExpression { .. } => {}
-                    _ => visitor.report(
-                        Lint::RedundantParentheses,
-                        "Redundant parenthetical expression",
-                        expression.span,
-                    ),
+                    _ => {
+                        let fix = unwrap_parentheses(self.span, expression, visitor);
+                        visitor.report_with_optional_fix(
+                            Lint::RedundantParentheses,
+                            "Redundant parenthetical expression",
+                            expression.span,
+                            fix,
+                        )
+                    }
                 }
                 expression.visit(visitor)
             }
         }
     }
+}
+
+/// A fix that removes the parentheses `outer` around `inner`. There's none
+/// if a comment is inside the parentheses, or if `inner` is a unary
+/// expression, which could bind differently without them (`(-A).B`).
+fn unwrap_parentheses(
+    outer: AstSpan,
+    inner: &AstNode<Expression>,
+    visitor: &Visitor,
+) -> Option<Fix> {
+    if matches!(
+        inner.data,
+        Expression::MonadicPreExpression { .. } | Expression::MonadicPostExpression { .. }
+    ) {
+        return None;
+    }
+    // Between the parentheses and the expression there is only whitespace,
+    // or a comment, which would be lost.
+    if visitor.has_comment_in(outer.start..inner.span.start)
+        || visitor.has_comment_in(inner.span.end..outer.end)
+    {
+        return None;
+    }
+    let contents = visitor.contents;
+    // Keep tokens apart that the parentheses separated: `return(A)` and
+    // `A-(-1)` become `return A` and `A- -1`.
+    let joins = |a: Option<char>, b: Option<char>| {
+        let word = |c: char| c.is_alphanumeric() || c == '_';
+        let operator = |c: char| "+-*/<>=!&|^~@$%".contains(c);
+        a.zip(b)
+            .is_some_and(|(a, b)| (word(a) && word(b)) || (operator(a) && operator(b)))
+    };
+    let text = &contents[inner.span.start..inner.span.end];
+    let space = |join: bool| if join { " " } else { "" };
+    let before = contents[..outer.start].chars().next_back();
+    let after = contents[outer.end..].chars().next();
+    Some(Fix::safe(
+        "Remove the parentheses",
+        vec![
+            Edit::replace(
+                outer.start..inner.span.start,
+                space(joins(before, text.chars().next())),
+            ),
+            Edit::replace(
+                inner.span.end..outer.end,
+                space(joins(text.chars().next_back(), after)),
+            ),
+        ],
+    ))
 }
 
 /// Names that can't be written without a qualifier, because on their own
@@ -1270,7 +1397,15 @@ impl Visit for AstNode<CodeStatement> {
     fn visit(&self, visitor: &mut Visitor) {
         match &self.data {
             CodeStatement::Empty => {
-                visitor.report(Lint::EmptyStatement, "Empty statement", self.span)
+                // Only reached for a `;` in a list of statements: an empty
+                // `if` or loop body is reported by `visit_body` instead.
+                let fix = visitor.deletion("Remove the `;`", self.span);
+                visitor.report_with_optional_fix(
+                    Lint::EmptyStatement,
+                    "Empty statement",
+                    self.span,
+                    fix,
+                )
             }
             CodeStatement::Expression(expression) => {
                 if !has_effect(expression) {
@@ -1291,10 +1426,12 @@ impl Visit for AstNode<CodeStatement> {
                                     inner.data,
                                     Expression::DyadicExpression { .. } | Expression::New { .. }
                                 ) {
-                                    visitor.report(
+                                    let fix = unwrap_parentheses(operand.span, inner, visitor);
+                                    visitor.report_with_optional_fix(
                                         Lint::RedundantParentheses,
                                         "Redundant parenthetical expression",
                                         inner.span,
+                                        fix,
                                     )
                                 }
                             }
@@ -1384,27 +1521,40 @@ impl Visit for AstNode<FunctionBody> {
     }
 }
 
-/// Reports modifiers that appear more than once.
-fn check_duplicate_modifiers<T: std::fmt::Debug>(
-    modifiers: impl IntoIterator<Item = T>,
+/// Reports modifiers that appear more than once. `modifiers` are each
+/// modifier's name and span. The fix deletes every repeat, with the
+/// whitespace before it.
+fn check_duplicate_modifiers(
+    modifiers: impl IntoIterator<Item = (String, AstSpan)>,
     kind: &str,
     span: AstSpan,
     visitor: &mut Visitor,
 ) {
     let mut seen = HashSet::new();
-    let mut reported = HashSet::new();
-    let mut duplicates = Vec::new();
-    for modifier in modifiers {
-        let name = format!("{:?}", modifier);
-        if !seen.insert(name.clone()) && reported.insert(name.clone()) {
-            duplicates.push(name);
+    // name -> the spans of its repeats, in order of first repeat
+    let mut duplicates: Vec<(String, Vec<AstSpan>)> = Vec::new();
+    for (name, modifier_span) in modifiers {
+        if seen.insert(name.clone()) {
+            continue;
+        }
+        match duplicates.iter_mut().find(|(n, _)| *n == name) {
+            Some((_, spans)) => spans.push(modifier_span),
+            None => duplicates.push((name, vec![modifier_span])),
         }
     }
-    for name in duplicates {
-        visitor.report(
+    for (name, spans) in duplicates {
+        let edits = spans
+            .iter()
+            .map(|s| {
+                let before = visitor.contents[..s.start].trim_end_matches([' ', '\t']);
+                Edit::delete(before.len()..s.end)
+            })
+            .collect();
+        visitor.report_with_fix(
             Lint::DuplicateModifier,
             format!("{} has redundant {} modifier", kind, name),
             span,
+            Fix::safe(format!("Remove the repeated `{}`", name), edits),
         )
     }
 }
@@ -1464,7 +1614,9 @@ impl Visit for AstNode<FunctionDeclaration> {
         }
 
         check_duplicate_modifiers(
-            self.modifiers.iter().map(|m| &m.type_),
+            self.modifiers
+                .iter()
+                .map(|m| (format!("{:?}", m.type_), m.span)),
             "Function",
             self.span,
             visitor,
@@ -1574,12 +1726,12 @@ fn check_redundant_return(body: &AstNode<FunctionBody>, visitor: &mut Visitor) {
         .collect();
     if let [_, .., last] = code.as_slice() {
         if matches!(last.data, CodeStatement::Return(None)) {
-            let deletion = line_aware_deletion(visitor.contents, last.span.start..last.span.end);
-            visitor.report_with_fix(
+            let fix = visitor.deletion("Remove `return;`", last.span);
+            visitor.report_with_optional_fix(
                 Lint::RedundantReturn,
                 "`return;` at the end of a function has no effect",
                 last.span,
-                Fix::safe("Remove `return;`", vec![Edit::delete(deletion)]),
+                fix,
             )
         }
     }
@@ -1604,7 +1756,14 @@ impl Visit for Rc<AstNode<VarDeclaration>> {
             visit_bool_var_names(&self.names, visitor)
         }
         let modifiers: Vec<VarModifier> = self.modifiers.iter().map(|m| m.data).collect();
-        check_duplicate_modifiers(modifiers.iter(), "Variable", self.span, visitor);
+        check_duplicate_modifiers(
+            self.modifiers
+                .iter()
+                .map(|m| (format!("{:?}", m.data), m.span)),
+            "Variable",
+            self.span,
+            visitor,
+        );
         let modifier_names: Vec<String> = modifiers.iter().map(|m| m.to_string()).collect();
         check_access_modifiers(&modifier_names, self.span, visitor);
         let mut sorted_modifiers = modifiers.clone();
@@ -1647,17 +1806,16 @@ impl Visit for AstNode<ExpressionList> {
             .count();
         if trailing_empty_arguments_count > 0 {
             // Delete from the end of the last argument (or the start of the
-            // list) to the end of the list. Only offered when that text is
-            // just commas and whitespace, so that no comment is lost.
+            // list) to the end of the list. That's commas and whitespace,
+            // and maybe a comment, in which case there's no fix.
             let start = self
                 .expressions
                 .iter()
                 .flatten()
                 .last()
                 .map_or(self.span.start, |e| e.span.end);
-            let removed = &visitor.contents[start..self.span.end];
             let message = "Superfluous trailing empty arguments in function call";
-            if removed.chars().all(|c| c == ',' || c.is_whitespace()) {
+            if !visitor.has_comment_in(start..self.span.end) {
                 let fix = Fix::safe(
                     "Remove the trailing empty arguments",
                     vec![Edit::delete(start..self.span.end)],
@@ -1721,8 +1879,8 @@ impl Visit for AstNode<ClassDeclaration> {
         check_duplicate_modifiers(
             self.modifiers
                 .iter()
-                .map(|modifier| &modifier.type_.data)
-                .filter(|type_| type_.is_unique()),
+                .filter(|modifier| modifier.type_.is_unique())
+                .map(|modifier| (format!("{:?}", modifier.type_.data), modifier.span)),
             "Class",
             self.span,
             visitor,
@@ -1740,7 +1898,13 @@ impl Visit for Program {
         for statement in self.statements.iter() {
             match &statement.data {
                 ProgramStatement::Empty => {
-                    visitor.report(Lint::EmptyStatement, "Empty statement", statement.span)
+                    let fix = visitor.deletion("Remove the `;`", statement.span);
+                    visitor.report_with_optional_fix(
+                        Lint::EmptyStatement,
+                        "Empty statement",
+                        statement.span,
+                        fix,
+                    )
                 }
                 ProgramStatement::ClassDeclaration(c) => c.visit(visitor),
                 ProgramStatement::CompilerDirective(_) => {}
