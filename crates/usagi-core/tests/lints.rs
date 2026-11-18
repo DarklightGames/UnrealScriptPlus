@@ -534,6 +534,13 @@ fn shadowed_variable() {
         only(&["S015"], &function("local int L;", "A = L;")),
         Vec::<&str>::new()
     );
+    // A static function can't see instance variables, but it can see consts.
+    let source = "class Foo extends Object;\nvar int V;\nconst K = 1;\n\
+                  static function F(int V) { local int K; K = V; G(K); }\n";
+    assert_eq!(only(&["S015"], source), vec!["S015"]);
+    let source = "class Foo extends Object;\nvar int V;\n\
+                  static function F() { local int V; V = 1; G(V); }\n";
+    assert_eq!(only(&["S015"], source), Vec::<&str>::new());
     // Enum values and functions aren't variables.
     let source = "class Foo extends Object;\nenum EA\n{\n    X\n};\nfunction G();\n\
                   function F(int X, int G) {}\n";

@@ -338,6 +338,18 @@ impl SymbolTable {
         &self.scopes[id.0]
     }
 
+    /// Whether `id` is the scope of a `static` function.
+    pub fn is_static_function_scope(&self, id: ScopeId) -> bool {
+        match self.scope(id).kind {
+            ScopeKind::Function(f) => matches!(
+                &self.symbol(f).kind,
+                SymbolKind::Function { modifiers, .. }
+                    if modifiers.contains(&FunctionModifierType::Static)
+            ),
+            _ => false,
+        }
+    }
+
     /// The scope of the function or state whose name starts at `offset`.
     pub fn scope_of(&self, offset: usize) -> Option<ScopeId> {
         self.scopes_by_declaration.get(&offset).copied()

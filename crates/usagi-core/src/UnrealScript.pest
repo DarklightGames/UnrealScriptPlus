@@ -154,7 +154,6 @@ type_ = { struct_declaration | enum_declaration | array_type | class_type | iden
 const_declaration = { ^"const" ~ WS+ ~ unqualified_identifier ~ WS* ~ "=" ~ WS* ~ literal ~ WS* ~ ";" }
 const_declarations = _{ const_declaration ~ (WS* ~ const_declaration)* }
 enum_declaration = { ^"enum" ~ WS+ ~ unqualified_identifier ~ WS* ~ "{" ~ WS* ~ unqualified_identifier_list ~ WS* ~ ","? ~ WS* ~ "}"}
-enum_statement = { enum_declaration ~ ";" }
 
 struct_modifier = @{
     ^"long" |
@@ -163,7 +162,6 @@ struct_modifier = @{
     ^"init" |
     ^"native"
 }
-struct_modifiers = { struct_modifier* }
 extends = { ^"extends" ~ WS+ ~ identifier }
 struct_declaration = { ^"struct" ~ (WS+ ~ struct_modifier)* ~ WS+ ~ unqualified_identifier ~ WS+ ~ extends? ~ WS* ~ "{" ~ WS* ~ struct_inner_declarations? ~ WS* ~ "}" }
 

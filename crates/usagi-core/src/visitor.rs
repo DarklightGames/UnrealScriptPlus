@@ -1740,14 +1740,16 @@ fn check_symbols(visitor: &mut Visitor) {
             _ => "",
         };
         if !what.is_empty() {
-            let outer = symbols.scope(symbol.scope).parent;
-            let shadowed = outer
+            let scope = symbols.scope(symbol.scope);
+            // A static function can't see instance variables, only consts.
+            let in_static_function = symbols.is_static_function_scope(symbol.scope);
+            let shadowed = scope
+                .parent
                 .and_then(|outer| symbols.lookup(outer, Namespace::Value, &symbol.name))
-                .filter(|&s| {
-                    matches!(
-                        symbols.symbol(s).kind,
-                        SymbolKind::Variable { .. } | SymbolKind::Const { .. }
-                    )
+                .filter(|&s| match symbols.symbol(s).kind {
+                    SymbolKind::Variable { .. } => !in_static_function,
+                    SymbolKind::Const { .. } => true,
+                    _ => false,
                 });
             if let Some(shadowed) = shadowed {
                 visitor.report(
