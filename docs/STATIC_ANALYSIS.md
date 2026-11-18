@@ -1,6 +1,6 @@
 # Static analysis
 
-UnrealScriptPlus checks UnrealScript code for likely bugs, redundant code and
+usagi checks UnrealScript code for likely bugs, redundant code and
 style problems. Every problem found by a lint carries the lint's **code** and
 **name** (e.g. `S003 self-assignment`) on `ProgramError::lint`, alongside a
 severity (`Error` or `Warning`).
