@@ -54,7 +54,8 @@ usagi lint --no-config --format tsv . > lints.tsv       # then diff against a pr
 
 Every file should still parse. Shipped engine code is treated as read-only:
 if it doesn't parse, fix the parser, not the code. Source files may be
-Windows-1252 rather than UTF-8.
+single-byte (Latin-1, as UCC reads them) or UTF-16, not UTF-8; see
+`crates/usagi-core/src/source.rs`.
 
 ## Permissive parsing
 

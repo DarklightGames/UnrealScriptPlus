@@ -9,7 +9,8 @@ pub mod visitor;
 pub use lint::{Category, Lint, LintSelection};
 pub use parser::{
     ParseMode, ParseOptions, ParsingError, ProgramError, ProgramErrorSeverity, ProgramResult, Rule,
-    parse_expression, parse_program, parse_program_with, parse_with_rule,
+    SourceResult, parse_bytes, parse_expression, parse_program, parse_program_with,
+    parse_with_rule,
 };
-pub use source::{LineIndex, decode};
+pub use source::{Decoded, LineIndex, SourceEncoding, decode, decode_source};
 pub use symbols::{Reference, ReferenceKind, Symbol, SymbolKind, SymbolTable};

@@ -1384,6 +1384,53 @@ pub fn parse_program_with(
     })
 }
 
+/// The result of [`parse_bytes`]: the decoded source and the parse.
+pub struct SourceResult {
+    pub source: crate::source::Decoded,
+    pub result: ProgramResult,
+}
+
+/// Decodes a source file the way UCC does (see [`crate::source`]) and parses
+/// it with [`parse_program_with`]. A UTF-8 file is a recovered problem,
+/// because UCC would read it as Latin-1: in [`ParseMode::Strict`] it fails
+/// the parse.
+pub fn parse_bytes(
+    bytes: &[u8],
+    options: &ParseOptions,
+) -> std::result::Result<SourceResult, ParsingError> {
+    let source = crate::source::decode_source(bytes);
+    let lines = crate::source::LineIndex::new(&source.text);
+    let mut problems: Vec<ProgramError> = crate::source::encoding_problems(&source)
+        .into_iter()
+        .map(|(range, message)| ProgramError {
+            message,
+            span: AstSpan {
+                start: range.start,
+                end: range.end,
+                line: Some(lines.line(range.start)),
+            },
+            severity: ProgramErrorSeverity::Warning,
+            lint: None,
+        })
+        .collect();
+    let strict = options.mode == ParseMode::Strict;
+    match parse_program_with(&source.text, options) {
+        Ok(_) if strict && !problems.is_empty() => Err(ParsingError::Strict(problems)),
+        Ok(mut result) => {
+            problems.append(&mut result.errors);
+            problems.sort_by_key(|e| e.span.start);
+            result.errors = problems;
+            Ok(SourceResult { source, result })
+        }
+        Err(ParsingError::Strict(mut recovered)) => {
+            problems.append(&mut recovered);
+            problems.sort_by_key(|e| e.span.start);
+            Err(ParsingError::Strict(problems))
+        }
+        Err(other) => Err(other),
+    }
+}
+
 /// Parses `contents` as one expression. The whole input must be the
 /// expression, apart from surrounding whitespace.
 pub fn parse_expression(

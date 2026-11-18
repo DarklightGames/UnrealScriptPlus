@@ -6,8 +6,7 @@ use std::path::{Path, PathBuf};
 use pest::error::InputLocation;
 use usagi_core::source::LineIndex;
 use usagi_core::{
-    Lint, ParseMode, ParseOptions, ParsingError, ProgramError, ProgramErrorSeverity,
-    parse_program_with,
+    Lint, ParseMode, ParseOptions, ParsingError, ProgramError, ProgramErrorSeverity, parse_bytes,
 };
 
 /// What parsing a file produced.
@@ -114,8 +113,8 @@ pub struct CheckOptions<'a> {
 }
 
 pub fn check_file(path: &Path, options: &CheckOptions) -> FileReport {
-    let source = match std::fs::read(path) {
-        Ok(bytes) => usagi_core::decode(&bytes),
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
         Err(e) => {
             return FileReport {
                 path: path.to_path_buf(),
@@ -126,19 +125,22 @@ pub fn check_file(path: &Path, options: &CheckOptions) -> FileReport {
             };
         }
     };
-    let (outcome, problems, ast) =
-        match panic::catch_unwind(AssertUnwindSafe(|| check_source(path, &source, options))) {
-            Ok(result) => result,
-            Err(payload) => {
-                let message = payload
-                    .downcast_ref::<String>()
-                    .cloned()
-                    .or_else(|| payload.downcast_ref::<&str>().map(|s| s.to_string()))
-                    .unwrap_or_else(|| "the parser panicked".to_string());
-                let problem = Problem::at(Kind::Panic, message, &source, 0, 0);
-                (Outcome::Panic, vec![problem], None)
-            }
-        };
+    // Decoded again by `parse_bytes`, which is cheap next to parsing.
+    let source = usagi_core::decode(&bytes);
+    let (outcome, problems, ast) = match panic::catch_unwind(AssertUnwindSafe(|| {
+        check_source(path, &bytes, &source, options)
+    })) {
+        Ok(result) => result,
+        Err(payload) => {
+            let message = payload
+                .downcast_ref::<String>()
+                .cloned()
+                .or_else(|| payload.downcast_ref::<&str>().map(|s| s.to_string()))
+                .unwrap_or_else(|| "the parser panicked".to_string());
+            let problem = Problem::at(Kind::Panic, message, &source, 0, 0);
+            (Outcome::Panic, vec![problem], None)
+        }
+    };
     FileReport {
         path: path.to_path_buf(),
         source,
@@ -150,6 +152,7 @@ pub fn check_file(path: &Path, options: &CheckOptions) -> FileReport {
 
 fn check_source(
     path: &Path,
+    bytes: &[u8],
     source: &str,
     options: &CheckOptions,
 ) -> (Outcome, Vec<Problem>, Option<String>) {
@@ -171,8 +174,9 @@ fn check_source(
         problem.is_error = error.severity == ProgramErrorSeverity::Error;
         problem
     };
-    match parse_program_with(source, &ParseOptions { mode }) {
-        Ok(result) => {
+    match parse_bytes(bytes, &ParseOptions { mode }) {
+        Ok(parsed) => {
+            let result = parsed.result;
             let mut problems = Vec::new();
             let mut outcome = Outcome::Ok;
             for error in &result.errors {

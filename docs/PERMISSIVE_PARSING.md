@@ -37,9 +37,9 @@ The two modes produce the same AST. Recovered problems have no lint code, so
 `usagi parse --statistics` counts a file with recovered problems as
 `recovered`, or as `strict_error` when run with `--strict` (see [CLI.md](CLI.md)).
 
-The parser takes a `&str`. Legacy source is often Windows-1252 rather than
-UTF-8, so decoding is the caller's job. `usagi_core::decode` strips a UTF-8 BOM
-and falls back to Windows-1252.
+`parse_program` and `parse_program_with` take a `&str`. To parse a file's
+bytes the way UCC reads them, use `parse_bytes`, which decodes the file (see
+[Encodings](#encodings)) and reports encoding problems as recovered problems.
 
 ## Recovered problems
 
@@ -52,6 +52,32 @@ number can appear. The parser reads the longest valid prefix.
 |---|---|---|
 | `sb_Main.TopPadding=0.0.5;` (XVoting/MapVoteGameConfigPage.uc) | `0.0` | ``Malformed numeric literal "0.0.5" was read as "0.0"`` |
 | `-1.25.` | `-1.25` | ``Malformed numeric literal "-1.25." was read as "-1.25"`` |
+
+### Encodings
+
+UCC loads a `.uc` file with `appLoadFileToString` (`Core/Src/UnMisc.cpp` in
+the UE2 source):
+
+- A file that starts with the UTF-16 byte order mark `FF FE` (little-endian)
+  or `FE FF` (big-endian), and has an even size, is read as UTF-16.
+- Any other file is read one byte per character, with byte `n` becoming
+  U+00`nn`. That is Latin-1, not Windows-1252: bytes `0x80`-`0x9F` become
+  control characters, not `€`, `…` and so on.
+
+UTF-8 is never recognized, so a UTF-8 file's non-ASCII characters turn into
+several Latin-1 characters each. `usagi_core::decode_source` reads files the
+same way, except that it decodes a UTF-8 file as UTF-8 so that its text is
+what the author meant. `parse_bytes` then reports the problem:
+
+| Problem | Example | Message |
+|---|---|---|
+| A UTF-8 file with non-ASCII characters | `// Günther` | ``The file is UTF-8, so UCC reads "ü" as "Ã¼"; ...`` |
+| U+FFFD in a UTF-8 file: a character lost when the file was converted to UTF-8 | `GermanNames(0)="G�nther Liebing"` (DH_Engine/Classes/DarkestHourGame.uc) | ``"�" contains U+FFFD, the Unicode replacement character: ...`` |
+| A UTF-8 byte order mark | | ``The file starts with a UTF-8 byte order mark, which UCC reads as the characters "ï»¿"`` |
+
+A file is only treated as UTF-8 if it is valid UTF-8 and has a non-ASCII
+character or a UTF-8 byte order mark. ASCII files are the same in every
+encoding.
 
 ### `defaultproperties`
 

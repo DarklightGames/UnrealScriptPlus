@@ -12,7 +12,6 @@ name = "usagi_core"
 [dependencies]
 pest = "2.9"
 pest_derive = "2.9"
-encoding = "0.2"
 strum = { version = "0.28", features = ["derive"] }
 strum_macros = "0.28"
 pest_consume = "1.1"

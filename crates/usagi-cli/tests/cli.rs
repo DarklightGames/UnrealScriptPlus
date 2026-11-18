@@ -259,3 +259,17 @@ fn rule() {
         .stdout(predicate::str::contains("R013"));
     usagi(dir.path()).args(["rule", "Z999"]).assert().code(2);
 }
+
+#[test]
+fn utf8_source() {
+    let dir = project(&[("Foo.uc", "class Foo extends Object;\n// G\u{fc}nther\n")]);
+    usagi(dir.path())
+        .args(["parse", "--format", "concise"])
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains("Foo.uc:2:5: parse The file is UTF-8"));
+    usagi(dir.path())
+        .args(["parse", "--strict"])
+        .assert()
+        .code(1);
+}

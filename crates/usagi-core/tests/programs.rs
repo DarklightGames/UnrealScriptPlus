@@ -768,3 +768,54 @@ fn identifiers_starting_with_do_and_else() {
         ]
     );
 }
+
+#[test]
+fn utf8_source_is_a_recovered_problem() {
+    use usagi_core::{SourceEncoding, parse_bytes};
+    let permissive = ParseOptions::default();
+    let strict = ParseOptions {
+        mode: ParseMode::Strict,
+    };
+    let utf8 = "class A extends Object;\n// G\u{fc}nther\n";
+
+    let parsed = parse_bytes(utf8.as_bytes(), &permissive).unwrap();
+    assert_eq!(parsed.source.encoding, SourceEncoding::Utf8 { bom: false });
+    assert_eq!(parsed.result.errors.len(), 1);
+    assert_eq!(parsed.result.errors[0].span.line, Some(2));
+    assert_eq!(parsed.result.errors[0].lint, None);
+    match parse_bytes(utf8.as_bytes(), &strict) {
+        Err(ParsingError::Strict(problems)) => assert_eq!(problems.len(), 1),
+        _ => panic!("strict mode should reject UTF-8"),
+    }
+
+    // Latin-1 and UTF-16 are what UCC reads, so they're fine in both modes.
+    let latin1 = b"class A extends Object;\n// G\xFCnther\n";
+    let parsed = parse_bytes(latin1, &strict).unwrap();
+    assert_eq!(parsed.source.encoding, SourceEncoding::Latin1);
+    assert!(parsed.result.errors.is_empty());
+    let utf16: Vec<u8> = [0xFF, 0xFE]
+        .into_iter()
+        .chain(utf8.encode_utf16().flat_map(u16::to_le_bytes))
+        .collect();
+    let parsed = parse_bytes(&utf16, &strict).unwrap();
+    assert_eq!(parsed.source.encoding, SourceEncoding::Utf16Le);
+    assert_eq!(parsed.source.text, utf8);
+
+    // Encoding problems are reported together with the other recovered
+    // problems, and syntax errors are passed on.
+    let both =
+        "class A extends Object;\n// \u{e9}\nvar float F;\nfunction G()\n{\n    F = 0.0.5;\n}\n";
+    match parse_bytes(both.as_bytes(), &strict) {
+        Err(ParsingError::Strict(problems)) => {
+            let lines: Vec<_> = problems.iter().map(|p| p.span.line).collect();
+            assert_eq!(lines, vec![Some(2), Some(6)]);
+        }
+        _ => panic!("strict mode should reject both problems"),
+    }
+    let parsed = parse_bytes(both.as_bytes(), &permissive).unwrap();
+    assert_eq!(parsed.result.errors.len(), 2);
+    assert!(matches!(
+        parse_bytes("class \u{e9}".as_bytes(), &permissive),
+        Err(ParsingError::PestError(_))
+    ));
+}
