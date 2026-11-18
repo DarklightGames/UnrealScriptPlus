@@ -12,10 +12,10 @@ use std::process::ExitCode;
 
 use clap::Parser;
 use rayon::prelude::*;
-use usagi_core::{Lint, ProgramErrorSeverity};
+use usagi_core::{Applicability, Lint, ProgramErrorSeverity};
 
 use check::{CheckOptions, FileReport};
-use cli::{Cli, ColorChoice, Command, FileArgs};
+use cli::{Cli, ColorChoice, Command, FileArgs, OutputFormat};
 use config::{ConfigError, Overrides, Settings};
 
 /// The parser recurses deeply on some inputs.
@@ -47,7 +47,7 @@ fn run(cli: Cli) -> Result<bool, String> {
         Command::Parse(args) => {
             let config = load()?;
             let settings = settings(&config, &args.files, Overrides::default(), &cwd)?;
-            let reports = check_files(&args.files.paths, &settings, false, args.ast)?;
+            let reports = check_files(&args.files.paths, &settings, false, args.ast, false)?;
             let mut out = io::stdout().lock();
             if args.ast {
                 for report in &reports {
@@ -73,10 +73,55 @@ fn run(cli: Cli) -> Result<bool, String> {
                 ..Overrides::default()
             };
             let settings = settings(&config, &args.files, overrides, &cwd)?;
-            let reports = check_files(&args.files.paths, &settings, true, false)?;
+            let fixing = args.fix || args.diff;
+            let reports = check_files(&args.files.paths, &settings, true, false, fixing)?;
             let mut out = io::stdout().lock();
+            let fixed: usize = reports.iter().map(|r| r.fixed).sum();
+            let fixed_files = reports.iter().filter(|r| r.fixed > 0).count();
+            if args.diff {
+                output::diffs(&mut out, &reports, &cwd).map_err(|e| e.to_string())?;
+                eprintln!(
+                    "Would fix {} {} in {} {}",
+                    fixed,
+                    plural(fixed, "problem"),
+                    fixed_files,
+                    plural(fixed_files, "file")
+                );
+                return Ok(fixed == 0);
+            }
+            if args.fix {
+                for report in &reports {
+                    if let Some(bytes) = &report.fixed_bytes {
+                        std::fs::write(&report.path, bytes).map_err(|e| {
+                            format!("{}: {}", discover::display(&report.path, &cwd), e)
+                        })?;
+                    }
+                }
+            }
             output::problems(&mut out, &reports, args.format, &cwd, color)
                 .map_err(|e| e.to_string())?;
+            if args.fix {
+                eprintln!(
+                    "Fixed {} {} in {} {}",
+                    fixed,
+                    plural(fixed, "problem"),
+                    fixed_files,
+                    plural(fixed_files, "file")
+                );
+            } else {
+                let fixable = reports
+                    .iter()
+                    .flat_map(|r| &r.problems)
+                    .filter(|p| matches!(&p.fix, Some((_, Applicability::Safe))))
+                    .count();
+                if fixable > 0 && !matches!(args.format, OutputFormat::Json | OutputFormat::Tsv) {
+                    eprintln!(
+                        "{} {} can be fixed with `usagi lint --fix` (preview with `--diff`)",
+                        fixable,
+                        plural(fixable, "problem")
+                    );
+                }
+            }
             if args.statistics {
                 output::lint_statistics(&mut out, &reports).map_err(|e| e.to_string())?;
             }
@@ -124,6 +169,14 @@ fn run(cli: Cli) -> Result<bool, String> {
     }
 }
 
+fn plural(count: usize, word: &str) -> String {
+    if count == 1 {
+        word.to_string()
+    } else {
+        format!("{}s", word)
+    }
+}
+
 fn settings(
     config: &config::LoadedConfig,
     files: &FileArgs,
@@ -146,6 +199,7 @@ fn check_files(
     settings: &Settings,
     lint: bool,
     ast: bool,
+    fix: bool,
 ) -> Result<Vec<FileReport>, String> {
     let default = [PathBuf::from(".")];
     let paths = if paths.is_empty() {
@@ -165,6 +219,7 @@ fn check_files(
         strict: settings.strict,
         lint,
         ast,
+        fix,
         is_enabled: &is_enabled,
     };
     std::panic::set_hook(Box::new(|_| {})); // panics are reported as problems

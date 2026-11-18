@@ -6,6 +6,7 @@ use std::path::Path;
 
 use annotate_snippets::{Level, Renderer, Snippet};
 use serde::Serialize;
+use usagi_core::Applicability;
 use usagi_core::source::LineIndex;
 
 use crate::check::{FileReport, Kind, Outcome, Problem};
@@ -23,6 +24,8 @@ struct JsonProblem<'a> {
     name: &'a str,
     severity: &'a str,
     message: &'a str,
+    /// The safe fix's title, if the problem has one.
+    fix: Option<&'a str>,
 }
 
 /// Prints every problem in `reports`, which must already be sorted.
@@ -55,11 +58,12 @@ pub fn problems(
             for (_, path, p) in all() {
                 writeln!(
                     out,
-                    "{}:{}:{}: {} {}",
+                    "{}:{}:{}: {} {}{}",
                     path,
                     p.line,
                     p.column,
                     p.kind.code(),
+                    if safe_fix(p).is_some() { "[*] " } else { "" },
                     one_line(&p.message)
                 )?;
             }
@@ -89,6 +93,7 @@ pub fn problems(
                     name: p.kind.name(),
                     severity: if p.is_error { "error" } else { "warning" },
                     message: &p.message,
+                    fix: safe_fix(p),
                 })
                 .collect();
             serde_json::to_writer_pretty(&mut *out, &problems)?;
@@ -133,7 +138,37 @@ fn render(renderer: &Renderer, report: &FileReport, path: &str, problem: &Proble
         .line_start(problem.line)
         .origin(path)
         .annotation(level.span(start..end));
-    renderer.render(message.snippet(snippet)).to_string()
+    let help = safe_fix(problem).map(|title| format!("{} (fixable with --fix)", title));
+    let mut message = message.snippet(snippet);
+    if let Some(help) = &help {
+        message = message.footer(Level::Help.title(help));
+    }
+    renderer.render(message).to_string()
+}
+
+/// The title of `problem`'s fix, if it can be applied with `--fix`.
+fn safe_fix(problem: &Problem) -> Option<&str> {
+    match &problem.fix {
+        Some((title, Applicability::Safe)) => Some(title),
+        _ => None,
+    }
+}
+
+/// Prints a unified diff of each file that fixes changed.
+pub fn diffs(out: &mut dyn Write, reports: &[FileReport], cwd: &Path) -> io::Result<()> {
+    for report in reports {
+        if let Some(original) = &report.original {
+            let path = discover::display(&report.path, cwd);
+            let diff = similar::TextDiff::from_lines(original.as_str(), report.source.as_str());
+            write!(
+                out,
+                "{}",
+                diff.unified_diff()
+                    .header(&format!("a/{}", path), &format!("b/{}", path))
+            )?;
+        }
+    }
+    Ok(())
 }
 
 fn one_line(s: &str) -> String {

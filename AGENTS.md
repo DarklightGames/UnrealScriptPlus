@@ -91,8 +91,13 @@ To add a lint:
 1. Add it to the `lints!` table in `src/lint.rs` with the next free code in
    its category (`C` correctness, `S` suspicious, `P` performance,
    `R` redundancy, `N` naming, `F` formatting), a kebab-case name, a severity
-   and a one-line summary. Codes are stable, so never reuse or renumber one.
-2. Report it from `src/visitor.rs` with `visitor.report(Lint::..., message, span)`.
+   whether its problems have a fix (`Always`, `Sometimes` or `Never`) and a
+   one-line summary. Codes are stable, so never reuse or renumber one.
+2. Report it from `src/visitor.rs` with `visitor.report(Lint::..., message, span)`,
+   or `visitor.report_with_fix(...)` with a `Fix` (see `src/fix.rs`). A safe
+   fix must never change what the code does; test it with `assert_fix` in
+   `tests/lints.rs`, and check it on a copy of the corpus with `usagi lint
+   --diff` and `--fix`, never on the corpus itself.
    Make the span cover only the offending text. For anything that depends on
    names, use the symbol table (`visitor.symbols`). Names the table can't
    resolve, such as inherited members, are unknown, not errors.

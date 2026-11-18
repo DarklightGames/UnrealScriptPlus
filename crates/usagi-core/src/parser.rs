@@ -1269,6 +1269,8 @@ pub struct ProgramError {
     /// The lint that reported this problem, or `None` for problems found
     /// while parsing (e.g. recovered `defaultproperties` lines).
     pub lint: Option<Lint>,
+    /// A suggested fix, if the lint has one for this problem.
+    pub fix: Option<crate::fix::Fix>,
 }
 
 pub struct ProgramResult {
@@ -1306,6 +1308,7 @@ fn recovered_problems(root: &Node, program: &Program) -> Vec<ProgramError> {
                 },
                 severity: ProgramErrorSeverity::Warning,
                 lint: None,
+                fix: None,
             });
         }
     }
@@ -1321,6 +1324,7 @@ fn recovered_problems(root: &Node, program: &Program) -> Vec<ProgramError> {
                     },
                     severity: ProgramErrorSeverity::Warning,
                     lint: None,
+                    fix: None,
                 });
             }
             if !d.closed {
@@ -1330,6 +1334,7 @@ fn recovered_problems(root: &Node, program: &Program) -> Vec<ProgramError> {
                     span: d.span,
                     severity: ProgramErrorSeverity::Warning,
                     lint: None,
+                    fix: None,
                 });
             }
         }
@@ -1411,6 +1416,7 @@ pub fn parse_bytes(
             },
             severity: ProgramErrorSeverity::Warning,
             lint: None,
+            fix: None,
         })
         .collect();
     let strict = options.mode == ParseMode::Strict;

@@ -1,5 +1,6 @@
 use crate::ast::*;
-use crate::lint::Lint;
+use crate::fix::{Edit, Fix, line_aware_deletion};
+use crate::lint::{FixAvailability, Lint};
 use crate::parser::ProgramError;
 
 use crate::symbols::{
@@ -84,11 +85,31 @@ impl<'a> Visitor<'a> {
 
     /// Reports a problem found by `lint`.
     pub fn report(&mut self, lint: Lint, message: impl Into<String>, span: AstSpan) {
+        // A lint whose problems always have a fix must use report_with_fix.
+        debug_assert_ne!(lint.fix_availability(), FixAvailability::Always);
+        self.push(lint, message.into(), span, None)
+    }
+
+    /// Reports a problem with a suggested fix.
+    pub fn report_with_fix(
+        &mut self,
+        lint: Lint,
+        message: impl Into<String>,
+        span: AstSpan,
+        fix: Fix,
+    ) {
+        // A lint registered as having no fix mustn't report one.
+        debug_assert_ne!(lint.fix_availability(), FixAvailability::Never);
+        self.push(lint, message.into(), span, Some(fix))
+    }
+
+    fn push(&mut self, lint: Lint, message: String, span: AstSpan, fix: Option<Fix>) {
         self.errors.push(ProgramError {
-            message: message.into(),
+            message,
             span,
             severity: lint.severity(),
             lint: Some(lint),
+            fix,
         })
     }
 
@@ -421,15 +442,20 @@ impl Visit for AstNode<Literal> {
             Literal::Numeric(_) => {}
             Literal::Boolean(_) => {
                 let contents = &visitor.contents[self.span.start..self.span.end];
-                if contents != contents.to_lowercase().as_str() {
-                    visitor.report(
+                let lower = contents.to_lowercase();
+                if contents != lower {
+                    let fix = Fix::safe(
+                        format!("Replace with `{}`", lower),
+                        vec![Edit::replace(self.span.start..self.span.end, lower.clone())],
+                    );
+                    visitor.report_with_fix(
                         Lint::BooleanLiteralCase,
                         format!(
                             "Boolean literals should be lowercase (use {:?} instead of {:?})",
-                            contents.to_lowercase().as_str(),
-                            contents
+                            lower, contents
                         ),
                         self.span,
+                        fix,
                     )
                 }
             }
@@ -472,7 +498,14 @@ impl Visit for AstNode<Literal> {
                     let lower = type_.to_lowercase();
                     let expected = format!("{}{}", lower[..1].to_uppercase(), &lower[1..]);
                     if expected != type_.as_str() {
-                        visitor.report(
+                        let fix = Fix::safe(
+                            format!("Replace with `{}`", expected),
+                            vec![Edit::replace(
+                                type_.span.start..type_.span.end,
+                                expected.clone(),
+                            )],
+                        );
+                        visitor.report_with_fix(
                             Lint::ObjectLiteralKeywordCase,
                             format!(
                                 "Type specifier for class and enum object literals should be capitalized (e.g., {} instead of {})",
@@ -480,6 +513,7 @@ impl Visit for AstNode<Literal> {
                                 type_.as_str()
                             ),
                             type_.span,
+                            fix,
                         )
                     }
                 }
@@ -986,7 +1020,11 @@ fn check_redundant_self(
         }
         scope = s.parent;
     }
-    visitor.report(
+    let fix = Fix::safe(
+        format!("Remove `{}.`", self_.string),
+        vec![Edit::delete(operand.span.start..target.span.start)],
+    );
+    visitor.report_with_fix(
         Lint::RedundantSelf,
         format!("Redundant `{}.` qualifier", self_.string),
         AstSpan {
@@ -994,6 +1032,7 @@ fn check_redundant_self(
             end: target.span.start,
             line: None,
         },
+        fix,
     )
 }
 
@@ -1535,10 +1574,12 @@ fn check_redundant_return(body: &AstNode<FunctionBody>, visitor: &mut Visitor) {
         .collect();
     if let [_, .., last] = code.as_slice() {
         if matches!(last.data, CodeStatement::Return(None)) {
-            visitor.report(
+            let deletion = line_aware_deletion(visitor.contents, last.span.start..last.span.end);
+            visitor.report_with_fix(
                 Lint::RedundantReturn,
                 "`return;` at the end of a function has no effect",
                 last.span,
+                Fix::safe("Remove `return;`", vec![Edit::delete(deletion)]),
             )
         }
     }
@@ -1605,11 +1646,26 @@ impl Visit for AstNode<ExpressionList> {
             .take_while(|argument| argument.is_none())
             .count();
         if trailing_empty_arguments_count > 0 {
-            visitor.report(
-                Lint::TrailingEmptyArguments,
-                "Superfluous trailing empty arguments in function call",
-                self.span,
-            );
+            // Delete from the end of the last argument (or the start of the
+            // list) to the end of the list. Only offered when that text is
+            // just commas and whitespace, so that no comment is lost.
+            let start = self
+                .expressions
+                .iter()
+                .flatten()
+                .last()
+                .map_or(self.span.start, |e| e.span.end);
+            let removed = &visitor.contents[start..self.span.end];
+            let message = "Superfluous trailing empty arguments in function call";
+            if removed.chars().all(|c| c == ',' || c.is_whitespace()) {
+                let fix = Fix::safe(
+                    "Remove the trailing empty arguments",
+                    vec![Edit::delete(start..self.span.end)],
+                );
+                visitor.report_with_fix(Lint::TrailingEmptyArguments, message, self.span, fix);
+            } else {
+                visitor.report(Lint::TrailingEmptyArguments, message, self.span);
+            }
         }
         for expression in self.expressions.iter().flatten() {
             expression.visit(visitor)

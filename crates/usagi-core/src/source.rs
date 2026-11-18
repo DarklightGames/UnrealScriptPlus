@@ -86,6 +86,26 @@ pub fn decode(bytes: &[u8]) -> String {
     decode_source(bytes).text
 }
 
+/// Encodes `text` back into `encoding`, the inverse of [`decode_source`].
+/// Returns `None` if `text` has a character that `encoding` can't store
+/// (above U+00FF for Latin-1).
+pub fn encode(text: &str, encoding: SourceEncoding) -> Option<Vec<u8>> {
+    let utf16 = |bom: [u8; 2], to_bytes: fn(u16) -> [u8; 2]| {
+        bom.into_iter()
+            .chain(text.encode_utf16().flat_map(to_bytes))
+            .collect()
+    };
+    match encoding {
+        SourceEncoding::Latin1 => text.chars().map(|c| u8::try_from(c).ok()).collect(),
+        SourceEncoding::Utf16Le => Some(utf16([0xFF, 0xFE], u16::to_le_bytes)),
+        SourceEncoding::Utf16Be => Some(utf16([0xFE, 0xFF], u16::to_be_bytes)),
+        SourceEncoding::Utf8 { bom } => {
+            let prefix: &[u8] = if bom { UTF8_BOM } else { b"" };
+            Some([prefix, text.as_bytes()].concat())
+        }
+    }
+}
+
 fn latin1(bytes: &[u8]) -> String {
     bytes.iter().map(|&b| char::from(b)).collect()
 }
@@ -235,6 +255,26 @@ mod tests {
         // UCC only reads UTF-16 when the size is even.
         assert_eq!(decoded(b"\xFF\xFEA").encoding, SourceEncoding::Latin1);
         assert_eq!(decoded(b"\xFE\xFFA").encoding, SourceEncoding::Latin1);
+    }
+
+    #[test]
+    fn encodes_back_to_the_same_bytes() {
+        let inputs: [&[u8]; 6] = [
+            b"class A; // caf\xE9 \x80\x81",
+            b"\xFF\xFEA\x00\xE9\x00",
+            b"\xFE\xFF\x00A\x20\xAC",
+            "// G\u{fc}nther".as_bytes(),
+            b"\xEF\xBB\xBFclass A;",
+            b"\xEF\xBB\xBFcaf\xE9",
+        ];
+        for bytes in inputs {
+            let decoded = decode_source(bytes);
+            assert_eq!(
+                encode(&decoded.text, decoded.encoding).as_deref(),
+                Some(bytes)
+            );
+        }
+        assert_eq!(encode("\u{20ac}", SourceEncoding::Latin1), None);
     }
 
     #[test]

@@ -116,6 +116,15 @@ pub struct LintArgs {
     /// Print how many problems each lint found.
     #[arg(long)]
     pub statistics: bool,
+
+    /// Apply safe fixes to the files.
+    #[arg(long)]
+    pub fix: bool,
+
+    /// Print the changes that safe fixes would make, as a diff, without
+    /// changing any file.
+    #[arg(long, conflicts_with = "fix")]
+    pub diff: bool,
 }
 
 #[derive(Debug, Args)]

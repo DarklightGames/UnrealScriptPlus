@@ -1,7 +1,9 @@
 // Tests for the lints reported by the visitor. Each lint has a case that
 // triggers it and, where there is a known false positive to avoid, a case
 // that must not.
-use usagi_core::{Lint, LintSelection, ProgramErrorSeverity, parse_program};
+use usagi_core::{
+    Applicability, FixAvailability, Lint, LintSelection, ProgramErrorSeverity, parse_program,
+};
 
 /// Parses `source` and returns the codes of the lints it reports, in order.
 #[track_caller]
@@ -667,11 +669,17 @@ fn redundant_self() {
 fn every_lint_is_documented() {
     let doc = include_str!("../../../docs/STATIC_ANALYSIS.md");
     for &lint in Lint::ALL {
+        let fix = match lint.fix_availability() {
+            FixAvailability::Always => "Yes",
+            FixAvailability::Sometimes => "Sometimes",
+            FixAvailability::Never => "",
+        };
         let row = format!(
-            "| {} | `{}` | {:?} |",
+            "| {} | `{}` | {:?} | {} |",
             lint.code(),
             lint.name(),
-            lint.severity()
+            lint.severity(),
+            fix
         );
         assert!(
             doc.contains(&row),
@@ -1247,4 +1255,75 @@ fn redundant_return() {
     }
     let source = "class Foo extends Object;\nfunction int F() { F(); return 1; }\nfunction G();\n";
     assert_eq!(only(&["R013"], source), Vec::<&str>::new());
+}
+
+/// Applies the fixes for `code`'s problems in `source`, checks that the
+/// result is `expected`, and that it parses without `code` being reported.
+#[track_caller]
+fn assert_fix(code: &str, source: &str, expected: &str) {
+    let result = parse_program(source).unwrap();
+    let fixes: Vec<_> = result
+        .errors
+        .iter()
+        .filter(|e| e.lint.is_some_and(|l| l.code() == code))
+        .map(|e| e.fix.as_ref().expect("the problem has a fix"))
+        .collect();
+    assert!(!fixes.is_empty(), "{} isn't reported in {:?}", code, source);
+    assert!(fixes.iter().all(|f| f.applicability == Applicability::Safe));
+    let (fixed, _) = usagi_core::fix::apply(source, fixes);
+    assert_eq!(fixed, expected);
+    assert_eq!(only(&[code], &fixed), Vec::<&str>::new(), "{}", fixed);
+}
+
+fn class_with(body: &str) -> String {
+    format!(
+        "class Foo extends Actor;\nvar int I;\nfunction F(int A)\n{{\n{}}}\n",
+        body
+    )
+}
+
+#[test]
+fn fixes() {
+    assert_fix(
+        "R012",
+        &class_with("    Self.I = 1;\n    A = self . I;\n"),
+        &class_with("    I = 1;\n    A = I;\n"),
+    );
+    assert_fix(
+        "R013",
+        &class_with("    A = 1;\r\n    return;\r\n"),
+        &class_with("    A = 1;\r\n"),
+    );
+    assert_fix(
+        "R013",
+        &class_with("    A = 1; return; // done\n"),
+        &class_with("    A = 1;  // done\n"),
+    );
+    assert_fix(
+        "R008",
+        &class_with("    F(A, , );\n    F(,);\n    G(A,B,);\n"),
+        &class_with("    F(A);\n    F();\n    G(A,B);\n"),
+    );
+    assert_fix(
+        "F001",
+        &class_with("    A = int(True) + int(FALSE);\n"),
+        &class_with("    A = int(true) + int(false);\n"),
+    );
+    assert_fix(
+        "F002",
+        &class_with("    A = G(class'Foo', ENUM'EBar');\n"),
+        &class_with("    A = G(Class'Foo', Enum'EBar');\n"),
+    );
+}
+
+#[test]
+fn trailing_empty_arguments_with_a_comment_have_no_fix() {
+    let source = class_with("    F(A, /* B */ );\n");
+    let result = parse_program(&source).unwrap();
+    let problem = result
+        .errors
+        .iter()
+        .find(|e| e.lint.is_some_and(|l| l.code() == "R008"))
+        .unwrap();
+    assert!(problem.fix.is_none());
 }

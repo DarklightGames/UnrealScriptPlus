@@ -6,7 +6,8 @@ use std::path::{Path, PathBuf};
 use pest::error::InputLocation;
 use usagi_core::source::LineIndex;
 use usagi_core::{
-    Lint, ParseMode, ParseOptions, ParsingError, ProgramError, ProgramErrorSeverity, parse_bytes,
+    Applicability, Lint, ParseMode, ParseOptions, ParsingError, ProgramError, ProgramErrorSeverity,
+    parse_bytes,
 };
 
 /// What parsing a file produced.
@@ -92,6 +93,8 @@ pub struct Problem {
     pub column: usize,
     pub end_line: usize,
     pub end_column: usize,
+    /// The title of the problem's fix, and whether it's safe to apply.
+    pub fix: Option<(String, Applicability)>,
 }
 
 /// The result of checking one file.
@@ -102,12 +105,20 @@ pub struct FileReport {
     pub problems: Vec<Problem>,
     /// The syntax tree, when asked for.
     pub ast: Option<String>,
+    /// With fixing: the source before fixes, if any were applied.
+    pub original: Option<String>,
+    /// With fixing: the fixed file's bytes, in its original encoding.
+    pub fixed_bytes: Option<Vec<u8>>,
+    /// With fixing: the number of fixes applied.
+    pub fixed: usize,
 }
 
 pub struct CheckOptions<'a> {
     pub strict: bool,
     pub lint: bool,
     pub ast: bool,
+    /// Apply safe fixes (in memory; the caller writes or diffs the result).
+    pub fix: bool,
     /// Whether a lint is reported for a file.
     pub is_enabled: &'a (dyn Fn(&Path, Lint) -> bool + Sync),
 }
@@ -122,14 +133,34 @@ pub fn check_file(path: &Path, options: &CheckOptions) -> FileReport {
                 outcome: Outcome::IoError,
                 problems: vec![Problem::at(Kind::IoError, e.to_string(), "", 0, 0)],
                 ast: None,
+                original: None,
+                fixed_bytes: None,
+                fixed: 0,
             };
         }
     };
-    // Decoded again by `parse_bytes`, which is cheap next to parsing.
-    let source = usagi_core::decode(&bytes);
-    let (outcome, problems, ast) = match panic::catch_unwind(AssertUnwindSafe(|| {
-        check_source(path, &bytes, &source, options)
-    })) {
+    let original = usagi_core::decode(&bytes);
+    let mut fixed_bytes = None;
+    let mut fixed = 0;
+    let mut source = original.clone();
+    let result = panic::catch_unwind(AssertUnwindSafe(|| {
+        if options.fix {
+            let (bytes, count) = fix_bytes(path, &bytes, options);
+            if count > 0 {
+                source = usagi_core::decode(&bytes);
+                fixed_bytes = Some(bytes);
+                fixed = count;
+            }
+        }
+        // Decoded again by `parse_bytes`, which is cheap next to parsing.
+        check_source(
+            path,
+            fixed_bytes.as_deref().unwrap_or(&bytes),
+            &source,
+            options,
+        )
+    }));
+    let (outcome, problems, ast) = match result {
         Ok(result) => result,
         Err(payload) => {
             let message = payload
@@ -143,11 +174,53 @@ pub fn check_file(path: &Path, options: &CheckOptions) -> FileReport {
     };
     FileReport {
         path: path.to_path_buf(),
+        original: fixed_bytes.is_some().then_some(original),
         source,
         outcome,
         problems,
         ast,
+        fixed_bytes,
+        fixed,
     }
+}
+
+/// The most rounds of fixing: each round re-lints the fixed text, which
+/// picks up fixes that overlapped one applied in the round before.
+const MAX_FIX_ROUNDS: usize = 10;
+
+/// Applies the safe fixes of the enabled lints until there are none left.
+/// Returns the fixed bytes, in the file's own encoding, and the number of
+/// fixes applied.
+fn fix_bytes(path: &Path, bytes: &[u8], options: &CheckOptions) -> (Vec<u8>, usize) {
+    let mode = if options.strict {
+        ParseMode::Strict
+    } else {
+        ParseMode::Permissive
+    };
+    let mut bytes = bytes.to_vec();
+    let mut total = 0;
+    for _ in 0..MAX_FIX_ROUNDS {
+        let Ok(parsed) = parse_bytes(&bytes, &ParseOptions { mode }) else {
+            break;
+        };
+        let fixes = parsed.result.errors.iter().filter_map(|e| {
+            let lint = e.lint?;
+            let fix = e.fix.as_ref()?;
+            (fix.applicability == Applicability::Safe && (options.is_enabled)(path, lint))
+                .then_some(fix)
+        });
+        let (text, count) = usagi_core::fix::apply(&parsed.source.text, fixes);
+        // A fix whose text the file's encoding can't store isn't applied.
+        let Some(encoded) = usagi_core::encode(&text, parsed.source.encoding) else {
+            break;
+        };
+        if count == 0 {
+            break;
+        }
+        bytes = encoded;
+        total += count;
+    }
+    (bytes, total)
 }
 
 fn check_source(
@@ -172,6 +245,10 @@ fn check_source(
             error.span.end,
         );
         problem.is_error = error.severity == ProgramErrorSeverity::Error;
+        problem.fix = error
+            .fix
+            .as_ref()
+            .map(|f| (f.title.clone(), f.applicability));
         problem
     };
     match parse_bytes(bytes, &ParseOptions { mode }) {
@@ -242,6 +319,7 @@ impl Problem {
             column,
             end_line,
             end_column,
+            fix: None,
         }
     }
 

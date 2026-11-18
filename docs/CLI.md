@@ -28,12 +28,31 @@ recovered from are also shown, under the code `parse`.
 | `--ignore LINT,...` | Don't report these lints, in addition to the configured ones. |
 | `--format FORMAT` | How to print problems (see below). |
 | `--statistics` | Print the number of problems and files for each lint. |
+| `--fix` | Apply safe fixes to the files, then report the problems that are left. |
+| `--diff` | Print the changes `--fix` would make, as a unified diff, without changing any file. |
 | `--strict` | Treat recovered problems as errors, as `parse --strict` does. |
 | `--include GLOB,...` / `--exclude GLOB,...` | Choose files (see below), replacing the configured lists. |
 
 A lint selector is `ALL`, a code (`S003`), a code prefix (`S`, `S00`), a
 lint name (`self-assignment`) or a category name (`suspicious`), all
 case-insensitive.
+
+#### Fixes
+
+Problems that `--fix` can fix are marked `[*]` in the concise format, and
+have a "fixable with --fix" note in the full format. Only *safe* fixes, which
+never change what the code does, are applied; see
+[STATIC_ANALYSIS.md](STATIC_ANALYSIS.md#fixes) for which lints have them. Only
+selected lints are fixed, so `usagi lint --fix --select F001` fixes nothing
+else.
+
+`--fix` re-lints each fixed file and fixes again, up to 10 times, so that
+fixes that overlapped one another are all applied. Files are written back in
+the encoding they were read in, with their line endings unchanged. A fix whose
+text that encoding can't store (e.g. a character above U+00FF in a Latin-1
+file) is not applied.
+
+Use `--diff` as a dry run: it prints what would change and writes nothing.
 
 ### `usagi parse [PATHS]...`
 
@@ -68,7 +87,7 @@ Not implemented yet.
 |---|---|
 | `full` (default) | Each problem with the source it points at, like rustc. |
 | `concise` | `path:line:column: CODE message` |
-| `json` | An array of `{path, line, column, end_line, end_column, code, name, severity, message}`. |
+| `json` | An array of `{path, line, column, end_line, end_column, code, name, severity, message, fix}`, where `fix` is the title of the safe fix, or `null`. |
 | `tsv` | `code`, `name`, `path`, `line` and `message`, separated by tabs. |
 | `quiet` | Nothing. Use it with `--statistics`, or to rely on the exit code alone. |
 
@@ -84,7 +103,7 @@ Besides lint codes, a problem's code can be `parse` (a recovered problem),
 | Code | Meaning |
 |---|---|
 | 0 | Nothing to report. Recovered problems alone don't count, unless `--strict` is used. |
-| 1 | `lint`: a lint problem, or a file that failed to parse. `parse`: a file that failed to parse. |
+| 1 | `lint`: a lint problem, or a file that failed to parse; with `--fix`, a problem left after fixing; with `--diff`, a change to show. `parse`: a file that failed to parse. |
 | 2 | A usage error, a configuration error or a missing path. |
 
 ## Configuration

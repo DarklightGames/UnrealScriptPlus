@@ -80,6 +80,7 @@ fn json_output() {
             "name": "self-assignment",
             "severity": "warning",
             "message": "Variable is assigned to itself",
+            "fix": null,
         }])
     );
 }
@@ -267,9 +268,128 @@ fn utf8_source() {
         .args(["parse", "--format", "concise"])
         .assert()
         .code(0)
-        .stdout(predicate::str::contains("Foo.uc:2:5: parse The file is UTF-8"));
+        .stdout(predicate::str::contains(
+            "Foo.uc:2:5: parse The file is UTF-8",
+        ));
     usagi(dir.path())
         .args(["parse", "--strict"])
         .assert()
         .code(1);
+}
+
+const FIXABLE: &[u8] = b"class Foo extends Actor;\r\nvar int I;\r\nfunction F(int A)\r\n{\r\n    // caf\xE9\r\n    Self.I = int(True);\r\n    A = A;\r\n    return;\r\n}\r\n";
+const FIXED: &[u8] = b"class Foo extends Actor;\r\nvar int I;\r\nfunction F(int A)\r\n{\r\n    // caf\xE9\r\n    I = int(true);\r\n    A = A;\r\n}\r\n";
+
+fn fixable_project() -> TempDir {
+    let dir = project(&[]);
+    fs::write(dir.path().join("Foo.uc"), FIXABLE).unwrap();
+    dir
+}
+
+#[test]
+fn fixable_problems_are_marked() {
+    let dir = fixable_project();
+    let output = concise(dir.path(), &[]);
+    assert!(
+        output.contains("Foo.uc:6:5: R012 [*] Redundant"),
+        "{}",
+        output
+    );
+    assert!(output.contains("Foo.uc:7:5: S003 Variable"), "{}", output);
+    usagi(dir.path())
+        .args(["lint", "--color", "never"])
+        .assert()
+        .stdout(predicate::str::contains(
+            "Remove `Self.` (fixable with --fix)",
+        ))
+        .stderr(predicate::str::contains("3 problems can be fixed"));
+    let output = usagi(dir.path())
+        .args(["lint", "--format", "json", "--select", "R013"])
+        .output()
+        .unwrap();
+    let problems: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(problems[0]["fix"], "Remove `return;`");
+}
+
+#[test]
+fn diff_changes_nothing() {
+    let dir = fixable_project();
+    usagi(dir.path())
+        .args(["lint", "--diff"])
+        .assert()
+        .code(1)
+        .stdout(predicate::str::contains("--- a/Foo.uc"))
+        .stdout(predicate::str::contains("-    Self.I = int(True);"))
+        .stdout(predicate::str::contains("+    I = int(true);"))
+        .stderr(predicate::str::contains("Would fix 3 problems in 1 file"));
+    assert_eq!(fs::read(dir.path().join("Foo.uc")).unwrap(), FIXABLE);
+    // Nothing to fix.
+    let dir = project(&[("Bar.uc", CLEAN)]);
+    usagi(dir.path())
+        .args(["lint", "--diff"])
+        .assert()
+        .code(0)
+        .stdout("");
+    usagi(dir.path())
+        .args(["lint", "--diff", "--fix"])
+        .assert()
+        .code(2);
+}
+
+#[test]
+fn fix_writes_files_in_their_encoding() {
+    let dir = fixable_project();
+    usagi(dir.path())
+        .args(["lint", "--fix", "--format", "concise"])
+        .assert()
+        .code(1)
+        .stdout(predicate::str::contains("S003"))
+        .stdout(predicate::str::contains("R012").not())
+        .stderr(predicate::str::contains("Fixed 3 problems in 1 file"));
+    assert_eq!(fs::read(dir.path().join("Foo.uc")).unwrap(), FIXED);
+    // Fixing again changes nothing.
+    usagi(dir.path())
+        .args(["lint", "--fix", "--ignore", "S003"])
+        .assert()
+        .code(0)
+        .stderr(predicate::str::contains("Fixed 0 problems in 0 files"));
+    assert_eq!(fs::read(dir.path().join("Foo.uc")).unwrap(), FIXED);
+}
+
+#[test]
+fn fix_respects_the_selection() {
+    let dir = fixable_project();
+    usagi(dir.path())
+        .args(["lint", "--fix", "--select", "F001"])
+        .assert()
+        .code(0);
+    let fixed = fs::read(dir.path().join("Foo.uc")).unwrap();
+    let fixed = String::from_utf8_lossy(&fixed);
+    assert!(fixed.contains("Self.I = int(true);"), "{}", fixed);
+    assert!(fixed.contains("return;"), "{}", fixed);
+}
+
+#[test]
+fn fix_keeps_utf16() {
+    let dir = project(&[]);
+    let source = "class Foo extends Object;\nfunction F() { G(True); }\n";
+    let utf16: Vec<u8> = [0xFF, 0xFE]
+        .into_iter()
+        .chain(source.encode_utf16().flat_map(u16::to_le_bytes))
+        .collect();
+    fs::write(dir.path().join("Foo.uc"), utf16).unwrap();
+    usagi(dir.path())
+        .args(["lint", "--fix", "--select", "F001"])
+        .assert()
+        .code(0);
+    let expected: Vec<u8> = [0xFF, 0xFE]
+        .into_iter()
+        .chain(
+            source
+                .replace("True", "true")
+                .encode_utf16()
+                .flat_map(u16::to_le_bytes),
+        )
+        .collect();
+    assert_eq!(fs::read(dir.path().join("Foo.uc")).unwrap(), expected);
 }
