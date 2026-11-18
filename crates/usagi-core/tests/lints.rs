@@ -1335,6 +1335,21 @@ fn class_with(body: &str) -> String {
 #[test]
 fn fixes() {
     assert_fix(
+        "F003",
+        "class Foo extends Object;\nvar config /* c */ private int A;\nstatic final private function F();\n",
+        "class Foo extends Object;\nvar private /* c */ config int A;\nprivate final static function F();\n",
+    );
+    assert_fix(
+        "N006",
+        &class_with("    i = a;\n    Self.i = A;\n"),
+        &class_with("    I = A;\n    Self.I = A;\n"),
+    );
+    assert_fix(
+        "N006",
+        "class Foo extends Object;\nvar int Speed;\nfunction Fire();\nfunction F() { fire(); }\ndefaultproperties\n{\n    speed=1\n}\n",
+        "class Foo extends Object;\nvar int Speed;\nfunction Fire();\nfunction F() { Fire(); }\ndefaultproperties\n{\n    Speed=1\n}\n",
+    );
+    assert_fix(
         "R012",
         &class_with("    Self.I = 1;\n    A = self . I;\n"),
         &class_with("    I = 1;\n    A = I;\n"),
@@ -1463,4 +1478,14 @@ fn redundancy_problems_without_a_fix() {
     assert!(fix_of("R005", source).is_none());
     let source = "class Foo extends Actor;\nreplication\n{\n    /* none */\n}\n";
     assert!(fix_of("R006", source).is_none());
+}
+
+#[test]
+fn modifiers_are_access_then_alphabetical() {
+    let ok = "class Foo extends Object;\nvar private config int A;\nvar const transient int B;\n\
+              private final simulated function F();\nfinal static function G();\n";
+    assert_eq!(only(&["F003"], ok), Vec::<&str>::new());
+    let bad = "class Foo extends Object;\nvar config private int A;\nvar transient const int B;\n\
+               final private function F();\nstatic final function G();\n";
+    assert_eq!(only(&["F003"], bad), vec!["F003"; 4]);
 }

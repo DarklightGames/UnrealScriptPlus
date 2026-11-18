@@ -139,7 +139,7 @@ never applied from the command line; they are for an editor to offer.
 | N003 | `enum-name-prefix` | Warning |  | An enum name that doesn't begin with `E`. |
 | N004 | `bool-name-prefix` | Warning |  | A `bool` variable name that doesn't begin with `b`. |
 | N005 | `object-literal-type-case` | Warning |  | An object literal type that doesn't begin with a capital letter, e.g. `texture'Foo'`. |
-| N006 | `identifier-case-mismatch` | Warning |  | A name written with different capitalization than its declaration in the same file. |
+| N006 | `identifier-case-mismatch` | Warning | Sometimes | A name written with different capitalization than its declaration in the same file. |
 
 ### Formatting
 
@@ -147,7 +147,7 @@ never applied from the command line; they are for an editor to offer.
 |---|---|---|---|---|
 | F001 | `boolean-literal-case` | Warning | Yes | A boolean literal that isn't lowercase. |
 | F002 | `object-literal-keyword-case` | Warning | Yes | A `class'...'` or `enum'...'` keyword that isn't written `Class` or `Enum`, e.g. `class'Foo'` or `ENUM'Bar'`. |
-| F003 | `unsorted-modifiers` | Warning |  | Variable or function modifiers that aren't in alphabetical order. |
+| F003 | `unsorted-modifiers` | Warning | Sometimes | Variable or function modifiers that aren't the access modifier (`private`, `protected` or `public`) followed by the others in alphabetical order. |
 
 ## Problems that aren't lints
 

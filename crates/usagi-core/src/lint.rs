@@ -235,7 +235,7 @@ lints! {
         "A `bool` variable name that doesn't begin with `b`."),
     ObjectLiteralTypeCase = ("N005", "object-literal-type-case", Naming, Warning, Never,
         "An object literal type that doesn't begin with a capital letter, e.g. `texture'Foo'`."),
-    IdentifierCaseMismatch = ("N006", "identifier-case-mismatch", Naming, Warning, Never,
+    IdentifierCaseMismatch = ("N006", "identifier-case-mismatch", Naming, Warning, Sometimes,
         "A name written with different capitalization than its declaration."),
 
     // Formatting
@@ -243,8 +243,8 @@ lints! {
         "A boolean literal that isn't lowercase."),
     ObjectLiteralKeywordCase = ("F002", "object-literal-keyword-case", Formatting, Warning, Always,
         "A `class'...'` or `enum'...'` keyword that isn't written `Class` or `Enum`."),
-    UnsortedModifiers = ("F003", "unsorted-modifiers", Formatting, Warning, Never,
-        "Modifiers that aren't in alphabetical order."),
+    UnsortedModifiers = ("F003", "unsorted-modifiers", Formatting, Warning, Sometimes,
+        "Modifiers that aren't the access modifier followed by the others in alphabetical order."),
 }
 
 impl fmt::Display for Lint {

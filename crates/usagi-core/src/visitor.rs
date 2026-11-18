@@ -1562,6 +1562,50 @@ fn check_duplicate_modifiers(
 }
 
 /// Reports more than one access modifier among `names`.
+/// Reports modifiers that aren't in the expected order: the access modifier
+/// (`private`, `protected` or `public`) first, then the rest alphabetically.
+/// `modifiers` are each modifier's name and span. The fix swaps the
+/// modifiers' text into place, so comments between them stay where they are.
+fn check_modifier_order(
+    modifiers: &[(String, AstSpan)],
+    what: &str,
+    span: AstSpan,
+    visitor: &mut Visitor,
+) {
+    let mut sorted: Vec<&(String, AstSpan)> = modifiers.iter().collect();
+    sorted.sort_by_key(|(n, _)| {
+        let n = n.to_ascii_lowercase();
+        (!matches!(n.as_str(), "private" | "protected" | "public"), n)
+    });
+    if modifiers.iter().zip(&sorted).all(|(a, b)| a.0 == b.0) {
+        return;
+    }
+    let names: Vec<&str> = sorted.iter().map(|(n, _)| n.as_str()).collect();
+    let texts: Option<Vec<&str>> = sorted
+        .iter()
+        .map(|(_, s)| visitor.contents.get(s.start..s.end))
+        .collect();
+    let fix = texts.map(|texts| {
+        let edits = modifiers
+            .iter()
+            .zip(texts)
+            .filter(|((_, s), text)| visitor.contents.get(s.start..s.end) != Some(*text))
+            .map(|((_, s), text)| Edit::replace(s.start..s.end, text.to_string()))
+            .collect();
+        Fix::safe(format!("Reorder as `{}`", names.join(" ")), edits)
+    });
+    visitor.report_with_optional_fix(
+        Lint::UnsortedModifiers,
+        format!(
+            "{} modifiers should be the access modifier, then the others in alphabetical order ({:?})",
+            what,
+            names.join(" ")
+        ),
+        span,
+        fix,
+    )
+}
+
 fn check_access_modifiers(names: &[String], span: AstSpan, visitor: &mut Visitor) {
     let mut access: Vec<&str> = names
         .iter()
@@ -1627,25 +1671,12 @@ impl Visit for AstNode<FunctionDeclaration> {
             self.modifiers.iter().map(|m| m.type_.to_string()).collect();
         check_access_modifiers(&modifier_names, self.span, visitor);
 
-        // ensure modifiers appear in alphabetical order
-        let modifier_types: Vec<FunctionModifierType> =
-            self.modifiers.iter().map(|f| f.type_.clone()).collect();
-        let mut sorted_modifier_types = modifier_types.clone();
-        sorted_modifier_types.sort();
-        if modifier_types != sorted_modifier_types {
-            let sorted_modifier_type_names: Vec<String> = sorted_modifier_types
-                .iter()
-                .map(|t| t.to_string())
-                .collect();
-            visitor.report(
-                Lint::UnsortedModifiers,
-                format!(
-                    "Function modifiers should appear in alphabetical order (e.g., {:?})",
-                    sorted_modifier_type_names.join(" ").as_str()
-                ),
-                self.span,
-            )
-        }
+        let modifiers: Vec<(String, AstSpan)> = self
+            .modifiers
+            .iter()
+            .map(|m| (m.type_.to_string(), m.span))
+            .collect();
+        check_modifier_order(&modifiers, "Function", self.span, visitor);
 
         // ensure that functions with exec modifier does not consecutive float arguments
         if self
@@ -1796,18 +1827,12 @@ impl Visit for Rc<AstNode<VarDeclaration>> {
         );
         let modifier_names: Vec<String> = modifiers.iter().map(|m| m.to_string()).collect();
         check_access_modifiers(&modifier_names, self.span, visitor);
-        let mut sorted_modifiers = modifiers.clone();
-        sorted_modifiers.sort();
-        if modifiers != sorted_modifiers {
-            visitor.report(
-                Lint::UnsortedModifiers,
-                format!(
-                    "Var modifiers should be in alphabetical order (e.g., {:?})",
-                    sorted_modifiers
-                ),
-                self.span,
-            )
-        }
+        let modifiers: Vec<(String, AstSpan)> = self
+            .modifiers
+            .iter()
+            .map(|m| (m.data.to_string(), m.span))
+            .collect();
+        check_modifier_order(&modifiers, "Variable", self.span, visitor);
     }
 }
 
@@ -2060,10 +2085,22 @@ fn check_symbols(visitor: &mut Visitor) {
     for reference in symbols.references() {
         let declared = &symbols.symbol(reference.symbol).name.string;
         if reference.text != *declared {
-            visitor.report(
+            // Names are case-insensitive, so writing the declared case never
+            // changes what the code does. Only fix a span that is exactly the
+            // name as written.
+            let span = reference.span;
+            let fix = (visitor.contents.get(span.start..span.end) == Some(reference.text.as_str()))
+                .then(|| {
+                    Fix::safe(
+                        format!("Replace with `{}`", declared),
+                        vec![Edit::replace(span.start..span.end, declared.clone())],
+                    )
+                });
+            visitor.report_with_optional_fix(
                 Lint::IdentifierCaseMismatch,
                 format!("{:?} is declared as {:?}", reference.text, declared),
-                reference.span,
+                span,
+                fix,
             )
         }
     }
