@@ -14,6 +14,13 @@ Ideas that aren't implemented yet. For the lints that exist, see
   this would be a lint, not a grammar change.
 * More than one `defaultproperties` block. UE2 accepts it, but the behaviour is
   unreliable.
+* More than one `default:` in a `switch`. UE2 accepts it, and default cases
+  anywhere in the switch.
+* The wrong form of `return`: `return X;` in a function with no return type, or
+  a bare `return;` in a function that has one.
+* A `goto` to a label that isn't declared in the state.
+* Flow-sensitive "value assigned is never read" (R010 counts any read anywhere).
+* Unused parameters of `private` and functions.
 
 ### Needs a project-wide symbol table
 
@@ -21,6 +28,11 @@ Ideas that aren't implemented yet. For the lints that exist, see
   same value its parent already has.
 * A non-`Actor` `Object` that holds references to `Actor`s.
 * Exhaustive `switch` checking for enums declared in other classes.
+* A `config` variable in a class that isn't `config` anywhere in its hierarchy.
+* A `defaultproperties` key that isn't declared anywhere in the hierarchy.
+* `simulated` outside an `Actor` subclass.
+* Argument types checked against function signatures, e.g. a string passed to
+  `GotoState`.
 
 ## CLI
 
@@ -29,42 +41,13 @@ Ideas that aren't implemented yet. For the lints that exist, see
 * Fixes for more lints: F003 and N006 (safe), and unsafe fixes for an editor to offer.
 * SARIF output, for GitHub code scanning.
 
-## Syntax sugar
+## Extended Language Specification (UnrealScriptPlus?)
 
-### Initializers on local declarations
+I would also like to add more modern language features that can alleviate some
+of the annoyances of UnrealScript. For example:
 
-```
-local int Foo = 42;
-local string Bar;
-local int Baz = Foo;
-```
+* Add ternary operators.
+* Add inline `local` varable declaration & assignment.
 
-would be expanded to:
-
-```
-local int Foo;
-local string Bar;
-local int Baz;
-
-Foo = 42;
-Baz = Foo;
-```
-
-### Ternary operator
-
-```
-Foo = Bar ? 42 : Baz;
-```
-
-would be expanded to:
-
-```
-if (Bar)
-{
-    Foo = 42;
-}
-else
-{
-    Foo = Baz;
-}
-```
+This would require a transpiler step, but investigation needs to be done as to how
+feasible this is given the odd environment that `UCC` operates in.
