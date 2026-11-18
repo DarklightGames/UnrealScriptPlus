@@ -40,14 +40,16 @@ string_literal_character = @{
     | "\\" ~ !("\0" | NEWLINE) ~ ANY
 }
 string_literal_inner = @{ string_literal_character* }
-string_literal = { "\"" ~ string_literal_inner ~ "\"" }
+// Compound-atomic so that pest's implicit COMMENT can't match inside the
+// quotes: `"//"` is a string, not the start of a comment.
+string_literal = ${ "\"" ~ string_literal_inner ~ "\"" }
 
 name_character = @{ ASCII_ALPHANUMERIC | "_" | " " }
 name_inner = @{ name_character* }
-name_literal = { "'" ~ name_inner ~ "'"}
+name_literal = ${ "'" ~ name_inner ~ "'"}
 single_quoted_string_character = @{ !"'" ~ !NEWLINE ~ ANY }
 single_quoted_string_inner = @{ single_quoted_string_character* }
-single_quoted_string = { "'" ~ single_quoted_string_inner  ~ "'"}
+single_quoted_string = ${ "'" ~ single_quoted_string_inner  ~ "'"}
 object_literal = { unqualified_identifier ~ WS* ~ single_quoted_string }
 vector_literal = { ^"vect" ~ WS* ~ "(" ~ WS* ~ numeric_literal ~ WS* ~ "," ~ WS* ~ numeric_literal ~ WS* ~ "," ~ WS* ~ numeric_literal ~ WS* ~ ")" }
 rotator_literal = { ^"rot" ~ WS* ~ "(" ~ WS* ~ numeric_literal ~ WS* ~ "," ~ WS* ~ numeric_literal ~ WS* ~ "," ~ WS* ~ numeric_literal ~ WS* ~ ")" }

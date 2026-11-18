@@ -819,3 +819,14 @@ fn utf8_source_is_a_recovered_problem() {
         Err(ParsingError::PestError(_))
     ));
 }
+
+#[test]
+fn literals_that_start_like_comments() {
+    for literal in ["\"//\"", "\"/* x */\"", "\"// \" $ \"x\"", "Texture'//Foo'"] {
+        let source = format!(
+            "class A extends Object;\nfunction F() {{ G({}); }}\n",
+            literal
+        );
+        assert_parses(&source);
+    }
+}
