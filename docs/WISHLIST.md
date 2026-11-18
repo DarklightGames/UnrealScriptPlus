@@ -41,6 +41,13 @@ Ideas that aren't implemented yet. For the lints that exist, see
 * Fixes for more lints: F003 and N006 (safe), and unsafe fixes for an editor to offer.
 * SARIF output, for GitHub code scanning.
 
+## Build
+
+* Clean up after an interrupted build: on Ctrl-C, stop UCC and remove the
+  half-built packages from `System/` (the next build removes them now).
+* Work when run from inside a mod folder, by finding the game directory above it.
+* Run UCC on Windows at a lower priority too.
+
 ## Extended Language Specification (UnrealScriptPlus?)
 
 I would also like to add more modern language features that can alleviate some

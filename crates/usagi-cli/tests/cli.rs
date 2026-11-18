@@ -394,17 +394,39 @@ fn fix_keeps_utf16() {
     assert_eq!(fs::read(dir.path().join("Foo.uc")).unwrap(), expected);
 }
 
-/// A fake UCC, run by `sh` in place of Wine. `make` "compiles" each of the
-/// mod's packages that isn't in its System folder, unless the package has a
-/// `Broken.uc`, and logs what it compiled to `made.log`. `dumpint` writes the
-/// package's `.int`. Both overwrite `UCC.log`.
+/// A fake UCC, run by `sh` in place of Wine. `make` "compiles" each package
+/// that isn't compiled yet, unless it has a `Broken.uc`, and logs what it
+/// compiled to `made.log`. With `-mod=`, the packages are the `+EditPackages`
+/// of the mod's `Default.ini`, compiled ones are in the mod's System folder,
+/// and new ones are written to `System/`; with `-ini=`, the packages are that
+/// INI's `EditPackages`, all in `System/`. `dumpint` writes the package's
+/// `.int`, and fails with the error that the real DumpInt reports for its own
+/// name. Both overwrite `UCC.log`.
 #[cfg(unix)]
-const FAKE_UCC: &str = r#"mod=${2#-mod=}
-if [ "$1" = Editor.MakeCommandlet ]; then
-  mod=${2#-mod=}
+const FAKE_UCC: &str = r#"cmd=$1
+shift
+mod=
+ini=
+pkg=
+for a in "$@"; do
+  case "$a" in
+    -mod=*) mod=${a#-mod=} ;;
+    -ini=*) ini=${a#-ini=} ;;
+    -debug) ;;
+    *) pkg=$a ;;
+  esac
+done
+if [ "$cmd" = Editor.MakeCommandlet ]; then
   echo "Parsing everything"
-  for p in $(sed -n 's/^+EditPackages=//p' ../$mod/System/Default.ini | tr -d '\r'); do
-    [ -f ../$mod/System/$p.u ] && continue
+  if [ -n "$mod" ]; then
+    list=$(sed -n 's/^+EditPackages=//p' ../$mod/System/Default.ini | tr -d '\r')
+    out=../$mod/System
+  else
+    list=$(sed -n 's/^EditPackages=//p' $ini | tr -d '\r')
+    out=.
+  fi
+  for p in $list; do
+    [ -f $out/$p.u ] && continue
     if [ -e ../$p/Classes/Broken.uc ]; then
       echo "$p.uc(1) : Error, broken"
     else
@@ -414,8 +436,7 @@ if [ "$1" = Editor.MakeCommandlet ]; then
   done
   echo make > UCC.log
 else
-  mod=${3#-mod=}
-  p=${2%.u}
+  p=${pkg%.u}
   echo "No packages found matching Editor.DumpIntCommandlet!"
   echo "[Public]" > $p.int
   echo "Failure - 1 error(s), 0 warning(s)"
@@ -637,7 +658,8 @@ fn build_setup_errors() {
         .args(["build"])
         .assert()
         .code(2)
-        .stderr(predicate::str::contains("no mod to build"));
+        .stderr(predicate::str::contains("no INI in"))
+        .stderr(predicate::str::contains("has EditPackages"));
     usagi(dir.path())
         .args(["build", "--mod", "Missing"])
         .assert()
@@ -729,4 +751,274 @@ fn jobs_flag_and_setting() {
     assert!(concise(dir.path(), &[]).contains("S003"));
     fs::write(dir.path().join("usagi.toml"), "jobs = 0\n").unwrap();
     usagi(dir.path()).args(["lint"]).assert().code(2);
+}
+
+/// A game with no mod: its own packages (Core, with sources, and NoSource,
+/// without) are compiled already, and A, B and C are new.
+#[cfg(unix)]
+fn modless_game(config: &str) -> TempDir {
+    let edit_packages = "[Editor.EditorEngine]\r\nEditPackages=Core\r\nEditPackages=NoSource\r\nEditPackages=A\r\nEditPackages=B\r\nEditPackages=C\r\n";
+    project(&[
+        ("usagi.toml", &format!("[build]\nwine = \"sh\"\n{}", config)),
+        ("System/UCC.exe", FAKE_UCC),
+        ("System/Core.u", "stock"),
+        ("System/NoSource.u", "stock"),
+        ("System/Game.ini", edit_packages),
+        // Templates and user settings aren't candidates for the INI.
+        ("System/Default.ini", edit_packages),
+        ("System/User.ini", edit_packages),
+        ("Core/Classes/Object.uc", "class Object;\n"),
+        ("A/Classes/A.uc", "class A extends Object;\n"),
+        ("B/Classes/B.uc", "class B extends A;\n"),
+        ("C/Classes/C.uc", "class C extends B;\n"),
+    ])
+}
+
+#[cfg(unix)]
+#[test]
+fn modless_build_compiles_into_system() {
+    let dir = modless_game("locked = [\"core\"]\n");
+    let root = dir.path();
+    let (code, out) = build(root, &["--dumpint"]);
+    assert_eq!(code, 0, "{}", out);
+    assert!(out.contains("Build started for Game.ini"), "{}", out);
+    assert!(
+        out.contains("3 succeeded, 0 failed, 0 skipped, 2 up-to-date"),
+        "{}",
+        out
+    );
+    assert_eq!(made(root), "A\nB\nC\n");
+    for file in ["A.u", "C.u", "A.int"] {
+        assert!(root.join("System").join(file).is_file(), "{}", file);
+    }
+    // The game's packages are untouched, and the record is in the game directory.
+    assert_eq!(
+        fs::read_to_string(root.join("System/Core.u")).unwrap(),
+        "stock"
+    );
+    assert_eq!(
+        fs::read_to_string(root.join("System/NoSource.u")).unwrap(),
+        "stock"
+    );
+    assert!(root.join(".usagi-build.toml").is_file());
+
+    let (code, out) = build(root, &[]);
+    assert_eq!(code, 0, "{}", out);
+    assert!(
+        out.contains("0 succeeded, 0 failed, 0 skipped, 5 up-to-date"),
+        "{}",
+        out
+    );
+
+    fs::write(
+        root.join("B/Classes/B.uc"),
+        "class B extends A; // changed\n",
+    )
+    .unwrap();
+    let (code, out) = build(root, &[]);
+    assert_eq!(code, 0, "{}", out);
+    assert_eq!(made(root), "B\nC\n");
+}
+
+#[cfg(unix)]
+#[test]
+fn locked_packages_are_never_rebuilt() {
+    let dir = modless_game("locked = [\"Core\"]\n");
+    let root = dir.path();
+    build(root, &[]);
+    made(root);
+
+    let core = root.join("Core/Classes/Object.uc");
+    fs::write(&core, "class Object; // changed\n").unwrap();
+    let (code, out) = build(root, &[]);
+    assert_eq!(code, 2, "{}", out);
+    assert!(
+        out.contains("Core's sources changed since it was last built"),
+        "{}",
+        out
+    );
+    fs::write(&core, "class Object;\n").unwrap();
+    assert_eq!(build(root, &[]).0, 0);
+
+    let (code, out) = build(root, &["--clean"]);
+    assert_eq!(code, 2, "{}", out);
+    assert!(
+        out.contains("Core would be rebuilt by a clean build"),
+        "{}",
+        out
+    );
+
+    fs::remove_file(root.join("System/Core.u")).unwrap();
+    let (code, out) = build(root, &[]);
+    assert_eq!(code, 2, "{}", out);
+    assert!(
+        out.contains("Core isn't compiled, so UCC would compile it"),
+        "{}",
+        out
+    );
+    assert_eq!(made(root), "");
+}
+
+#[cfg(unix)]
+#[test]
+fn locked_packages_stop_a_cascade() {
+    let dir = modless_game("locked = [\"Core\", \"C\"]\n");
+    let root = dir.path();
+    // C has no record yet, but it's locked, so it's taken as it is: that
+    // needs a compiled C.
+    fs::write(root.join("System/C.u"), "old").unwrap();
+    let (code, out) = build(root, &[]);
+    assert_eq!(code, 2, "{}", out);
+    assert!(
+        out.contains("C comes after a package that's being rebuilt"),
+        "{}",
+        out
+    );
+    let (code, out) = build(root, &["--ignore-dependencies"]);
+    assert_eq!(code, 0, "{}", out);
+    assert_eq!(made(root), "A\nB\n");
+    assert_eq!(fs::read_to_string(root.join("System/C.u")).unwrap(), "old");
+}
+
+#[cfg(unix)]
+#[test]
+fn modless_clean_without_locks_rebuilds_everything() {
+    let dir = modless_game("");
+    let root = dir.path();
+    let (code, out) = build(root, &["--clean"]);
+    assert_eq!(code, 0, "{}", out);
+    // Every package with sources; NoSource can't be rebuilt, so it's kept.
+    assert_eq!(made(root), "Core\nA\nB\nC\n");
+    assert!(
+        out.contains("Exported localization: 4 succeeded"),
+        "{}",
+        out
+    );
+    assert_eq!(
+        fs::read_to_string(root.join("System/NoSource.u")).unwrap(),
+        "stock"
+    );
+
+    fs::remove_file(root.join("System/NoSource.u")).unwrap();
+    let (code, out) = build(root, &[]);
+    assert_eq!(code, 2, "{}", out);
+    assert!(out.contains("NoSource has no sources"), "{}", out);
+}
+
+#[cfg(unix)]
+#[test]
+fn modless_build_chooses_the_ini() {
+    let dir = modless_game("");
+    let root = dir.path();
+    fs::write(
+        root.join("System/Other.ini"),
+        "[Editor.EditorEngine]\nEditPackages=A\n",
+    )
+    .unwrap();
+    let (code, out) = build(root, &[]);
+    assert_eq!(code, 2, "{}", out);
+    assert!(out.contains("more than one INI"), "{}", out);
+    assert!(out.contains("Game.ini, Other.ini"), "{}", out);
+
+    fs::write(
+        root.join("usagi.toml"),
+        "[build]\nwine = \"sh\"\nini = \"other.ini\"\n",
+    )
+    .unwrap();
+    let (code, out) = build(root, &[]);
+    assert_eq!(code, 0, "{}", out);
+    assert_eq!(made(root), "A\n");
+
+    fs::write(root.join("usagi.toml"), "[build]\nini = \"Missing.ini\"\n").unwrap();
+    let (code, out) = build(root, &[]);
+    assert_eq!(code, 2, "{}", out);
+    assert!(
+        out.contains("build.ini \"Missing.ini\" not found"),
+        "{}",
+        out
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn no_mod_overrides_build_mod() {
+    let dir = modless_game("");
+    let root = dir.path();
+    fs::write(
+        root.join("usagi.toml"),
+        "[build]\nmod = \"Missing\"\nwine = \"sh\"\nversion = \"1.0.0\"\nversion-class = \"A/Classes/V.uc\"\n",
+    )
+    .unwrap();
+    // With a mod, the version belongs in the mod's file.
+    let (code, out) = build(root, &[]);
+    assert_eq!(code, 2, "{}", out);
+    assert!(
+        out.contains("when building a mod, build.version"),
+        "{}",
+        out
+    );
+    // Without one, it's the game directory's.
+    let (code, out) = build(root, &["--no-mod"]);
+    assert_eq!(code, 0, "{}", out);
+    assert!(root.join("A/Classes/V.uc").is_file());
+    usagi(root)
+        .args(["build", "--no-mod", "--mod", "X"])
+        .assert()
+        .code(2);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_mod_package_left_in_system_is_always_removed() {
+    let dir = game();
+    let root = dir.path();
+    fs::write(root.join("System/A.u"), "left over").unwrap();
+    fs::write(
+        root.join("usagi.toml"),
+        "[build]\nmod = \"Mod\"\nwine = \"sh\"\nlocked = [\"*\"]\n",
+    )
+    .unwrap();
+    let (code, out) = build(root, &[]);
+    assert_eq!(code, 0, "{}", out);
+    assert!(out.contains("Removing A.u left in"), "{}", out);
+    assert!(!root.join("System/A.u").exists());
+    assert!(root.join("Mod/System/A.u").is_file());
+}
+
+#[cfg(unix)]
+#[test]
+fn locking_everything_leaves_a_mods_own_packages_buildable() {
+    let dir = game();
+    let root = dir.path();
+    fs::write(
+        root.join("usagi.toml"),
+        "[build]\nmod = \"Mod\"\nwine = \"sh\"\nlocked = [\"*\"]\n",
+    )
+    .unwrap();
+    let (code, out) = build(root, &[]);
+    assert_eq!(code, 0, "{}", out);
+    assert_eq!(made(root), "A\nB\nC\n");
+    fs::write(
+        root.join("B/Classes/B.uc"),
+        "class B extends A; // changed\n",
+    )
+    .unwrap();
+    let (code, out) = build(root, &[]);
+    assert_eq!(code, 0, "{}", out);
+    assert_eq!(made(root), "B\nC\n");
+    // Without the mod, the same packages are locked.
+    fs::create_dir_all(root.join("Core/Classes")).unwrap();
+    fs::write(root.join("Core/Classes/Object.uc"), "class Object;\n").unwrap();
+    fs::write(
+        root.join("System/Game.ini"),
+        "[Editor.EditorEngine]\nEditPackages=Core\n",
+    )
+    .unwrap();
+    let (code, out) = build(root, &["--no-mod", "--clean"]);
+    assert_eq!(code, 2, "{}", out);
+    assert!(
+        out.contains("Core would be rebuilt by a clean build"),
+        "{}",
+        out
+    );
 }

@@ -1,6 +1,6 @@
 [package]
 name = "usagi-cli"
-description = "Command-line parser and linter for Unreal Engine 2 UnrealScript"
+description = "Command-line parser, linter and mod build tool for Unreal Engine 2 UnrealScript"
 version.workspace = true
 edition.workspace = true
 license-file = "../../LICENSE"

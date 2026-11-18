@@ -8,7 +8,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 #[command(
     name = "usagi",
     version,
-    about = "Parse and lint Unreal Engine 2 UnrealScript"
+    about = "Parse and lint Unreal Engine 2 UnrealScript, and build mods"
 )]
 pub struct Cli {
     /// Use this configuration file instead of searching for one.
@@ -51,6 +51,10 @@ pub struct BuildArgs {
     /// The mod to build (overrides `build.mod`).
     #[arg(long = "mod", value_name = "NAME")]
     pub mod_name: Option<String>,
+
+    /// Build without a mod, even if `build.mod` is set.
+    #[arg(long, conflicts_with = "mod_name")]
+    pub no_mod: bool,
 
     /// The game directory (overrides `build.root`).
     #[arg(long, value_name = "DIR")]

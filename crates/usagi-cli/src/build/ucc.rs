@@ -141,7 +141,12 @@ impl Ucc {
     /// Exports the localization of `packages` in parallel, and prints how
     /// many succeeded, with the output of any that failed. A package fails
     /// if UCC fails or doesn't write its `.int` file.
-    pub fn dumpint(&self, packages: &[&str], mod_name: &str, jobs: usize) -> Result<(), String> {
+    pub fn dumpint(
+        &self,
+        packages: &[&str],
+        extra_args: &[String],
+        jobs: usize,
+    ) -> Result<(), String> {
         if packages.is_empty() {
             return Ok(());
         }
@@ -159,11 +164,8 @@ impl Ucc {
                 let handles: Vec<_> = chunk
                     .iter()
                     .map(|&package| {
-                        let args = [
-                            DUMPINT.to_string(),
-                            format!("{}.u", package),
-                            format!("-mod={}", mod_name),
-                        ];
+                        let mut args = vec![DUMPINT.to_string(), format!("{}.u", package)];
+                        args.extend(extra_args.iter().cloned());
                         let mut command = self.command(&args);
                         s.spawn(move || {
                             crate::check::lower_priority();

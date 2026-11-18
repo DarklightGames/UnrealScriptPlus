@@ -1,14 +1,22 @@
-//! `usagi build`: compile a mod's out-of-date packages with UCC.
+//! `usagi build`: compile out-of-date packages with UCC.
 //!
-//! A mod lives in `<root>/<Mod>`, next to the game's `<root>/System`. Its
-//! packages are the `EditPackages` that its `System/Default.ini` adds, and
-//! their sources are in `<root>/<Package>/Classes`. UCC writes compiled
-//! packages to `<root>/System`; they are moved to `<root>/<Mod>/System`.
+//! The packages are the `EditPackages` of the INI that UCC reads, in order,
+//! and their sources are in `<root>/<Package>/Classes`. UCC writes compiled
+//! packages to `<root>/System`.
 //!
-//! Which packages are up to date is tracked in `<root>/<Mod>/.usagi-build.toml`
-//! with a CRC of each package's sources. A package is rebuilt when its
-//! sources change, and so is every package after it in `EditPackages`
-//! (which may depend on it), unless `--ignore-dependencies` is given.
+//! - With a mod (`<root>/<Mod>`), the INI is the mod's `System/<Mod>.ini`
+//!   (made by UCC from the game's and the mod's `Default.ini`), the game's own
+//!   packages (compiled already in `<root>/System`) are skipped, and the
+//!   compiled packages are moved to `<root>/<Mod>/System`.
+//! - Without one, the INI is one of the game's (`build.ini`), and the
+//!   compiled packages stay in `<root>/System`.
+//!
+//! Which packages are up to date is tracked in a `.usagi-build.toml` (in the
+//! mod folder, or the game directory) with a CRC of each package's sources.
+//! A package is rebuilt when its sources change, and so is every package after
+//! it in `EditPackages` (which may depend on it), unless
+//! `--ignore-dependencies` is given. Locked packages (`build.locked`) are
+//! never deleted or rebuilt; a build that would have to is an error.
 
 pub mod ini;
 mod manifest;
@@ -20,7 +28,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use globset::GlobBuilder;
+use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use walkdir::WalkDir;
 
 use crate::check::{self, CheckOptions};
@@ -29,14 +37,20 @@ use crate::output;
 use ini::{Ini, Op};
 use manifest::Manifest;
 
-/// The file that records which packages are up to date, in the mod folder.
+/// The file that records which packages are up to date, in the mod folder
+/// or the game directory.
 pub const MANIFEST_FILE_NAME: &str = ".usagi-build.toml";
 
 const EDITOR_SECTION: &str = "Editor.EditorEngine";
 
 pub struct Options {
     pub root: PathBuf,
-    pub mod_name: String,
+    /// The mod to build, or `None` to build without one.
+    pub mod_name: Option<String>,
+    /// Without a mod: the INI in `<root>/System` that UCC reads.
+    pub ini: Option<String>,
+    /// Globs of the packages never to delete or rebuild.
+    pub locked: Vec<String>,
     pub clean: bool,
     pub dumpint: bool,
     pub debug: bool,
@@ -76,6 +90,55 @@ struct Package {
     status: Status,
     crc: u32,
     files: Vec<PathBuf>,
+    locked: bool,
+}
+
+/// What a build compiles, and where: a mod, or the game itself.
+struct Target {
+    /// Shown when the build starts.
+    label: String,
+    /// The game's System folder, where UCC writes.
+    sys_dir: PathBuf,
+    /// Where compiled packages and localization go, if not `sys_dir`.
+    out_dir: Option<PathBuf>,
+    /// UCC's arguments that choose the mod or the INI.
+    ucc_args: Vec<String>,
+    /// `EditPackages`, in order.
+    packages: Vec<String>,
+    /// Skip packages compiled in `sys_dir`: with a mod, they're the game's.
+    skip_compiled: bool,
+    /// The mod's own packages, which locks don't apply to.
+    unlockable: Vec<String>,
+    manifest_path: PathBuf,
+    manifest: Manifest,
+    /// The CRC of the mod's `Default.ini`, to record.
+    default_ini_crc: Option<u32>,
+    clean: bool,
+    dumpint: bool,
+}
+
+/// Package-name globs.
+struct Locks(GlobSet);
+
+impl Locks {
+    fn new(patterns: &[String]) -> Result<Self, String> {
+        let mut builder = GlobSetBuilder::new();
+        for pattern in patterns {
+            let glob = GlobBuilder::new(pattern)
+                .case_insensitive(true)
+                .build()
+                .map_err(|e| format!("invalid build.locked glob {:?}: {}", pattern, e))?;
+            builder.add(glob);
+        }
+        builder
+            .build()
+            .map(Locks)
+            .map_err(|e| format!("invalid build.locked globs: {}", e))
+    }
+
+    fn is_locked(&self, package: &str) -> bool {
+        self.0.is_match(package)
+    }
 }
 
 /// Finds the entry called `name` in `dir`, ignoring case, the way Windows
@@ -218,22 +281,13 @@ fn print_header(text: &str, color: Option<&str>) {
     println!("{}{}{}", "-".repeat(left), text, "-".repeat(right));
 }
 
-/// Builds the mod. Returns whether every package compiled; setup problems
-/// are errors.
+/// Builds the mod, or the game's packages without one. Returns whether every
+/// package compiled; setup problems, including a locked package that would
+/// have to be rebuilt, are errors.
 pub fn run(options: &Options) -> Result<bool, String> {
     let root = require_dir(options.root.clone(), "game directory")?;
     let sys_dir = require_dir(root.join("System"), "System directory")?;
-    let mod_dir = require_dir(root.join(&options.mod_name), "mod directory")?;
-    let mod_sys_dir = require_dir(mod_dir.join("System"), "mod System directory")?;
-
-    let default_ini_path = mod_sys_dir.join("Default.ini");
-    let default_ini_bytes = fs::read(&default_ini_path)
-        .map_err(|e| format!("{}: {}", default_ini_path.display(), e))?;
-    let default_ini_crc = crc32fast::hash(&default_ini_bytes);
-    let mod_default = Ini::from_bytes(&default_ini_bytes);
-    let mod_packages = mod_default.values(EDITOR_SECTION, "EditPackages", Op::Add);
-    let config_path = mod_sys_dir.join(format!("{}.ini", options.mod_name));
-    let manifest_path = mod_dir.join(MANIFEST_FILE_NAME);
+    let locks = Locks::new(&options.locked)?;
 
     if let Some(class_path) = &options.version_class {
         let version = options
@@ -243,10 +297,155 @@ pub fn run(options: &Options) -> Result<bool, String> {
         version::write_class(&root, &root.join(class_path), version)?;
     }
 
+    let mut target = match &options.mod_name {
+        Some(mod_name) => mod_target(&root, sys_dir, mod_name, options)?,
+        None => game_target(&root, sys_dir, options)?,
+    };
+
+    println!("Checking for out-of-date packages...");
+    let packages = find_out_of_date(&root, &target, &locks, options)?;
+    check_locks(&packages, &target)?;
+    let to_compile: Vec<&Package> = packages
+        .iter()
+        .filter(|p| p.status != Status::UpToDate)
+        .collect();
+    let up_to_date = packages.len() - to_compile.len();
+    // Up-to-date packages keep (or, if locked, get) their CRC.
+    for package in packages.iter().filter(|p| p.status == Status::UpToDate) {
+        target
+            .manifest
+            .packages
+            .insert(package.name.clone(), package.crc);
+    }
+
+    if to_compile.is_empty() {
+        target.manifest.default_ini_crc = target.default_ini_crc;
+        target.manifest.write(&target.manifest_path)?;
+        print_summary(0, 0, up_to_date, options.color);
+        return Ok(true);
+    }
+
+    if options.check && !check_sources(&to_compile, options)? {
+        return Ok(false);
+    }
+
+    print_header(&format!(" Build started for {} ", target.label), None);
+    for package in &to_compile {
+        println!("{}: {}", package.name, package.status.describe());
+    }
+
+    // Remove the packages being rebuilt, so UCC compiles them.
+    let sys_dir = target.sys_dir.clone();
+    for package in &to_compile {
+        let file_name = format!("{}.u", package.name);
+        for dir in std::iter::once(&sys_dir).chain(&target.out_dir) {
+            if let Some(path) = find_ci(dir, &file_name) {
+                remove_file(&path)?;
+            }
+        }
+    }
+
+    let ucc = ucc::Ucc::find(&sys_dir, &options.wine, options.verbose, options.color)?;
+    let mut make_args = vec!["Editor.MakeCommandlet".to_string()];
+    make_args.extend(target.ucc_args.iter().cloned());
+    if options.debug {
+        make_args.push("-debug".to_string());
+    }
+    let status = ucc.run_streaming(&make_args)?;
+
+    // Dumping localization overwrites UCC.log, which editors read for errors.
+    let log_path = find_ci(&sys_dir, "UCC.log");
+    let log = log_path.as_ref().and_then(|p| fs::read(p).ok());
+
+    let mut compiled = Vec::new();
+    for package in &to_compile {
+        if let Some(path) = find_ci(&sys_dir, &format!("{}.u", package.name)) {
+            move_to(&path, target.out_dir.as_deref())?;
+            compiled.push(*package);
+        }
+    }
+
+    if target.dumpint {
+        let changed: Vec<&str> = compiled
+            .iter()
+            .filter(|p| p.status == Status::Changed)
+            .map(|p| p.name.as_str())
+            .collect();
+        ucc.dumpint(&changed, &target.ucc_args, options.jobs)?;
+        for package in &to_compile {
+            if let Some(path) = find_ci(&sys_dir, &format!("{}.int", package.name)) {
+                move_to(&path, target.out_dir.as_deref())?;
+            }
+        }
+        if let (Some(path), Some(log)) = (&log_path, &log) {
+            fs::write(path, log).map_err(|e| format!("{}: {}", path.display(), e))?;
+        }
+    }
+
+    // A package that didn't compile has no CRC, so it's rebuilt next time,
+    // whether its own sources changed or one of its dependencies'.
+    for package in &to_compile {
+        target.manifest.packages.remove(&package.name);
+    }
+    for package in &compiled {
+        target
+            .manifest
+            .packages
+            .insert(package.name.clone(), package.crc);
+    }
+    target.manifest.default_ini_crc = target.default_ini_crc;
+    target.manifest.write(&target.manifest_path)?;
+
+    let failed = to_compile.len() - compiled.len();
+    if failed > 0 && !status.success() {
+        match status.code() {
+            Some(code) => println!("UCC exited with status {}", code),
+            None => println!("UCC was terminated"),
+        }
+    }
+    print_summary(compiled.len(), failed, up_to_date, options.color);
+    Ok(failed == 0)
+}
+
+/// Moves a file UCC wrote into `out_dir`, if there is one.
+fn move_to(path: &Path, out_dir: Option<&Path>) -> Result<(), String> {
+    let Some(out_dir) = out_dir else {
+        return Ok(());
+    };
+    let target = out_dir.join(path.file_name().expect("a file name"));
+    move_file(path, &target).map_err(|e| format!("{}: {}", path.display(), e))
+}
+
+/// Prepares a mod's build: cleans up, updates the mod's INI if needed, and
+/// reads its packages.
+fn mod_target(
+    root: &Path,
+    sys_dir: PathBuf,
+    mod_name: &str,
+    options: &Options,
+) -> Result<Target, String> {
+    let mod_dir = require_dir(root.join(mod_name), "mod directory")?;
+    let mod_sys_dir = require_dir(mod_dir.join("System"), "mod System directory")?;
+
+    let default_ini_path = mod_sys_dir.join("Default.ini");
+    let default_ini_bytes = fs::read(&default_ini_path)
+        .map_err(|e| format!("{}: {}", default_ini_path.display(), e))?;
+    let default_ini_crc = crc32fast::hash(&default_ini_bytes);
+    let mod_default = Ini::from_bytes(&default_ini_bytes);
+    let mod_packages = mod_default.values(EDITOR_SECTION, "EditPackages", Op::Add);
+    let config_path = mod_sys_dir.join(format!("{}.ini", mod_name));
+    let manifest_path = mod_dir.join(MANIFEST_FILE_NAME);
+
     // UCC must load the mod's packages from the mod's System folder, so
-    // remove any left in the game's (by a build that was interrupted).
+    // remove any left in the game's (by a build that was interrupted). This
+    // happens even if they're locked: they're the mod's, not the game's.
     for package in &mod_packages {
         if let Some(path) = find_ci(&sys_dir, &format!("{}.u", package)) {
+            println!(
+                "Removing {} left in {}",
+                path.file_name().unwrap_or_default().to_string_lossy(),
+                sys_dir.display()
+            );
             remove_file(&path)?;
         }
     }
@@ -257,7 +456,7 @@ pub fn run(options: &Options) -> Result<bool, String> {
         Manifest::load(&manifest_path)
     };
     let mut clean = options.clean;
-    let mut dumpint = options.dumpint;
+    let mut dumpint = options.dumpint || options.clean;
     if manifest.default_ini_crc != Some(default_ini_crc) {
         if !clean {
             println!("Default.ini changed: rebuilding everything and exporting localization");
@@ -282,105 +481,105 @@ pub fn run(options: &Options) -> Result<bool, String> {
         Some(config) => config.values(EDITOR_SECTION, "EditPackages", Op::Set),
         None => mod_packages.clone(),
     };
+    Ok(Target {
+        label: format!("mod: {}", mod_name),
+        sys_dir,
+        out_dir: Some(mod_sys_dir),
+        ucc_args: vec![format!("-mod={}", mod_name)],
+        packages,
+        skip_compiled: true,
+        unlockable: mod_packages.clone(),
+        manifest_path,
+        manifest,
+        default_ini_crc: Some(default_ini_crc),
+        clean,
+        dumpint,
+    })
+}
 
-    println!("Checking for out-of-date packages...");
-    let packages = find_out_of_date(&root, &sys_dir, &packages, &manifest, options)?;
-    let to_compile: Vec<&Package> = packages
-        .iter()
-        .filter(|p| p.status != Status::UpToDate)
+/// Prepares a build without a mod, of the `EditPackages` of one of the
+/// game's INIs.
+fn game_target(root: &Path, sys_dir: PathBuf, options: &Options) -> Result<Target, String> {
+    let ini_path = match &options.ini {
+        Some(name) => find_ci(&sys_dir, name)
+            .ok_or_else(|| format!("build.ini {:?} not found in {}", name, sys_dir.display()))?,
+        None => find_game_ini(&sys_dir)?,
+    };
+    let ini = Ini::read(&ini_path).map_err(|e| format!("{}: {}", ini_path.display(), e))?;
+    check_ambiguous_files(&sys_dir, &ini.values("Core.System", "Paths", Op::Set))?;
+    let ini_name = ini_path
+        .file_name()
+        .expect("a file name")
+        .to_string_lossy()
+        .into_owned();
+    let manifest_path = root.join(MANIFEST_FILE_NAME);
+    let manifest = if options.clean {
+        Manifest::default()
+    } else {
+        Manifest::load(&manifest_path)
+    };
+    Ok(Target {
+        label: ini_name.clone(),
+        sys_dir,
+        out_dir: None,
+        ucc_args: vec![format!("-ini={}", ini_name)],
+        packages: ini.values(EDITOR_SECTION, "EditPackages", Op::Set),
+        skip_compiled: false,
+        unlockable: Vec::new(),
+        manifest_path,
+        manifest,
+        default_ini_crc: None,
+        clean: options.clean,
+        dumpint: options.dumpint || options.clean,
+    })
+}
+
+/// The INI files that a build without a mod could use: those in `sys_dir`
+/// with `EditPackages`, except the templates and the user settings.
+fn find_game_ini(sys_dir: &Path) -> Result<PathBuf, String> {
+    const NOT_GAME_INIS: [&str; 3] = ["default.ini", "defuser.ini", "user.ini"];
+    let mut candidates: Vec<PathBuf> = fs::read_dir(sys_dir)
+        .map_err(|e| format!("{}: {}", sys_dir.display(), e))?
+        .flatten()
+        .map(|e| e.path())
+        .filter(|path| {
+            let name = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_lowercase();
+            name.ends_with(".ini")
+                && !NOT_GAME_INIS.contains(&name.as_str())
+                && Ini::read(path).is_ok_and(|ini| {
+                    !ini.values(EDITOR_SECTION, "EditPackages", Op::Set)
+                        .is_empty()
+                })
+        })
         .collect();
-    let up_to_date = packages.len() - to_compile.len();
-
-    if to_compile.is_empty() {
-        manifest.default_ini_crc = Some(default_ini_crc);
-        manifest.write(&manifest_path)?;
-        print_summary(0, 0, up_to_date, options.color);
-        return Ok(true);
-    }
-
-    if options.check && !check_sources(&to_compile, options)? {
-        return Ok(false);
-    }
-
-    print_header(
-        &format!(" Build started for mod: {} ", options.mod_name),
-        None,
-    );
-    for package in &to_compile {
-        println!("{}: {}", package.name, package.status.describe());
-    }
-
-    // Remove the packages being rebuilt, so UCC compiles them.
-    for package in &to_compile {
-        let file_name = format!("{}.u", package.name);
-        for dir in [&sys_dir, &mod_sys_dir] {
-            if let Some(path) = find_ci(dir, &file_name) {
-                remove_file(&path)?;
-            }
+    candidates.sort();
+    match candidates.len() {
+        1 => Ok(candidates.remove(0)),
+        0 => Err(format!(
+            "no INI in {} has EditPackages; set build.ini, or build a mod with --mod",
+            sys_dir.display()
+        )),
+        _ => {
+            let names: Vec<String> = candidates
+                .iter()
+                .map(|p| {
+                    p.file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .into_owned()
+                })
+                .collect();
+            Err(format!(
+                "more than one INI in {} has EditPackages ({}); choose one with build.ini",
+                sys_dir.display(),
+                names.join(", ")
+            ))
         }
     }
-
-    let ucc = ucc::Ucc::find(&sys_dir, &options.wine, options.verbose, options.color)?;
-    let mut make_args = vec![
-        "Editor.MakeCommandlet".to_string(),
-        format!("-mod={}", options.mod_name),
-    ];
-    if options.debug {
-        make_args.push("-debug".to_string());
-    }
-    let status = ucc.run_streaming(&make_args)?;
-
-    // Dumping localization overwrites UCC.log, which editors read for errors.
-    let log_path = find_ci(&sys_dir, "UCC.log");
-    let log = log_path.as_ref().and_then(|p| fs::read(p).ok());
-
-    let mut compiled = Vec::new();
-    for package in &to_compile {
-        if let Some(path) = find_ci(&sys_dir, &format!("{}.u", package.name)) {
-            let target = mod_sys_dir.join(path.file_name().expect("a file name"));
-            move_file(&path, &target).map_err(|e| format!("{}: {}", path.display(), e))?;
-            compiled.push(*package);
-        }
-    }
-
-    if dumpint {
-        let changed: Vec<&str> = compiled
-            .iter()
-            .filter(|p| p.status == Status::Changed)
-            .map(|p| p.name.as_str())
-            .collect();
-        ucc.dumpint(&changed, &options.mod_name, options.jobs)?;
-        for package in &to_compile {
-            if let Some(path) = find_ci(&sys_dir, &format!("{}.int", package.name)) {
-                let target = mod_sys_dir.join(path.file_name().expect("a file name"));
-                move_file(&path, &target).map_err(|e| format!("{}: {}", path.display(), e))?;
-            }
-        }
-        if let (Some(path), Some(log)) = (&log_path, &log) {
-            fs::write(path, log).map_err(|e| format!("{}: {}", path.display(), e))?;
-        }
-    }
-
-    // A package that didn't compile has no CRC, so it's rebuilt next time,
-    // whether its own sources changed or one of its dependencies'.
-    for package in &to_compile {
-        manifest.packages.remove(&package.name);
-    }
-    for package in &compiled {
-        manifest.packages.insert(package.name.clone(), package.crc);
-    }
-    manifest.default_ini_crc = Some(default_ini_crc);
-    manifest.write(&manifest_path)?;
-
-    let failed = to_compile.len() - compiled.len();
-    if failed > 0 && !status.success() {
-        match status.code() {
-            Some(code) => println!("UCC exited with status {}", code),
-            None => println!("UCC was terminated"),
-        }
-    }
-    print_summary(compiled.len(), failed, up_to_date, options.color);
-    Ok(failed == 0)
 }
 
 /// Updates the arrays (`EditPackages`, `ServerPackages`, `Paths`, ...) that
@@ -422,33 +621,71 @@ fn update_mod_config(sys_dir: &Path, mod_default: &Ini, config_path: &Path) -> R
     Ok(())
 }
 
-/// The mod's packages and whether each is up to date, in build order. The
-/// game's own packages, which are compiled already in `<root>/System`, are
-/// left out.
+/// The packages and whether each is up to date, in build order. With a mod,
+/// the game's own packages, which are compiled already in `<root>/System`,
+/// are left out.
 fn find_out_of_date(
     root: &Path,
-    sys_dir: &Path,
-    packages: &[String],
-    manifest: &Manifest,
+    target: &Target,
+    locks: &Locks,
     options: &Options,
 ) -> Result<Vec<Package>, String> {
-    let compiled: Vec<String> = fs::read_dir(sys_dir)
-        .map_err(|e| format!("{}: {}", sys_dir.display(), e))?
-        .flatten()
-        .filter(|e| e.path().is_file())
-        .map(|e| e.file_name().to_string_lossy().to_lowercase())
-        .collect();
+    let file_names = |dir: &Path| -> Result<Vec<String>, String> {
+        Ok(fs::read_dir(dir)
+            .map_err(|e| format!("{}: {}", dir.display(), e))?
+            .flatten()
+            .filter(|e| e.path().is_file())
+            .map(|e| e.file_name().to_string_lossy().to_lowercase())
+            .collect())
+    };
+    let in_sys = file_names(&target.sys_dir)?;
+    let in_out = match &target.out_dir {
+        Some(dir) => file_names(dir)?,
+        None => in_sys.clone(),
+    };
     let mut result: Vec<Package> = Vec::new();
-    for name in packages {
-        if compiled.contains(&format!("{}.u", name).to_lowercase())
+    for name in &target.packages {
+        let file_name = format!("{}.u", name).to_lowercase();
+        if (target.skip_compiled && in_sys.contains(&file_name))
             || result.iter().any(|p| p.name.eq_ignore_ascii_case(name))
         {
             continue;
         }
+        let locked = locks.is_locked(name)
+            && !target
+                .unlockable
+                .iter()
+                .any(|p| p.eq_ignore_ascii_case(name));
         let classes = find_ci(root, name).and_then(|dir| find_ci(&dir, "Classes"));
+        if classes.is_none() {
+            // Without sources it can't be rebuilt, so it's never deleted.
+            if !in_out.contains(&file_name) {
+                return Err(format!(
+                    "{} has no sources ({}) and isn't compiled",
+                    name,
+                    root.join(name).join("Classes").display()
+                ));
+            }
+            result.push(Package {
+                name: name.clone(),
+                status: Status::UpToDate,
+                crc: 0,
+                files: Vec::new(),
+                locked,
+            });
+            continue;
+        }
         let (crc, files) = package_crc(classes.as_deref())?;
         let rebuilding = result.iter().any(|p| p.status != Status::UpToDate);
-        let status = if manifest.packages.get(name) != Some(&crc) {
+        let recorded = target.manifest.packages.get(name);
+        // A locked package with no record is taken as it is, and its CRC
+        // recorded, so that later changes to its sources can be noticed.
+        let changed = if locked && recorded.is_none() && !target.clean {
+            false
+        } else {
+            recorded != Some(&crc)
+        };
+        let status = if changed {
             Status::Changed
         } else if rebuilding && !options.ignore_dependencies {
             Status::Dependency
@@ -460,9 +697,48 @@ fn find_out_of_date(
             status,
             crc,
             files,
+            locked,
         });
     }
     Ok(result)
+}
+
+/// Fails if a locked package would be deleted or rebuilt, or is missing
+/// (UCC would compile it).
+fn check_locks(packages: &[Package], target: &Target) -> Result<(), String> {
+    let compiled_dir = target.out_dir.as_ref().unwrap_or(&target.sys_dir);
+    let mut problems = Vec::new();
+    for package in packages.iter().filter(|p| p.locked) {
+        if find_ci(compiled_dir, &format!("{}.u", package.name)).is_none() {
+            problems.push(format!(
+                "{} isn't compiled, so UCC would compile it",
+                package.name
+            ));
+            continue;
+        }
+        match package.status {
+            Status::UpToDate => {}
+            _ if target.clean => problems.push(format!(
+                "{} would be rebuilt by a clean build",
+                package.name
+            )),
+            Status::Changed => problems.push(format!(
+                "{}'s sources changed since it was last built",
+                package.name
+            )),
+            Status::Dependency => problems.push(format!(
+                "{} comes after a package that's being rebuilt and may depend on it (pass --ignore-dependencies to leave it as it is)",
+                package.name
+            )),
+        }
+    }
+    if problems.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "locked packages (build.locked) would have to be rebuilt:\n    {}\nUnlock them to rebuild them.",
+        problems.join("\n    ")
+    ))
 }
 
 /// Parses the sources of the packages to compile, and prints the files that

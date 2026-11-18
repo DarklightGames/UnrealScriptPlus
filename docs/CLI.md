@@ -1,14 +1,23 @@
 # The `usagi` command-line tool
 
-`usagi` parses and lints Unreal Engine 2 UnrealScript. It is built from the
-`usagi-cli` crate.
+`usagi` parses and lints Unreal Engine 2 UnrealScript, and builds mods with
+UCC. It is built from the `usagi-cli` crate.
 
 ```sh
 cargo install --path crates/usagi-cli   # or download a binary from the Releases page
 usagi lint                               # lint every .uc file under the current directory
+usagi build                              # compile the mod's out-of-date packages
 ```
 
 ## Commands
+
+| Command | Does |
+|---|---|
+| [`lint`](#usagi-lint-paths) | Parse files and report lint problems; apply fixes. |
+| [`parse`](#usagi-parse-paths) | Parse files and report syntax errors. |
+| [`rule`](#usagi-rule-codename--usagi-rule---all) | Explain a lint, or list every lint. |
+| [`build`](#usagi-build) | Compile a mod's out-of-date packages with UCC. |
+| [`format`](#usagi-format) | Not implemented yet. |
 
 Every command that takes paths accepts files and directories. Directories are
 searched for `.uc` files (in any letter case). With no paths, the current
@@ -75,57 +84,103 @@ Not implemented yet.
 
 ### `usagi build`
 
-Compiles a mod's out-of-date packages with UCC (`Editor.MakeCommandlet`).
-On systems other than Windows, UCC is run with Wine.
+Compiles out-of-date packages with UCC (`Editor.MakeCommandlet`). On
+systems other than Windows, UCC is run with Wine.
 
-The game directory (`root`) contains `System/UCC.exe`. The mod is the
-folder `<root>/<Mod>`, and its packages are the `+EditPackages` in
-`<root>/<Mod>/System/Default.ini`. Each package's sources are in
-`<root>/<Package>/Classes`.
+The game directory (`root`) contains `System/UCC.exe`. The packages to build
+are the `EditPackages` of the INI file that UCC reads, in order, and each
+package's sources are in `<root>/<Package>/Classes`. A build is one of two
+kinds:
+
+- **A mod** (`--mod NAME` or `build.mod`): the mod is the folder
+  `<root>/<Mod>`. The INI is the mod's `System/<Mod>.ini`, which UCC makes
+  from the game's and the mod's `System/Default.ini`. Packages compiled
+  already in `<root>/System` are the game's, and are skipped. The compiled
+  packages and localization files are moved to `<root>/<Mod>/System`.
+- **The game itself** (no mod, or `--no-mod`): the INI is `build.ini` in
+  `<root>/System`, e.g. `RedOrchestra.ini`, and it's passed to UCC with
+  `-ini=`. Without `build.ini`, it's the only INI in `System` with
+  `EditPackages` (apart from `Default.ini`, `DefUser.ini` and `User.ini`);
+  if there are several, it's an error. Compiled packages stay in
+  `<root>/System`.
 
 A build does the following:
 
-1. Writes the version class, if the mod's `usagi.toml` sets
-   `build.version-class`. It isn't rewritten if it's unchanged.
-2. Removes the mod's packages from `<root>/System`. UCC loads them from
-   the mod's `System` folder, so a copy left in `<root>/System` by an
-   interrupted build would be loaded first.
-3. If `Default.ini` changed since the last build (or there was no build yet),
-   or `--clean` is given, rebuilds every package and exports localization. In
-   `<root>/<Mod>/System/<Mod>.ini`, the arrays that `Default.ini` changes with
-   `+Key=`/`-Key=` (`EditPackages`, `ServerPackages`, `Paths`, ...) are
-   recomputed from the game's `System/Default.ini`. Every other setting in the
-   file is kept. If the game has no `System/Default.ini`, `<Mod>.ini` is
-   removed, and UCC makes a new one.
+1. Writes the version class, if `build.version-class` is set. It isn't
+   rewritten if it's unchanged.
+2. With a mod, removes the mod's packages from `<root>/System`, even if
+   they match `build.locked`. UCC loads them from the mod's `System` folder,
+   so a copy left in `<root>/System` by an interrupted build would be loaded
+   first.
+3. With a mod, if `Default.ini` changed since the last build (or there was
+   no build yet), or `--clean` is given, rebuilds every package and exports
+   localization. In `<root>/<Mod>/System/<Mod>.ini`, the arrays that
+   `Default.ini` changes with `+Key=`/`-Key=` (`EditPackages`,
+   `ServerPackages`, `Paths`, ...) are recomputed from the game's
+   `System/Default.ini`. Every other setting in the file is kept. If the game
+   has no `System/Default.ini`, `<Mod>.ini` is removed, and UCC makes a new
+   one. Without a mod, `--clean` rebuilds every package and exports
+   localization.
 4. Fails if two files with the same name (in any letter case) are in the
-   mod's `Paths`.
-5. Finds the out-of-date packages, in `EditPackages` order. Packages that are
-   already compiled in `<root>/System` (the game's own) are skipped. A
-   package is out of date when its sources changed: a `.uc` file was added,
-   removed, renamed or edited. Every package after an out-of-date package is
-   rebuilt too, since it may depend on it, unless `--ignore-dependencies` is
-   given.
-6. Parses the sources of the packages it will compile, and stops if a file
+   INI's `Paths`.
+5. Finds the out-of-date packages, in `EditPackages` order. A package is out
+   of date when its sources changed since it was last built (a `.uc` file was
+   added, removed, renamed or edited), or it hasn't been built by usagi yet.
+   Every package after an out-of-date package is rebuilt too, since it may
+   depend on it, unless `--ignore-dependencies` is given. A package without
+   sources is never rebuilt; if it isn't compiled either, that's an error.
+6. Checks the locked packages (see below).
+7. Parses the sources of the packages it will compile, and stops if a file
    doesn't parse, unless `--no-check` is given. `strict` applies.
-7. Removes the out-of-date packages and runs UCC. UCC's progress messages
+8. Removes the out-of-date packages and runs UCC. UCC's progress messages
    are hidden unless `--verbose` is given.
-8. Moves the compiled packages to `<root>/<Mod>/System`.
-9. With `--dumpint`, exports the localization (`.int` files) of the
-   packages whose sources changed. The exports run in parallel; their
-   output is shown only for the ones that fail, or with `--verbose`. An
-   export succeeds when it writes the `.int` file and UCC reports no errors,
-   except one: DumpInt treats its own name on the command line as a package to
-   export, so it always reports `No packages found matching
-   Editor.DumpIntCommandlet!`. That error is ignored and not shown. The
-   `.int` files are moved to `<root>/<Mod>/System`. `System/UCC.log` is
-   restored to the log of the build, for editors that read errors from it.
-10. Records each compiled package's sources in
-    `<root>/<Mod>/.usagi-build.toml`. A package that failed to compile isn't
+9. With a mod, moves the compiled packages to `<root>/<Mod>/System`.
+10. With `--dumpint`, exports the localization (`.int` files) of the
+    packages whose sources changed. The exports run in parallel; their
+    output is shown only for the ones that fail, or with `--verbose`. An
+    export succeeds when it writes the `.int` file and UCC reports no errors,
+    except one: DumpInt treats its own name on the command line as a package
+    to export, so it always reports `No packages found matching
+    Editor.DumpIntCommandlet!`. That error is ignored and not shown. With a
+    mod, the `.int` files are moved to `<root>/<Mod>/System`.
+    `System/UCC.log` is restored to the log of the build, for editors that
+    read errors from it.
+11. Records each compiled package's sources in `.usagi-build.toml`, in the
+    mod folder or the game directory. A package that failed to compile isn't
     recorded, so it's rebuilt next time.
+
+#### Locked packages
+
+`build.locked` lists packages that are never deleted or rebuilt, as globs
+that match package names in any letter case (`*` matches any characters,
+`?` one), e.g. the game's own:
+
+```toml
+[build]
+locked = ["Core", "Engine", "RO*", "X*"]
+```
+
+The first build takes a locked package as it is and records its sources.
+After that, the build stops before changing anything (exit code 2) if a
+locked package:
+
+- has sources that changed since they were recorded;
+- comes after a package that's being rebuilt, and so may depend on it
+  (`--ignore-dependencies` leaves it as it is);
+- isn't compiled, so UCC would compile it;
+- would be rebuilt by `--clean` (so `--clean` can't be used without a mod
+  while anything is locked).
+
+In a mod build, locks don't apply to the mod's own packages (the
+`+EditPackages` of its `Default.ini`), which are built in its `System` folder,
+so `locked = ["*"]` protects everything in `<root>/System` without stopping
+the mod from building. A mod's own package left in `<root>/System` is always
+removed (step 2), even if it matches `locked`. Nothing is locked by default.
 
 | Flag | Meaning |
 |---|---|
 | `--mod NAME` | The mod to build. Overrides `build.mod`. |
+| `--no-mod` | Build the game itself, even if `build.mod` is set. |
 | `--root DIR` | The game directory. Overrides `build.root`. |
 | `--clean` | Rebuild every package and export localization. |
 | `--dumpint` | Export localization for the packages that changed. |
@@ -173,7 +228,7 @@ Besides lint codes, a problem's code can be `parse` (a recovered problem),
 | 0 | Nothing to report. Recovered problems alone don't count, unless `--strict` is used. |
 | 1 | `lint`: a lint problem, or a file that failed to parse; with `--fix`, a problem left after fixing; with `--diff`, a change to show. `parse`: a file that failed to parse. |
 | 1 | `build`: a package failed to compile, or a source file failed to parse. |
-| 2 | A usage error, a configuration error or a missing path. |
+| 2 | A usage error, a configuration error or a missing path. `build`: a setup problem, such as a missing folder, or a locked package that would have to be rebuilt. |
 
 ## Configuration
 
@@ -207,9 +262,14 @@ extend-select = ["C"]
 
 # Settings for `usagi build`.
 [build]
-mod = "MyMod"             # the mod to build when --mod isn't given
+mod = "MyMod"             # the mod to build when --mod isn't given. Default: none
 root = "."                # the game directory. Default: this file's directory
 wine = "wine"             # runs UCC.exe, except on Windows. Default: wine
+ini = "MyGame.ini"        # without a mod: the INI in System whose EditPackages are built
+locked = ["Core", "Engine"]  # globs of packages never to delete or rebuild; ["*"] for all
+# Without a mod, the version class is set here (with a mod, in the mod's file):
+# version = "1.2.3"
+# version-class = "MyPackage/Classes/MyBuildManifest.uc"
 ```
 
 Globs in a configuration file are relative to the file's directory (except in a
@@ -234,7 +294,7 @@ Each mod can have its own configuration file, `<root>/<Mod>/usagi.toml` (or
 `.usagi.toml`). It's used together with the configuration found as usual (the
 game directory's): by `usagi build` for the mod being built, and by every
 other command for the mod named in `build.mod`. It takes every setting except
-`build.mod` and `build.root`:
+`build.mod`, `build.root` and `build.ini`:
 
 ```toml
 include = ["MyMod_*"]
@@ -258,10 +318,11 @@ The game directory's file then needs only:
 mod = "MyMod"
 ```
 
-`include`, `exclude`, `strict`, `jobs`, `lint.select` and `build.wine` in the mod's
-file replace the game directory's; `lint.extend-select`, `lint.ignore` and
-`lint.per-path` are added to them. Globs in both files are relative to the
-game directory. `version` and `version-class` can only be set in a mod's
-file, and `mod` and `root` only in the game directory's; either mistake is an
-error. Run `usagi` from the game directory or below it, outside the mod
-folder, so that the game directory's configuration is the one found.
+`include`, `exclude`, `strict`, `jobs`, `lint.select` and `build.wine` in the
+mod's file replace the game directory's; `lint.extend-select`, `lint.ignore`,
+`lint.per-path` and `build.locked` are added to them. Globs in both files are
+relative to the game directory. When building a mod, `version` and
+`version-class` can only be set in its file, and `mod`, `root` and `ini` only
+in the game directory's; either mistake is an error. Run `usagi` from the game
+directory or below it, outside the mod folder, so that the game directory's
+configuration is the one found.

@@ -4,8 +4,8 @@ Guidance for AI coding agents working on this repository.
 
 ## Project
 
-UnrealScriptPlus is a Cargo workspace for parsing Unreal Engine 2
-UnrealScript and running static analysis on it:
+usagi is a Cargo workspace for parsing Unreal Engine 2 UnrealScript, running
+static analysis on it, and building mods with UCC:
 
 | Crate | Contents |
 |---|---|
@@ -73,6 +73,25 @@ a regression test in `tests/programs.rs`.
 flag, output format, exit code and configuration setting of `usagi`. Update it
 in the same change as the CLI, and add a test to
 `crates/usagi-cli/tests/cli.rs`.
+
+### `usagi build`
+
+`src/build/` holds the build command: `mod.rs` (the steps, in order, for a
+mod or for the game itself without one, and the `build.locked` checks),
+`ini.rs` (UE2 `.ini` files and how a mod's `Default.ini` changes the game's),
+`ucc.rs` (running UCC), `manifest.rs` (the `.usagi-build.toml` record) and
+`version.rs` (the generated version class). Its CLI tests run a fake
+`UCC.exe`, a shell script run by `sh` in place of Wine, that imitates what the
+real one does to the file system with `-mod=` and with `-ini=`, including its
+quirks (see `FAKE_UCC` in `tests/cli.rs`). Unlike the real one, it matches
+package file names case-sensitively. When UCC turns out to behave differently, change the fake to
+match and add a test.
+
+A build changes the game directory: it deletes and moves packages, rewrites
+`<Mod>.ini`, writes the version class, and without a mod, recompiles packages
+in the game's own `System` folder. Never try out a build on a real game
+install; use a scratch copy (copy `System/Default.ini`, the mod's `System`
+folder and the `.ini` files, and symlink the source package folders).
 
 Releases are built by `.github/workflows/release.yml` when a `v*` tag is
 pushed.

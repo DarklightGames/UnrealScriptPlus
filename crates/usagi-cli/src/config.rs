@@ -25,10 +25,11 @@ pub struct ConfigFile {
     pub build: BuildConfig,
 }
 
-/// Settings for `usagi build`. `mod` and `root` are read from the
-/// configuration found as usual; `version` and `version-class` only from the
-/// mod's own configuration file, `<root>/<Mod>/usagi.toml`; `wine` from
-/// either, the mod's winning.
+/// Settings for `usagi build`. `mod`, `root` and `ini` are read from the
+/// configuration found as usual. `version` and `version-class` are read from
+/// the mod's own configuration file, `<root>/<Mod>/usagi.toml`, when building
+/// a mod, and from the usual one otherwise. `wine` and `locked` can be in
+/// either.
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
 pub struct BuildConfig {
@@ -47,6 +48,12 @@ pub struct BuildConfig {
     /// Generate an UnrealScript class with the version and the Git commit and
     /// branch at this path, relative to the game directory.
     pub version_class: Option<PathBuf>,
+    /// Without a mod: the INI in `<root>/System` whose `EditPackages` are
+    /// built, e.g. `RedOrchestra.ini`.
+    pub ini: Option<String>,
+    /// Globs of package names that are never deleted or rebuilt.
+    #[serde(default)]
+    pub locked: Vec<String>,
 }
 
 /// Loads a mod's own configuration file, `usagi.toml` or `.usagi.toml` in
@@ -64,13 +71,18 @@ pub fn load_mod(mod_dir: &Path) -> Result<Option<LoadedConfig>, ConfigError> {
     for (key, set) in [
         ("mod", build.mod_name.is_some()),
         ("root", build.root.is_some()),
+        ("ini", build.ini.is_some()),
     ] {
         if set {
+            let flag = match key {
+                "ini" => String::new(),
+                _ => format!(", or pass --{}", key),
+            };
             return Err(ConfigError(format!(
-                "{}: build.{} can't be set in a mod's configuration; set it in the game directory's, or pass --{}",
+                "{}: build.{} can't be set in a mod's configuration; set it in the game directory's{}",
                 path.display(),
                 key,
-                key
+                flag
             )));
         }
     }
@@ -131,6 +143,8 @@ pub fn merge_mod(
             wine: modded.build.wine.or(root.build.wine),
             version: modded.build.version,
             version_class: modded.build.version_class,
+            ini: root.build.ini,
+            locked: concat(root.build.locked, modded.build.locked),
         },
     };
     Ok(LoadedConfig {
@@ -151,9 +165,12 @@ pub fn with_default_mod(config: LoadedConfig) -> Result<LoadedConfig, ConfigErro
     merge_mod(config, &root, &mod_name)
 }
 
-/// Checks that the configuration found as usual doesn't set what only a
-/// mod's configuration may.
-pub fn check_root_build(config: &LoadedConfig) -> Result<(), ConfigError> {
+/// When building a mod, checks that the configuration found as usual doesn't
+/// set what only the mod's configuration may.
+pub fn check_root_build(config: &LoadedConfig, building_mod: bool) -> Result<(), ConfigError> {
+    if !building_mod {
+        return Ok(());
+    }
     let build = &config.file.build;
     for (key, set) in [
         ("version", build.version.is_some()),
@@ -165,7 +182,7 @@ pub fn check_root_build(config: &LoadedConfig) -> Result<(), ConfigError> {
                 .as_deref()
                 .map_or_else(|| "usagi.toml".to_string(), |p| p.display().to_string());
             return Err(ConfigError(format!(
-                "{}: build.{} can only be set in the mod's own configuration, <root>/<Mod>/usagi.toml (run `usagi build` from the game directory)",
+                "{}: when building a mod, build.{} can only be set in the mod's own configuration, <root>/<Mod>/usagi.toml (run `usagi build` from the game directory)",
                 path, key
             )));
         }

@@ -1,4 +1,4 @@
-//! `usagi`: parse and lint Unreal Engine 2 UnrealScript.
+//! `usagi`: parse and lint Unreal Engine 2 UnrealScript, and build mods.
 
 mod build;
 mod check;
@@ -166,21 +166,30 @@ fn run(cli: Cli) -> Result<bool, String> {
         Command::Format(_) => Err("format is not implemented yet".to_string()),
         Command::Build(args) => {
             let config = load_root()?;
-            config::check_root_build(&config).map_err(|ConfigError(e)| e)?;
-            let mod_name = args
-                .mod_name
-                .clone()
-                .or_else(|| config.file.build.mod_name.clone())
-                .ok_or("no mod to build: pass --mod or set build.mod in usagi.toml")?;
+            let mod_name = if args.no_mod {
+                None
+            } else {
+                args.mod_name
+                    .clone()
+                    .or_else(|| config.file.build.mod_name.clone())
+            };
+            config::check_root_build(&config, mod_name.is_some()).map_err(|ConfigError(e)| e)?;
             let root = match &args.root {
                 Some(root) => std::path::absolute(cwd.join(root)).unwrap_or(cwd.join(root)),
                 None => config::game_root(&config),
             };
-            let config = config::merge_mod(config, &root, &mod_name).map_err(|ConfigError(e)| e)?;
+            let config = match &mod_name {
+                Some(mod_name) => {
+                    config::merge_mod(config, &root, mod_name).map_err(|ConfigError(e)| e)?
+                }
+                None => config,
+            };
             let build = &config.file.build;
             build::run(&build::Options {
                 root,
                 mod_name,
+                ini: build.ini.clone(),
+                locked: build.locked.clone(),
                 clean: args.clean,
                 dumpint: args.dumpint,
                 debug: args.debug,
