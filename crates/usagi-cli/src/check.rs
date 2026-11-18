@@ -327,3 +327,29 @@ impl Problem {
         Problem::new(kind, message, source, &LineIndex::new(source), start, end)
     }
 }
+
+/// The parser recurses deeply on some inputs.
+const STACK_SIZE: usize = 256 * 1024 * 1024;
+
+/// Checks `files` in parallel. Reports come back in the order of `files`,
+/// with each file's problems sorted by position.
+pub fn check_all(files: &[PathBuf], options: &CheckOptions) -> Result<Vec<FileReport>, String> {
+    use rayon::prelude::*;
+    panic::set_hook(Box::new(|_| {})); // panics are reported as problems
+    let pool = rayon::ThreadPoolBuilder::new()
+        .stack_size(STACK_SIZE)
+        .build()
+        .map_err(|e| e.to_string())?;
+    let mut reports: Vec<FileReport> = pool.install(|| {
+        files
+            .par_iter()
+            .map(|path| check_file(path, options))
+            .collect()
+    });
+    for report in &mut reports {
+        report
+            .problems
+            .sort_by_key(|p| (p.start, p.end, p.kind.code()));
+    }
+    Ok(reports)
+}

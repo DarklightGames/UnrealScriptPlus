@@ -11,15 +11,11 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::Parser;
-use rayon::prelude::*;
 use usagi_core::{Applicability, Lint, ProgramErrorSeverity};
 
 use check::{CheckOptions, FileReport};
 use cli::{Cli, ColorChoice, Command, FileArgs, OutputFormat};
 use config::{ConfigError, Overrides, Settings};
-
-/// The parser recurses deeply on some inputs.
-const STACK_SIZE: usize = 256 * 1024 * 1024;
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
@@ -222,21 +218,5 @@ fn check_files(
         fix,
         is_enabled: &is_enabled,
     };
-    std::panic::set_hook(Box::new(|_| {})); // panics are reported as problems
-    let pool = rayon::ThreadPoolBuilder::new()
-        .stack_size(STACK_SIZE)
-        .build()
-        .map_err(|e| e.to_string())?;
-    let mut reports: Vec<FileReport> = pool.install(|| {
-        files
-            .par_iter()
-            .map(|path| check::check_file(path, &options))
-            .collect()
-    });
-    for report in &mut reports {
-        report
-            .problems
-            .sort_by_key(|p| (p.start, p.end, p.kind.code()));
-    }
-    Ok(reports)
+    check::check_all(&files, &options)
 }
