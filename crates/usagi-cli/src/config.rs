@@ -19,6 +19,149 @@ pub struct ConfigFile {
     pub strict: Option<bool>,
     #[serde(default)]
     pub lint: LintConfig,
+    #[serde(default)]
+    pub build: BuildConfig,
+}
+
+/// Settings for `usagi build`. `mod` and `root` are read from the
+/// configuration found as usual; `version` and `version-class` only from the
+/// mod's own configuration file, `<root>/<Mod>/usagi.toml`; `wine` from
+/// either, the mod's winning.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub struct BuildConfig {
+    /// The mod to build: the folder in the game directory that has a
+    /// `System/Default.ini`.
+    #[serde(rename = "mod")]
+    pub mod_name: Option<String>,
+    /// The game directory, relative to the configuration file. Default: the
+    /// configuration file's directory.
+    pub root: Option<PathBuf>,
+    /// The program that runs `UCC.exe` on systems other than Windows.
+    /// Default: `wine`.
+    pub wine: Option<String>,
+    /// The mod's version, `MAJOR.MINOR.PATCH` or `MAJOR.MINOR.PATCH-PRERELEASE`.
+    pub version: Option<String>,
+    /// Generate an UnrealScript class with the version and the Git commit and
+    /// branch at this path, relative to the game directory.
+    pub version_class: Option<PathBuf>,
+}
+
+/// Loads a mod's own configuration file, `usagi.toml` or `.usagi.toml` in
+/// `mod_dir`, if it has one.
+pub fn load_mod(mod_dir: &Path) -> Result<Option<LoadedConfig>, ConfigError> {
+    let Some(path) = FILE_NAMES
+        .iter()
+        .map(|name| mod_dir.join(name))
+        .find(|path| path.is_file())
+    else {
+        return Ok(None);
+    };
+    let config = load(Some(&path), false, mod_dir)?;
+    let build = &config.file.build;
+    for (key, set) in [
+        ("mod", build.mod_name.is_some()),
+        ("root", build.root.is_some()),
+    ] {
+        if set {
+            return Err(ConfigError(format!(
+                "{}: build.{} can't be set in a mod's configuration; set it in the game directory's, or pass --{}",
+                path.display(),
+                key,
+                key
+            )));
+        }
+    }
+    Ok(Some(config))
+}
+
+/// The game directory: `build.root`, relative to the configuration file,
+/// or the configuration file's directory.
+pub fn game_root(config: &LoadedConfig) -> PathBuf {
+    let root = match &config.file.build.root {
+        Some(root) => config.dir.join(root),
+        None => config.dir.clone(),
+    };
+    std::path::absolute(&root).unwrap_or(root)
+}
+
+/// The configuration for a mod: `config` with the settings of the mod's own
+/// file, `<game_root>/<mod_name>/usagi.toml`, if it has one, on top.
+/// `include`, `exclude`, `strict`, `lint.select` and `build.wine` in the
+/// mod's file replace `config`'s; `lint.extend-select`, `lint.ignore` and
+/// `lint.per-path` are added to them. Globs in both files are then relative
+/// to the game directory.
+pub fn merge_mod(
+    config: LoadedConfig,
+    game_root: &Path,
+    mod_name: &str,
+) -> Result<LoadedConfig, ConfigError> {
+    let Some(mod_config) = load_mod(&game_root.join(mod_name))? else {
+        return Ok(config);
+    };
+    let (root, modded) = (config.file, mod_config.file);
+    let concat = |mut a: Vec<String>, b: Vec<String>| {
+        a.extend(b);
+        a
+    };
+    let mut per_path = root.lint.per_path;
+    per_path.extend(modded.lint.per_path);
+    let file = ConfigFile {
+        include: modded.include.or(root.include),
+        exclude: modded.exclude.or(root.exclude),
+        strict: modded.strict.or(root.strict),
+        lint: LintConfig {
+            select: modded.lint.select.or(root.lint.select),
+            extend_select: concat(root.lint.extend_select, modded.lint.extend_select),
+            ignore: concat(root.lint.ignore, modded.lint.ignore),
+            per_path,
+        },
+        build: BuildConfig {
+            mod_name: Some(mod_name.to_string()),
+            root: root.build.root,
+            wine: modded.build.wine.or(root.build.wine),
+            version: modded.build.version,
+            version_class: modded.build.version_class,
+        },
+    };
+    Ok(LoadedConfig {
+        path: mod_config.path,
+        dir: game_root.to_path_buf(),
+        file,
+    })
+}
+
+/// `config` merged with the configuration of the mod it names in
+/// `build.mod`, if any. Used by every command but `build`, which may be
+/// given another mod.
+pub fn with_default_mod(config: LoadedConfig) -> Result<LoadedConfig, ConfigError> {
+    let Some(mod_name) = config.file.build.mod_name.clone() else {
+        return Ok(config);
+    };
+    let root = game_root(&config);
+    merge_mod(config, &root, &mod_name)
+}
+
+/// Checks that the configuration found as usual doesn't set what only a
+/// mod's configuration may.
+pub fn check_root_build(config: &LoadedConfig) -> Result<(), ConfigError> {
+    let build = &config.file.build;
+    for (key, set) in [
+        ("version", build.version.is_some()),
+        ("version-class", build.version_class.is_some()),
+    ] {
+        if set {
+            let path = config
+                .path
+                .as_deref()
+                .map_or_else(|| "usagi.toml".to_string(), |p| p.display().to_string());
+            return Err(ConfigError(format!(
+                "{}: build.{} can only be set in the mod's own configuration, <root>/<Mod>/usagi.toml (run `usagi build` from the game directory)",
+                path, key
+            )));
+        }
+    }
+    Ok(())
 }
 
 #[derive(Debug, Default, Deserialize)]

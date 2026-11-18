@@ -10,7 +10,7 @@ UnrealScript and running static analysis on it:
 | Crate | Contents |
 |---|---|
 | `crates/usagi-core` | The library (`usagi_core`): parser, AST, symbol table and lints. |
-| `crates/usagi-cli` | The `usagi` binary: `parse`, `lint`, `rule` and configuration files. Its tests are in `tests/cli.rs`. |
+| `crates/usagi-cli` | The `usagi` binary: `parse`, `lint`, `rule`, `build` (in `src/build/`) and configuration files. Its tests are in `tests/cli.rs`. |
 
 Paths below are relative to `crates/usagi-core`.
 

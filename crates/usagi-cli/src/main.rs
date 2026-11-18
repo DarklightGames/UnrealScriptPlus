@@ -1,5 +1,6 @@
 //! `usagi`: parse and lint Unreal Engine 2 UnrealScript.
 
+mod build;
 mod check;
 mod cli;
 mod config;
@@ -37,8 +38,9 @@ fn run(cli: Cli) -> Result<bool, String> {
         ColorChoice::Never => false,
         ColorChoice::Auto => io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none(),
     };
-    let load =
+    let load_root =
         || config::load(cli.config.as_deref(), cli.no_config, &cwd).map_err(|ConfigError(e)| e);
+    let load = || config::with_default_mod(load_root()?).map_err(|ConfigError(e)| e);
     match &cli.command {
         Command::Parse(args) => {
             let config = load()?;
@@ -162,6 +164,36 @@ fn run(cli: Cli) -> Result<bool, String> {
             Ok(true)
         }
         Command::Format(_) => Err("format is not implemented yet".to_string()),
+        Command::Build(args) => {
+            let config = load_root()?;
+            config::check_root_build(&config).map_err(|ConfigError(e)| e)?;
+            let mod_name = args
+                .mod_name
+                .clone()
+                .or_else(|| config.file.build.mod_name.clone())
+                .ok_or("no mod to build: pass --mod or set build.mod in usagi.toml")?;
+            let root = match &args.root {
+                Some(root) => std::path::absolute(cwd.join(root)).unwrap_or(cwd.join(root)),
+                None => config::game_root(&config),
+            };
+            let config = config::merge_mod(config, &root, &mod_name).map_err(|ConfigError(e)| e)?;
+            let build = &config.file.build;
+            build::run(&build::Options {
+                root,
+                mod_name,
+                clean: args.clean,
+                dumpint: args.dumpint,
+                debug: args.debug,
+                ignore_dependencies: args.ignore_dependencies,
+                check: !args.no_check,
+                strict: config.file.strict.unwrap_or(false),
+                verbose: args.verbose,
+                color,
+                wine: build.wine.clone().unwrap_or_else(|| "wine".to_string()),
+                version: build.version.clone(),
+                version_class: build.version_class.clone(),
+            })
+        }
     }
 }
 

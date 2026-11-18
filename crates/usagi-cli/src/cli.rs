@@ -37,6 +37,43 @@ pub enum Command {
     Rule(RuleArgs),
     /// Format files (not implemented yet).
     Format(FormatArgs),
+    /// Compile a mod's out-of-date packages with UCC.
+    Build(BuildArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct BuildArgs {
+    /// The mod to build (overrides `build.mod`).
+    #[arg(long = "mod", value_name = "NAME")]
+    pub mod_name: Option<String>,
+
+    /// The game directory (overrides `build.root`).
+    #[arg(long, value_name = "DIR")]
+    pub root: Option<PathBuf>,
+
+    /// Rebuild every package and regenerate localization.
+    #[arg(long)]
+    pub clean: bool,
+
+    /// Export localization (`.int`) files for the packages that changed.
+    #[arg(long)]
+    pub dumpint: bool,
+
+    /// Compile debug packages, for UDebugger.
+    #[arg(long)]
+    pub debug: bool,
+
+    /// Don't rebuild the packages after one that changed.
+    #[arg(long)]
+    pub ignore_dependencies: bool,
+
+    /// Don't parse the packages before compiling them.
+    #[arg(long)]
+    pub no_check: bool,
+
+    /// Print all of UCC's output.
+    #[arg(long, short)]
+    pub verbose: bool,
 }
 
 #[derive(Debug, Args)]
