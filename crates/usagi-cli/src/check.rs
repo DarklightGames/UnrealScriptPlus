@@ -121,6 +121,8 @@ pub struct CheckOptions<'a> {
     pub fix: bool,
     /// Whether a lint is reported for a file.
     pub is_enabled: &'a (dyn Fn(&Path, Lint) -> bool + Sync),
+    /// How many files to check at once.
+    pub jobs: usize,
 }
 
 pub fn check_file(path: &Path, options: &CheckOptions) -> FileReport {
@@ -337,6 +339,8 @@ pub fn check_all(files: &[PathBuf], options: &CheckOptions) -> Result<Vec<FileRe
     use rayon::prelude::*;
     panic::set_hook(Box::new(|_| {})); // panics are reported as problems
     let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(options.jobs.max(1))
+        .start_handler(|_| lower_priority())
         .stack_size(STACK_SIZE)
         .build()
         .map_err(|e| e.to_string())?;
@@ -353,3 +357,20 @@ pub fn check_all(files: &[PathBuf], options: &CheckOptions) -> Result<Vec<FileRe
     }
     Ok(reports)
 }
+
+/// Lowers the calling thread's scheduling priority (and that of the threads
+/// and processes it starts), so that a big check doesn't make the rest of the
+/// machine unresponsive.
+#[cfg(unix)]
+pub fn lower_priority() {
+    // SAFETY: setpriority has no memory-safety preconditions. On Linux, `0`
+    // means the calling thread; elsewhere, the process. A failure (e.g. a
+    // priority already lower) is harmless, so it's ignored.
+    unsafe {
+        libc::setpriority(libc::PRIO_PROCESS as _, 0, 10);
+    }
+}
+
+/// Does nothing: Windows has no equivalent that's inherited the same way.
+#[cfg(not(unix))]
+pub fn lower_priority() {}

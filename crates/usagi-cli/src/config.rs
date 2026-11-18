@@ -17,6 +17,8 @@ pub struct ConfigFile {
     pub include: Option<Vec<String>>,
     pub exclude: Option<Vec<String>>,
     pub strict: Option<bool>,
+    /// How many files to parse, or UCC processes to run, at once.
+    pub jobs: Option<std::num::NonZeroU16>,
     #[serde(default)]
     pub lint: LintConfig,
     #[serde(default)]
@@ -75,6 +77,12 @@ pub fn load_mod(mod_dir: &Path) -> Result<Option<LoadedConfig>, ConfigError> {
     Ok(Some(config))
 }
 
+/// The default number of jobs: half the logical CPUs, so that the rest of
+/// the machine stays responsive.
+pub fn default_jobs() -> usize {
+    std::thread::available_parallelism().map_or(1, |n| (n.get() / 2).max(1))
+}
+
 /// The game directory: `build.root`, relative to the configuration file,
 /// or the configuration file's directory.
 pub fn game_root(config: &LoadedConfig) -> PathBuf {
@@ -87,7 +95,7 @@ pub fn game_root(config: &LoadedConfig) -> PathBuf {
 
 /// The configuration for a mod: `config` with the settings of the mod's own
 /// file, `<game_root>/<mod_name>/usagi.toml`, if it has one, on top.
-/// `include`, `exclude`, `strict`, `lint.select` and `build.wine` in the
+/// `include`, `exclude`, `strict`, `jobs`, `lint.select` and `build.wine` in the
 /// mod's file replace `config`'s; `lint.extend-select`, `lint.ignore` and
 /// `lint.per-path` are added to them. Globs in both files are then relative
 /// to the game directory.
@@ -110,6 +118,7 @@ pub fn merge_mod(
         include: modded.include.or(root.include),
         exclude: modded.exclude.or(root.exclude),
         strict: modded.strict.or(root.strict),
+        jobs: modded.jobs.or(root.jobs),
         lint: LintConfig {
             select: modded.lint.select.or(root.lint.select),
             extend_select: concat(root.lint.extend_select, modded.lint.extend_select),
@@ -303,6 +312,8 @@ pub struct Settings {
     pub strict: bool,
     pub selection: LintSelection,
     pub per_path: Vec<(Globs, LintSelection)>,
+    /// How many files to check at once.
+    pub jobs: usize,
 }
 
 /// Flags that override the configuration.
@@ -311,6 +322,7 @@ pub struct Overrides {
     pub include: Vec<String>,
     pub exclude: Vec<String>,
     pub strict: Option<bool>,
+    pub jobs: Option<u16>,
     pub select: Vec<String>,
     pub extend_select: Vec<String>,
     pub ignore: Vec<String>,
@@ -387,6 +399,10 @@ impl Settings {
             include,
             exclude,
             strict: overrides.strict.or(file.strict).unwrap_or(false),
+            jobs: overrides
+                .jobs
+                .or(file.jobs.map(|n| n.get()))
+                .map_or_else(default_jobs, usize::from),
             selection,
             per_path,
         })

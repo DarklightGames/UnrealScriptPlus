@@ -44,7 +44,7 @@ fn run(cli: Cli) -> Result<bool, String> {
     match &cli.command {
         Command::Parse(args) => {
             let config = load()?;
-            let settings = settings(&config, &args.files, Overrides::default(), &cwd)?;
+            let settings = settings(&config, &args.files, cli.jobs, Overrides::default(), &cwd)?;
             let reports = check_files(&args.files.paths, &settings, false, args.ast, false)?;
             let mut out = io::stdout().lock();
             if args.ast {
@@ -70,7 +70,7 @@ fn run(cli: Cli) -> Result<bool, String> {
                 ignore: args.ignore.clone(),
                 ..Overrides::default()
             };
-            let settings = settings(&config, &args.files, overrides, &cwd)?;
+            let settings = settings(&config, &args.files, cli.jobs, overrides, &cwd)?;
             let fixing = args.fix || args.diff;
             let reports = check_files(&args.files.paths, &settings, true, false, fixing)?;
             let mut out = io::stdout().lock();
@@ -187,6 +187,10 @@ fn run(cli: Cli) -> Result<bool, String> {
                 ignore_dependencies: args.ignore_dependencies,
                 check: !args.no_check,
                 strict: config.file.strict.unwrap_or(false),
+                jobs: cli
+                    .jobs
+                    .or(config.file.jobs.map(|n| n.get()))
+                    .map_or_else(config::default_jobs, usize::from),
                 verbose: args.verbose,
                 color,
                 wine: build.wine.clone().unwrap_or_else(|| "wine".to_string()),
@@ -208,6 +212,7 @@ fn plural(count: usize, word: &str) -> String {
 fn settings(
     config: &config::LoadedConfig,
     files: &FileArgs,
+    jobs: Option<u16>,
     overrides: Overrides,
     cwd: &Path,
 ) -> Result<Settings, String> {
@@ -215,6 +220,7 @@ fn settings(
         include: files.include.clone(),
         exclude: files.exclude.clone(),
         strict: files.strict(),
+        jobs,
         ..overrides
     };
     Settings::new(config, overrides, cwd).map_err(|ConfigError(e)| e)
@@ -249,6 +255,7 @@ fn check_files(
         ast,
         fix,
         is_enabled: &is_enabled,
+        jobs: settings.jobs,
     };
     check::check_all(&files, &options)
 }

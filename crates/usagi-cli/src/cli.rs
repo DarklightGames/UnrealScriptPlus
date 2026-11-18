@@ -23,6 +23,11 @@ pub struct Cli {
     #[arg(long, global = true, value_enum, default_value_t = ColorChoice::Auto)]
     pub color: ColorChoice,
 
+    /// How many files to parse, or UCC processes to run, at once. Default:
+    /// half the logical CPUs.
+    #[arg(long, short, global = true, value_name = "N", value_parser = clap::value_parser!(u16).range(1..))]
+    pub jobs: Option<u16>,
+
     #[command(subcommand)]
     pub command: Command,
 }

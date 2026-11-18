@@ -43,6 +43,8 @@ pub struct Options {
     pub ignore_dependencies: bool,
     pub check: bool,
     pub strict: bool,
+    /// How many files to parse, or UCC processes to run, at once.
+    pub jobs: usize,
     pub verbose: bool,
     pub color: bool,
     pub wine: String,
@@ -347,7 +349,7 @@ pub fn run(options: &Options) -> Result<bool, String> {
             .filter(|p| p.status == Status::Changed)
             .map(|p| p.name.as_str())
             .collect();
-        ucc.dumpint(&changed, &options.mod_name)?;
+        ucc.dumpint(&changed, &options.mod_name, options.jobs)?;
         for package in &to_compile {
             if let Some(path) = find_ci(&sys_dir, &format!("{}.int", package.name)) {
                 let target = mod_sys_dir.join(path.file_name().expect("a file name"));
@@ -474,6 +476,7 @@ fn check_sources(packages: &[&Package], options: &Options) -> Result<bool, Strin
         ast: false,
         fix: false,
         is_enabled: &never,
+        jobs: options.jobs,
     };
     let reports: Vec<_> = check::check_all(&files, &check_options)?
         .into_iter()

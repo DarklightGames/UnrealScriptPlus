@@ -143,6 +143,11 @@ It ends with `Build: N succeeded, N failed, 0 skipped, N up-to-date`.
 | `--config FILE` | Use this configuration file. |
 | `--no-config` | Don't read a configuration file. |
 | `--color auto\|always\|never` | When to use colour. `auto` uses colour on a terminal, unless `NO_COLOR` is set. |
+| `-j N`, `--jobs N` | How many files to parse, or UCC processes to run (`build --dumpint`), at once. Overrides `jobs`. Default: half the logical CPUs. |
+
+The worker threads, and the UCC processes they start, run at a lower priority
+(nice 10) on Linux and macOS, so that a big run doesn't make the rest of the
+machine unresponsive.
 
 ## Output formats
 
@@ -182,6 +187,8 @@ include = ["*/Classes"]
 exclude = ["Engine", "UnrealGame/**/Old*.uc"]
 # Treat recovered problems as errors.
 strict = false
+# How many files to parse at once. Default: half the logical CPUs.
+jobs = 6
 
 [lint]
 select = ["ALL"]          # default: ALL
@@ -251,7 +258,7 @@ The game directory's file then needs only:
 mod = "MyMod"
 ```
 
-`include`, `exclude`, `strict`, `lint.select` and `build.wine` in the mod's
+`include`, `exclude`, `strict`, `jobs`, `lint.select` and `build.wine` in the mod's
 file replace the game directory's; `lint.extend-select`, `lint.ignore` and
 `lint.per-path` are added to them. Globs in both files are relative to the
 game directory. `version` and `version-class` can only be set in a mod's

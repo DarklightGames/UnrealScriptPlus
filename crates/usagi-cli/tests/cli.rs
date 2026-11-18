@@ -717,3 +717,16 @@ fn lint_reads_the_mods_settings() {
             "build.mod can't be set in a mod's configuration",
         ));
 }
+
+#[test]
+fn jobs_flag_and_setting() {
+    let dir = project(&[("A/Foo.uc", SELF_ASSIGNMENT), ("B/Bar.uc", CLEAN)]);
+    for args in [&["-j", "1"][..], &["--jobs", "3"]] {
+        assert!(concise(dir.path(), args).contains("S003"));
+    }
+    usagi(dir.path()).args(["lint", "-j", "0"]).assert().code(2);
+    fs::write(dir.path().join("usagi.toml"), "jobs = 2\n").unwrap();
+    assert!(concise(dir.path(), &[]).contains("S003"));
+    fs::write(dir.path().join("usagi.toml"), "jobs = 0\n").unwrap();
+    usagi(dir.path()).args(["lint"]).assert().code(2);
+}

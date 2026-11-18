@@ -141,7 +141,7 @@ impl Ucc {
     /// Exports the localization of `packages` in parallel, and prints how
     /// many succeeded, with the output of any that failed. A package fails
     /// if UCC fails or doesn't write its `.int` file.
-    pub fn dumpint(&self, packages: &[&str], mod_name: &str) -> Result<(), String> {
+    pub fn dumpint(&self, packages: &[&str], mod_name: &str, jobs: usize) -> Result<(), String> {
         if packages.is_empty() {
             return Ok(());
         }
@@ -151,27 +151,34 @@ impl Ucc {
                 std::fs::remove_file(&path).map_err(|e| format!("{}: {}", path.display(), e))?;
             }
         }
-        let results: Vec<(String, Result<std::process::Output, String>)> = thread::scope(|s| {
-            let handles: Vec<_> = packages
-                .iter()
-                .map(|&package| {
-                    let args = [
-                        DUMPINT.to_string(),
-                        format!("{}.u", package),
-                        format!("-mod={}", mod_name),
-                    ];
-                    let mut command = self.command(&args);
-                    s.spawn(move || {
-                        let output = command.output().map_err(|e| e.to_string());
-                        (package.to_string(), output)
+        // At most `jobs` at once, at a low priority: each is a whole UCC
+        // (under Wine, elsewhere).
+        let mut results: Vec<(String, Result<std::process::Output, String>)> = Vec::new();
+        for chunk in packages.chunks(jobs.max(1)) {
+            thread::scope(|s| {
+                let handles: Vec<_> = chunk
+                    .iter()
+                    .map(|&package| {
+                        let args = [
+                            DUMPINT.to_string(),
+                            format!("{}.u", package),
+                            format!("-mod={}", mod_name),
+                        ];
+                        let mut command = self.command(&args);
+                        s.spawn(move || {
+                            crate::check::lower_priority();
+                            let output = command.output().map_err(|e| e.to_string());
+                            (package.to_string(), output)
+                        })
                     })
-                })
-                .collect();
-            handles
-                .into_iter()
-                .map(|h| h.join().expect("dumpint thread"))
-                .collect()
-        });
+                    .collect();
+                results.extend(
+                    handles
+                        .into_iter()
+                        .map(|h| h.join().expect("dumpint thread")),
+                );
+            });
+        }
         let mut failed = Vec::new();
         for (package, output) in &results {
             let int_written = find_ci(&self.sys_dir, &format!("{}.int", package)).is_some();
