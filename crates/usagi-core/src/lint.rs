@@ -221,6 +221,8 @@ lints! {
         "A `Self.` qualifier that doesn't change what a name refers to."),
     RedundantReturn = ("R013", "redundant-return", Redundancy, Warning, Sometimes,
         "A bare `return;` as the last statement of a function."),
+    RedundantCaseBeforeDefault = ("R014", "redundant-case-before-default", Redundancy, Warning, Sometimes,
+        "An empty `case` that falls through to `default`."),
 
     // Naming
     ConstNameCase = ("N001", "const-name-case", Naming, Warning, Never,

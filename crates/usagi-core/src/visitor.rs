@@ -1335,6 +1335,8 @@ impl Visit for SwitchStatement {
         }
         visitor.code.switch_depth -= 1;
 
+        check_redundant_cases_before_default(&self.cases, visitor);
+
         // Every case but the last can fall through.
         let preceding = &self.cases[..self.cases.len().saturating_sub(1)];
         for case in preceding {
@@ -1709,6 +1711,34 @@ impl Visit for AstNode<FunctionDeclaration> {
                 )
             }
         }
+    }
+}
+
+/// Reports empty `case` labels directly before `default:`, which run the same
+/// code as `default` would. UE2 tests cases in order, so only labels before
+/// `default` (with nothing but other empty labels between) are redundant, and
+/// only when testing their value has no side effects.
+fn check_redundant_cases_before_default(cases: &[SwitchCase], visitor: &mut Visitor) {
+    let Some(default) = cases
+        .iter()
+        .position(|c| matches!(c.type_, SwitchCaseType::Default))
+    else {
+        return;
+    };
+    let labels = cases[..default].iter().rev().map_while(|c| match &c.type_ {
+        SwitchCaseType::Expression(e) if c.statements.is_empty() && !has_side_effects(e) => {
+            Some(c.label_span)
+        }
+        _ => None,
+    });
+    for label_span in labels.collect::<Vec<_>>() {
+        let fix = visitor.deletion("Remove the `case` label", label_span);
+        visitor.report_with_optional_fix(
+            Lint::RedundantCaseBeforeDefault,
+            "`case` falls through to `default`, which runs the same code",
+            label_span,
+            fix,
+        )
     }
 }
 

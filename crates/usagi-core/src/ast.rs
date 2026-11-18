@@ -672,6 +672,8 @@ pub enum SwitchCaseType {
 #[derive(Debug)]
 pub struct SwitchCase {
     pub type_: SwitchCaseType,
+    /// The `case X:` or `default:` label.
+    pub label_span: AstSpan,
     pub statements: Vec<AstNode<CodeStatement>>,
 }
 

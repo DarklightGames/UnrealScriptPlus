@@ -307,7 +307,7 @@ foreach_statement = { ^"foreach" ~ WS+ ~ foreach_expression ~ WS* ~ code_stateme
 // one default case, and default cases anywhere in a switch statement.
 switch_statement = { ^"switch" ~ WS* ~ "(" ~ WS* ~ expression ~ WS* ~ ")" ~ WS* ~ "{" ~ (WS* ~ (switch_case | switch_default_case))* ~ WS* ~ "}" }
 switch_case_label = { ^"case" ~ WS+ ~ expression ~ WS* ~ ":" }
-switch_default_case_label = _{ ^"default" ~ WS* ~ ":" }
+switch_default_case_label = { ^"default" ~ WS* ~ ":" }
 switch_case = { switch_case_label ~ WS* ~ code_statements? }
 switch_default_case = { switch_default_case_label ~ WS* ~ code_statements? }
 continue_statement = { ^"continue" ~ WS* ~ ";" }

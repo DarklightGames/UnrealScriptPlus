@@ -128,6 +128,7 @@ never applied from the command line; they are for an editor to offer.
 | R011 | `unused-private-member` | Warning |  | A `private` variable or function that nothing in the file uses. Replication and `defaultproperties` count as uses. Not reported for native classes or members, events, delegates or `exec` functions. |
 | R012 | `redundant-self` | Warning | Yes | A `Self.` qualifier that doesn't change what a name refers to: no argument, local or const of the enclosing function hides the member. |
 | R013 | `redundant-return` | Warning | Sometimes | A bare `return;` as the last statement of a function. A body that is only `return;` is allowed, since it deliberately stubs out the parent's version. |
+| R014 | `redundant-case-before-default` | Warning | Sometimes | An empty `case` label directly before `default:`, which runs the same code without it. Labels whose value has side effects, such as a function call, are allowed. |
 
 ### Naming
 

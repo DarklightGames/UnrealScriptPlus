@@ -1257,6 +1257,56 @@ fn redundant_return() {
     assert_eq!(only(&["R013"], source), Vec::<&str>::new());
 }
 
+#[test]
+fn redundant_case_before_default() {
+    let class = |body: &str| {
+        format!(
+            "class Foo extends Object;\nfunction int G();\nfunction F(int A) {{ switch (A) {{ {} }} }}\n",
+            body
+        )
+    };
+    for (body, count) in [
+        ("case 1: default: A = 0;", 1),
+        ("case 0: A = 1; break; case 1: case 2: default: A = 0;", 2),
+        ("case 1: case G(): case 2: default: A = 0;", 1),
+    ] {
+        assert_eq!(
+            only(&["R014"], &class(body)),
+            vec!["R014"; count],
+            "{}",
+            body
+        );
+    }
+    for body in [
+        "case 1: A = 1; default: A = 0;",
+        "case 1: A = 1;",
+        "default: case 1: A = 0;",
+        "case G(): default: A = 0;",
+        "case 1: case 2: A = 2; break; default: A = 0;",
+    ] {
+        assert_eq!(
+            only(&["R014"], &class(body)),
+            Vec::<&str>::new(),
+            "{}",
+            body
+        );
+    }
+    assert_fix(
+        "R014",
+        "class Foo extends Object;\nfunction F(int A)\n{\n    switch (A)\n    {\n        case 0:\n            break;\n        case 1:\n        case 2:\n        default:\n            A = 0;\n    }\n}\n",
+        "class Foo extends Object;\nfunction F(int A)\n{\n    switch (A)\n    {\n        case 0:\n            break;\n        default:\n            A = 0;\n    }\n}\n",
+    );
+    // A comment on the label keeps it from being fixed.
+    let source = "class Foo extends Object;\nfunction F(int A) {\n    switch (A) {\n        case 1: // the usual\n        default:\n            A = 0;\n    }\n}\n";
+    let result = parse_program(source).unwrap();
+    let problem = result
+        .errors
+        .iter()
+        .find(|e| e.lint.is_some_and(|l| l.code() == "R014"))
+        .unwrap();
+    assert!(problem.fix.is_none());
+}
+
 /// Applies the fixes for `code`'s problems in `source`, checks that the
 /// result is `expected`, and that it parses without `code` being reported.
 #[track_caller]

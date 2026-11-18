@@ -905,22 +905,27 @@ impl UnrealScriptParser {
         )
     }
 
-    fn switch_case_label(input: Node) -> Result<SwitchCaseType> {
+    fn switch_case_label(input: Node) -> Result<(SwitchCaseType, AstSpan)> {
+        let span = AstSpan::from(&input);
         match_nodes!(input.into_children();
-            [expression(e)] => Ok(SwitchCaseType::Expression(e))
+            [expression(e)] => Ok((SwitchCaseType::Expression(e), span))
         )
+    }
+
+    fn switch_default_case_label(input: Node) -> Result<AstSpan> {
+        Ok(AstSpan::from(&input))
     }
 
     fn switch_default_case(input: Node) -> Result<SwitchCase> {
         match_nodes!(input.into_children();
-            [code_statement(statements)..] => Ok(SwitchCase { type_: SwitchCaseType::Default, statements: statements.collect() })
+            [switch_default_case_label(label_span), code_statement(statements)..] => Ok(SwitchCase { type_: SwitchCaseType::Default, label_span, statements: statements.collect() })
         )
     }
 
     fn switch_case(input: Node) -> Result<SwitchCase> {
         match_nodes!(input.into_children();
-            [switch_case_label(label), code_statement(statements)..] => {
-                Ok(SwitchCase { type_: label, statements: statements.collect() })
+            [switch_case_label((type_, label_span)), code_statement(statements)..] => {
+                Ok(SwitchCase { type_, label_span, statements: statements.collect() })
             }
         )
     }
