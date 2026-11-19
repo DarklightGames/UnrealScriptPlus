@@ -1,5 +1,9 @@
 ![build status](https://github.com/DarklightGames/usagi/actions/workflows/rust.yml/badge.svg)
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/DarklightGames/usagi/main/docs/images/usagi-logo.svg" alt="usagi" width="200">
+</p>
+
 # usagi
 
 `usagi` is a fast linter, build tool and toolkit for [**U**nreal**S**cript](https://unreal.fandom.com/wiki/UnrealScript), the
