@@ -2,7 +2,8 @@
 // triggers it and, where there is a known false positive to avoid, a case
 // that must not.
 use usagi_core::{
-    Applicability, FixAvailability, Lint, LintSelection, ProgramErrorSeverity, parse_program,
+    Applicability, FixAvailability, Lint, LintSelection, ProgramErrorSeverity, check_file_name,
+    parse_program,
 };
 
 /// Parses `source` and returns the codes of the lints it reports, in order.
@@ -1430,8 +1431,20 @@ fn redundancy_fixes() {
     );
     // Around a unary expression that's the operand of `.`, `[]`, a call or
     // a postfix operator, parentheses matter.
-    for body in ["A = (-A).I;", "A = (-A)[0];", "(-A)++;", "A = (-O).default.I;", "A = -(-I);", "A = int(!(!B));"] {
-        assert_eq!(only(&["R002"], &class_with(body)), Vec::<&str>::new(), "{}", body);
+    for body in [
+        "A = (-A).I;",
+        "A = (-A)[0];",
+        "(-A)++;",
+        "A = (-O).default.I;",
+        "A = -(-I);",
+        "A = int(!(!B));",
+    ] {
+        assert_eq!(
+            only(&["R002"], &class_with(body)),
+            Vec::<&str>::new(),
+            "{}",
+            body
+        );
     }
     // R003
     assert_fix(
@@ -1508,4 +1521,18 @@ fn modifiers_are_access_then_alphabetical() {
     let bad = "class Foo extends Object;\nvar config private int A;\nvar transient const int B;\n\
                final private function F();\nstatic final function G();\n";
     assert_eq!(only(&["F003"], bad), vec!["F003"; 4]);
+}
+
+#[test]
+fn class_name_mismatch() {
+    let source = "// A comment\nclass Foo extends Object;\n";
+    let result = parse_program(source).unwrap();
+    assert!(check_file_name(&result, source, "Foo").is_none());
+    // Names are compared ignoring case.
+    assert!(check_file_name(&result, source, "foo").is_none());
+    let error = check_file_name(&result, source, "Bar").unwrap();
+    assert_eq!(error.lint, Some(Lint::ClassNameMismatch));
+    assert_eq!(error.severity, ProgramErrorSeverity::Error);
+    assert_eq!(&source[error.span.start..error.span.end], "Foo");
+    assert_eq!(error.span.line, Some(2));
 }

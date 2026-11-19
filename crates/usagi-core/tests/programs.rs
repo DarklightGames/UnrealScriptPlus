@@ -480,7 +480,10 @@ fn equal_precedence_groups_from_the_left() {
             assert_eq!(*verb, DyadicVerb::Subtract);
             assert!(matches!(
                 lhs.data,
-                Expression::DyadicExpression { verb: DyadicVerb::Subtract, .. }
+                Expression::DyadicExpression {
+                    verb: DyadicVerb::Subtract,
+                    ..
+                }
             ));
             assert!(matches!(rhs.data, Expression::Identifier(_)));
         }

@@ -7,7 +7,7 @@ use pest::error::InputLocation;
 use usagi_core::source::LineIndex;
 use usagi_core::{
     Applicability, Lint, ParseMode, ParseOptions, ParsingError, ProgramError, ProgramErrorSeverity,
-    parse_bytes,
+    check_file_name, parse_bytes,
 };
 
 /// What parsing a file produced.
@@ -258,7 +258,11 @@ fn check_source(
             let result = parsed.result;
             let mut problems = Vec::new();
             let mut outcome = Outcome::Ok;
-            for error in &result.errors {
+            let file_name = path
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .and_then(|stem| check_file_name(&result, &parsed.source.text, stem));
+            for error in result.errors.iter().chain(&file_name) {
                 match error.lint {
                     None => {
                         outcome = Outcome::Recovered;

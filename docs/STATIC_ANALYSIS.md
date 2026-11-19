@@ -83,6 +83,7 @@ never applied from the command line; they are for an editor to offer.
 | C012 | `assignment-to-constant` | Error |  | An assignment (including `+=` and `++`) to a const, an enum value or a function. Assigning a function to a delegate is allowed. |
 | C014 | `undeclared-replicated-member` | Error |  | A member in the replication block that isn't declared in the class itself. UE2 only lets a class replicate its own members. |
 | C015 | `return-form-mismatch` | Error |  | `return X;` in a function with no return type, or a bare `return;` in a function that has one. |
+| C016 | `class-name-mismatch` | Error |  | A class whose name differs from its file's name (without `.uc`), ignoring case. UCC rejects it. Only checked when linting files, since it needs the file name. |
 
 ### Suspicious
 

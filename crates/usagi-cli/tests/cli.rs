@@ -1022,3 +1022,13 @@ fn locking_everything_leaves_a_mods_own_packages_buildable() {
         out
     );
 }
+
+#[test]
+fn class_name_mismatch() {
+    let dir = project(&[("Foo.uc", CLEAN), ("Bar.uc", CLEAN)]);
+    let out = concise(dir.path(), &[]);
+    assert!(out.contains("Foo.uc:") && out.contains("C016"), "{}", out);
+    assert!(!out.contains("Bar.uc:"), "{}", out);
+    let out = concise(dir.path(), &["--ignore", "C016"]);
+    assert!(!out.contains("C016"), "{}", out);
+}

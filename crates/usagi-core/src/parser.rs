@@ -84,9 +84,7 @@ fn precedence(verb: &DyadicVerb) -> u8 {
         | DyadicVerb::CompareApproximatelyEqual
         | DyadicVerb::ClockwiseFrom => 24,
         DyadicVerb::CompareNotEqual => 26,
-        DyadicVerb::BitwiseAnd
-        | DyadicVerb::BitwiseExclusiveOr
-        | DyadicVerb::BitwiseOr => 28,
+        DyadicVerb::BitwiseAnd | DyadicVerb::BitwiseExclusiveOr | DyadicVerb::BitwiseOr => 28,
         DyadicVerb::LogicalAnd | DyadicVerb::LogicalExclusiveOr => 30,
         DyadicVerb::LogicalOr => 32,
         DyadicVerb::MultiplyAssign | DyadicVerb::DivideAssign | DyadicVerb::AddAssign => 34,
@@ -1451,6 +1449,45 @@ pub fn parse_bytes(
         }
         Err(other) => Err(other),
     }
+}
+
+/// Checks that the class declared in `result` is named after its file, whose
+/// name without the extension is `file_stem`: UCC rejects a class whose name
+/// differs from its file's. Names are compared ignoring case, as UnrealScript
+/// does. `contents` is the source that `result` was parsed from.
+///
+/// The parser doesn't know the file name, so this is a separate step from
+/// [`parse_program_with`]. Reports [`Lint::ClassNameMismatch`].
+pub fn check_file_name(
+    result: &ProgramResult,
+    contents: &str,
+    file_stem: &str,
+) -> Option<ProgramError> {
+    let class = result
+        .program
+        .statements
+        .iter()
+        .find_map(|s| match &s.data {
+            ProgramStatement::ClassDeclaration(c) => Some(c),
+            _ => None,
+        })
+        .expect("the grammar requires a class declaration");
+    let name = &class.name.data.string;
+    if name.eq_ignore_ascii_case(file_stem) {
+        return None;
+    }
+    let mut span = class.name.span;
+    span.line = Some(crate::source::LineIndex::new(contents).line(span.start));
+    Some(ProgramError {
+        message: format!(
+            "Class `{}` is in a file named `{}.uc`; UCC requires them to match",
+            name, file_stem
+        ),
+        span,
+        severity: Lint::ClassNameMismatch.severity(),
+        lint: Some(Lint::ClassNameMismatch),
+        fix: None,
+    })
 }
 
 /// Parses `contents` as one expression. The whole input must be the

@@ -156,6 +156,8 @@ lints! {
         "A replicated member that isn't declared in the class itself."),
     ReturnFormMismatch = ("C015", "return-form-mismatch", Correctness, Error, Never,
         "`return X;` in a function with no return type, or `return;` in one with a return type."),
+    ClassNameMismatch = ("C016", "class-name-mismatch", Correctness, Error, Never,
+        "The class name differs from the name of its `.uc` file."),
 
     // Suspicious
     EmptyBody = ("S001", "empty-body", Suspicious, Warning, Never,

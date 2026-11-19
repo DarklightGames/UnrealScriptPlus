@@ -11,8 +11,8 @@ pub use fix::{Applicability, Edit, Fix};
 pub use lint::{Category, FixAvailability, Lint, LintSelection};
 pub use parser::{
     ParseMode, ParseOptions, ParsingError, ProgramError, ProgramErrorSeverity, ProgramResult, Rule,
-    SourceResult, parse_bytes, parse_expression, parse_program, parse_program_with,
-    parse_with_rule,
+    SourceResult, check_file_name, parse_bytes, parse_expression, parse_program,
+    parse_program_with, parse_with_rule,
 };
 pub use source::{Decoded, LineIndex, SourceEncoding, decode, decode_source, encode};
 pub use symbols::{Reference, ReferenceKind, Symbol, SymbolKind, SymbolTable};
