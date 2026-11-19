@@ -18,12 +18,16 @@ scripting language of Unreal Engine 2.
 ## Installation
 
 Download `usagi` for Linux or Windows from the
-[Releases](https://github.com/DarklightGames/usagi/releases) page, or build it
-from source with [Rust](https://rustup.rs):
+[Releases](https://github.com/DarklightGames/usagi/releases) page, or install
+it from [crates.io](https://crates.io/crates/usagi-cli) with
+[Rust](https://rustup.rs):
 
 ```sh
-cargo install --path crates/usagi-cli
+cargo install usagi-cli
 ```
+
+The parser and lints are also available as a library,
+[`usagi-core`](https://crates.io/crates/usagi-core).
 
 ## Getting started
 

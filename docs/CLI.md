@@ -4,7 +4,7 @@
 UCC. It is built from the `usagi-cli` crate.
 
 ```sh
-cargo install --path crates/usagi-cli   # or download a binary from the Releases page
+cargo install usagi-cli                  # or download a binary from the Releases page
 usagi lint                               # lint every .uc file under the current directory
 usagi build                              # compile the mod's out-of-date packages
 ```

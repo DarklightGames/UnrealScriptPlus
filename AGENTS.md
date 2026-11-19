@@ -94,7 +94,10 @@ install; use a scratch copy (copy `System/Default.ini`, the mod's `System`
 folder and the `.ini` files, and symlink the source package folders).
 
 Releases are built by `.github/workflows/release.yml` when a `v*` tag is
-pushed.
+pushed. It also publishes `usagi-core` and then `usagi-cli` to crates.io, so
+before tagging, set `version` in the root `Cargo.toml` to match the tag, and
+the `usagi-core` dependency's `version` in `crates/usagi-cli/Cargo.toml` to
+the same.
 
 ## Static analysis
 
