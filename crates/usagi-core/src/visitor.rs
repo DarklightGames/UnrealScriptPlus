@@ -876,8 +876,13 @@ impl Visit for AstNode<Expression> {
                     arguments.visit(visitor);
                 }
             }
-            Expression::MonadicPreExpression { operand, verb: _ } => operand.visit(visitor),
-            Expression::MonadicPostExpression { operand, verb: _ } => operand.visit(visitor),
+            // `-(-A)` can't lose its parentheses: `- -A` doesn't parse.
+            Expression::MonadicPreExpression { operand, verb: _ } => {
+                visit_postfix_operand(operand, visitor)
+            }
+            Expression::MonadicPostExpression { operand, verb: _ } => {
+                visit_postfix_operand(operand, visitor)
+            }
             Expression::DyadicExpression { lhs, verb, rhs } => {
                 check_dyadic_expression(self, lhs, verb, rhs, visitor);
                 lhs.visit(visitor);
@@ -896,7 +901,7 @@ impl Visit for AstNode<Expression> {
                         )
                     }
                 }
-                operand.visit(visitor);
+                visit_postfix_operand(operand, visitor);
                 arguments.visit(visitor);
             }
             Expression::GlobalCall { name, arguments } => {
@@ -920,24 +925,24 @@ impl Visit for AstNode<Expression> {
                         }
                     }
                 }
-                operand.visit(visitor);
+                visit_postfix_operand(operand, visitor);
                 argument.visit(visitor);
             }
             Expression::DefaultAccess { operand, target } => {
                 if let Some(operand) = operand {
-                    operand.visit(visitor);
+                    visit_postfix_operand(operand, visitor);
                 }
                 target.visit(visitor)
             }
             Expression::StaticAccess { operand, target } => {
                 if let Some(operand) = operand {
-                    operand.visit(visitor)
+                    visit_postfix_operand(operand, visitor)
                 }
                 target.visit(visitor)
             }
             Expression::MemberAccess { operand, target } => {
                 check_redundant_self(operand, target, visitor);
-                operand.visit(visitor);
+                visit_postfix_operand(operand, visitor);
                 target.visit(visitor)
             }
             Expression::Cast { type_, operand } => {
@@ -964,20 +969,32 @@ impl Visit for AstNode<Expression> {
     }
 }
 
+/// Visits the operand of `.`, `[]`, a call or a unary operator. Parentheses
+/// around a unary expression there aren't redundant: `(-A).B` isn't `-A.B`,
+/// and `-(-A)` can't be written `- -A`.
+fn visit_postfix_operand(operand: &AstNode<Expression>, visitor: &mut Visitor) {
+    match &operand.data {
+        Expression::ParentheticalExpression(inner)
+            if matches!(
+                inner.data,
+                Expression::MonadicPreExpression { .. } | Expression::MonadicPostExpression { .. }
+            ) =>
+        {
+            inner.visit(visitor)
+        }
+        _ => operand.visit(visitor),
+    }
+}
+
 /// A fix that removes the parentheses `outer` around `inner`. There's none
-/// if a comment is inside the parentheses, or if `inner` is a unary
-/// expression, which could bind differently without them (`(-A).B`).
+/// if a comment is inside the parentheses, which would be lost. (Where
+/// parentheses around a unary expression matter, they aren't reported: see
+/// `visit_postfix_operand`.)
 fn unwrap_parentheses(
     outer: AstSpan,
     inner: &AstNode<Expression>,
     visitor: &Visitor,
 ) -> Option<Fix> {
-    if matches!(
-        inner.data,
-        Expression::MonadicPreExpression { .. } | Expression::MonadicPostExpression { .. }
-    ) {
-        return None;
-    }
     // Between the parentheses and the expression there is only whitespace,
     // or a comment, which would be lost.
     if visitor.has_comment_in(outer.start..inner.span.start)

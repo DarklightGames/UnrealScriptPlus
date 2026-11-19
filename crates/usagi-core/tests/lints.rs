@@ -1412,6 +1412,16 @@ fn redundancy_fixes() {
         &class_with("    A = I-(-1);\n    return(A);\n"),
         &class_with("    A = I- -1;\n    return A;\n"),
     );
+    assert_fix(
+        "R002",
+        &class_with("    A = (-I);\n    A = (++I) * 2;\n"),
+        &class_with("    A = -I;\n    A = ++I * 2;\n"),
+    );
+    // Around a unary expression that's the operand of `.`, `[]`, a call or
+    // a postfix operator, parentheses matter.
+    for body in ["A = (-A).I;", "A = (-A)[0];", "(-A)++;", "A = (-O).default.I;", "A = -(-I);", "A = int(!(!B));"] {
+        assert_eq!(only(&["R002"], &class_with(body)), Vec::<&str>::new(), "{}", body);
+    }
     // R003
     assert_fix(
         "R003",
@@ -1452,8 +1462,7 @@ fn redundancy_problems_without_a_fix() {
             .unwrap_or_else(|| panic!("{} isn't reported", code));
         problem.fix
     };
-    // A unary operand, or a comment inside the parentheses.
-    assert!(fix_of("R002", &class_with("    A = (-I);\n")).is_none());
+    // A comment inside the parentheses.
     assert!(fix_of("R002", &class_with("    A = (I /* x */);\n")).is_none());
     assert!(fix_of("R002", &class_with("    A = (I); // fine\n")).is_some());
     assert!(fix_of("R002", &class_with("    A = (/* x */ I + 1);\n")).is_none());

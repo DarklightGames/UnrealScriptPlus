@@ -116,7 +116,7 @@ never applied from the command line; they are for an editor to offer.
 | Code | Name | Severity | Fix | Reports |
 |---|---|---|---|---|
 | R001 | `empty-statement` | Warning | Sometimes | A lone `;`. |
-| R002 | `redundant-parentheses` | Warning | Sometimes | Parentheses that don't change the meaning of an expression. |
+| R002 | `redundant-parentheses` | Warning | Sometimes | Parentheses that don't change the meaning of an expression. Parentheses around a unary expression that is the operand of `.`, `[]`, a call or another unary operator are needed, e.g. `(-A).B` and `-(-A)`, so they aren't reported. The fix isn't offered when a comment is inside the parentheses. |
 | R003 | `duplicate-modifier` | Warning | Yes | The same modifier more than once on a class, variable or function. |
 | R004 | `redundant-default-value` | Warning | Sometimes | A `defaultproperties` value equal to the type's zero value. |
 | R005 | `empty-defaultproperties` | Warning | Sometimes | An empty `defaultproperties` block. |
