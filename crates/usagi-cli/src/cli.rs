@@ -44,6 +44,95 @@ pub enum Command {
     Format(FormatArgs),
     /// Compile a mod's out-of-date packages with UCC.
     Build(BuildArgs),
+    /// Inspect package files (`.u`, `.utx`, `.ut2`, ...).
+    Pkg(PkgArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct PkgArgs {
+    #[command(subcommand)]
+    pub command: PkgCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum PkgCommand {
+    /// Print a package's summary (its version, flags, GUID, generations and
+    /// where its tables are) and the packages it depends on; with
+    /// `--imports`/`--exports`, its imports and exports.
+    List(PkgListArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct PkgListArgs {
+    /// The package file. A `.uz2` file is decompressed first.
+    pub path: PathBuf,
+
+    /// List the packages this one depends on: the top-level packages of its
+    /// imports. This is the default when no table is asked for.
+    #[arg(long)]
+    pub dependencies: bool,
+
+    /// List the imports: the objects in other packages that this one refers
+    /// to.
+    #[arg(long)]
+    pub imports: bool,
+
+    /// List the exports: the objects in this package.
+    #[arg(long)]
+    pub exports: bool,
+
+    /// List the dependencies, the imports and the exports.
+    #[arg(long)]
+    pub all: bool,
+
+    /// Don't print the summary.
+    #[arg(long)]
+    pub no_summary: bool,
+
+    /// How to sort the tables. `size` puts the largest first; the others
+    /// sort in ascending order. Ties keep table order.
+    #[arg(long, value_enum, default_value_t = PkgSort::Index)]
+    pub sort: PkgSort,
+
+    /// Reverse the sort order.
+    #[arg(long)]
+    pub reverse: bool,
+
+    /// Show sizes in units (`1.3 MB`) and counts with thousands separators
+    /// (`15,530`), in the text format.
+    #[arg(long)]
+    pub humanize: bool,
+
+    /// How to print the package.
+    #[arg(long, value_enum, default_value_t = PkgFormat::Text)]
+    pub format: PkgFormat,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum PkgSort {
+    /// Table order.
+    Index,
+    /// Full path (or package name), ignoring case.
+    Path,
+    /// Class name, ignoring case. Dependencies keep table order.
+    Class,
+    /// Size of the export's data, or the number of objects imported from a
+    /// dependency; largest first. Imports keep table order.
+    Size,
+    /// File offset of the export's data; exports with no data last. Imports
+    /// and dependencies keep table order.
+    Offset,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum PkgFormat {
+    /// Readable text: the summary and tables.
+    Text,
+    /// Names only, one per line: the dependencies' names and the imports'
+    /// and exports' paths, without the summary.
+    Concise,
+    /// A JSON object.
+    Json,
 }
 
 #[derive(Debug, Args)]

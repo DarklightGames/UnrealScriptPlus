@@ -1,12 +1,13 @@
 # The `usagi` command-line tool
 
-`usagi` parses and lints Unreal Engine 2 UnrealScript, and builds mods with
-UCC. It is built from the `usagi-cli` crate.
+`usagi` parses and lints Unreal Engine 2 UnrealScript, builds mods with
+UCC, and inspects package files. It is built from the `usagi-cli` crate.
 
 ```sh
 cargo install usagi-cli                  # or download a binary from the Releases page
 usagi lint                               # lint every .uc file under the current directory
 usagi build                              # compile the mod's out-of-date packages
+usagi pkg list System/Engine.u --all     # show a package's summary, imports and exports
 ```
 
 ## Commands
@@ -17,6 +18,7 @@ usagi build                              # compile the mod's out-of-date package
 | [`parse`](#usagi-parse-paths) | Parse files and report syntax errors. |
 | [`rule`](#usagi-rule-codename--usagi-rule---all) | Explain a lint, or list every lint. |
 | [`build`](#usagi-build) | Compile a mod's out-of-date packages with UCC. |
+| [`pkg list`](#usagi-pkg-list-path) | Show a package file's summary, dependencies, imports and exports. |
 | [`format`](#usagi-format) | Not implemented yet. |
 
 Every command that takes paths accepts files and directories. Directories are
@@ -191,6 +193,226 @@ removed (step 2), even if it matches `locked`. Nothing is locked by default.
 
 It ends with `Build: N succeeded, N failed, 0 skipped, N up-to-date`.
 
+### `usagi pkg list <PATH>`
+
+Prints the summary (header) of a package file (`.u`, `.utx`, `.usx`, `.ukx`,
+`.uax`, `.ut2`, ...): its version, package flags, GUID, the size and
+position of its name, import and export tables, and its generations. Then
+it lists the packages this one depends on. With `--imports` and `--exports`,
+it lists instead the objects the package refers to in other packages, and
+the objects in it. A file whose extension is `.uz2`
+(in any case) is decompressed first, as the engine does. The format is
+described in [PACKAGE_FORMAT.md](PACKAGE_FORMAT.md).
+
+`PATH` is a path to the file; looking packages up by name isn't supported
+yet. The command doesn't read the configuration file.
+
+| Flag | Meaning |
+|---|---|
+| `--dependencies` | List the packages this one depends on. This is the default when none of these four flags is given. |
+| `--imports` | List the imports. |
+| `--exports` | List the exports. |
+| `--all` | List the dependencies, the imports and the exports. |
+| `--no-summary` | Leave out the summary. |
+| `--sort index\|path\|class\|size\|offset` | How to sort the tables. Default: `index` (table order). |
+| `--reverse` | Reverse the sort order. |
+| `--humanize` | Show sizes in units (`2.6 MB`) and counts with thousands separators (`15,530`). Text format only. |
+| `--format text\|concise\|json` | How to print the package. Default: `text`. |
+
+`text` prints the file's path, then the summary, one field per line:
+
+```text
+System/Engine.u
+  Tag          0x9E2A83C1
+  Version      128 (licensee 29)
+  Flags        0x00000020 (Official)
+  GUID         17158B3B4FF9A24F520996A03FACE2BE
+  Names        8773 at 0x2A0
+  Imports      103 at 0x259C18
+  Exports      15530 at 0x259FB2
+  Size         2722417 bytes
+  Generations  77
+     1   9629 exports  6132 names
+     2   9668 exports  6158 names
+     ...
+```
+
+`Tag` adds `(Red Orchestra, Killing Floor)` for packages with Tripwire's
+tag, `0x9E2A83C2`. Table positions are file offsets. Offsets are always
+hexadecimal in the text format (and decimal numbers in the JSON). `Flags` names each flag that is set, and any bits that aren't a
+known flag as `unknown`. A `.uz2` adds its compressed size to `Size`:
+`13400320 bytes (4625215 compressed)`. A package older than version 68 has a
+heritage table instead of a GUID and generations; it adds a `Heritage` line
+(`2 GUIDs at 0x2C`), its GUID is the last one in that table, and it has
+one generation, made from its counts, as the engine does.
+
+Then the tables, with a header row and one line per package or object. The
+tables are listed in this order, whatever the order of the flags:
+
+```text
+Dependencies (2)
+  Package  Imports  Classes
+  Core           1  Class (1)
+  Engine         3  Class (2), Texture (1)
+
+Imports (7)
+   #  Class           Path
+  -1  Core.Package    Core
+  -2  Core.Package    Engine
+  -3  Core.Class      Engine.Texture
+  -4  Core.Class      Core.Package
+  -5  Core.Class      Engine.Actor
+  -6  Core.Package    Engine.Group
+  -7  Engine.Texture  Engine.Group.Rock
+
+Exports (4)
+  #  Class    Path                 Size  Offset  Super         Flags
+  1  Class    MyPkg.MyClass          40    0xCA  Engine.Actor  Public,LoadForClient,LoadForServer,LoadForEdit,Standalone,Native
+  2  Package  MyPkg.MyGroup           1    0xF2                Public,LoadForClient,LoadForServer,LoadForEdit
+  3  Texture  MyPkg.MyGroup.MyTex     5    0xF3                Public,LoadForClient,LoadForServer,LoadForEdit
+  4  Class    MyPkg.None              0
+```
+
+A dependency is a top-level package that the package imports from: a file
+the engine loads with it. `Imports` is the number of objects imported from
+it, in it or in its groups, and `Classes` their classes, with how many of
+each, the most common first. Groups are left out: they're part of the
+package, not separate files. A package that imports nothing has an empty
+`Dependencies (0)` table.
+
+`#` is the object's number as a reference to it is stored in the file:
+imports are numbered -1, -2, -3, ... and exports 1, 2, 3, ...
+
+- An import shows its class (`ClassPackage.ClassName`) and its full path.
+- An export shows its class, and its full path, which starts with the
+  package's name (taken from the file name, as the engine does). Then the
+  size and file offset of its data, the struct it extends (`Super`, for
+  classes, structs, states and functions), and its object flags. An export
+  with no data has a size of 0 and no offset; these are placeholders left by
+  `ucc conform`. A column with nothing in it, such as `Super` in a texture
+  package, is left out.
+
+The class, super and outer references, as stored, are only in the JSON.
+
+`--sort` orders the tables, and the JSON's arrays:
+
+| Sort | Order |
+|---|---|
+| `index` | Table order (the default). |
+| `path` | Full path (a dependency's name), ignoring case. |
+| `class` | Class name, ignoring case. Dependencies keep table order. |
+| `size` | Size of the export's data, or the number of objects imported from a dependency; largest first. Imports keep table order. |
+| `offset` | File offset of the export's data, with exports that have no data last. Imports and dependencies keep table order. |
+
+Ties keep table order. `--reverse` reverses any of these, e.g. `--sort size
+--reverse` puts the smallest first. To find the largest objects in a package:
+`usagi pkg list Foo.utx --exports --no-summary --sort size | head`.
+
+With `--humanize`, sizes are in binary units with one decimal (`40 B`,
+`1.3 KB`, `2.6 MB`; 1 KB is 1024 bytes) and counts have thousands separators
+(`15,530`), in the summary, the table headings and the tables:
+
+```text
+  Exports      15,530 at 0x259FB2
+  Size         2.6 MB
+...
+Exports (15,530)
+     #  Class       Path                                  Size    Offset  ...
+  8721  TextBuffer  Engine.PlayerController.ScriptText  201.6 KB   0xEE462  ...
+```
+
+The text is coloured on a terminal (see `--color`). Lines can be long: the
+path column is as wide as the longest path.
+
+`concise` prints names only, one per line, without the summary, headings or
+colour: the dependencies' names, then the imports' and exports' full paths,
+for the tables asked for. For example, `usagi pkg list Foo.u --format
+concise` lists the packages `Foo.u` depends on.
+
+`json` prints an object:
+
+```json
+{
+  "path": "MyPkg.u",
+  "size": 351,
+  "compressed_size": null,
+  "version": 128,
+  "licensee_version": 29,
+  "summary": {
+    "tag": 2653586369,
+    "file_version": 1900672,
+    "package_flags": { "bits": 33, "names": ["AllowDownload", "Official"], "unknown": 0 },
+    "name_count": 12,
+    "name_offset": 64,
+    "export_count": 4,
+    "export_offset": 297,
+    "import_count": 7,
+    "import_offset": 248,
+    "guid": "0123456789ABCDEFDEADBEEF0000002A",
+    "generations": [{ "export_count": 4, "name_count": 10 }],
+    "heritage": null
+  },
+  "dependencies": [
+    {
+      "name": "Engine",
+      "index": -2,
+      "import_count": 3,
+      "classes": [{ "name": "Class", "count": 2 }, { "name": "Texture", "count": 1 }]
+    },
+    ...
+  ],
+  "imports": [
+    {
+      "index": -3,
+      "class_package": "Core",
+      "class_name": "Class",
+      "outer_index": -2,
+      "object_name": "Texture",
+      "path": "Engine.Texture"
+    },
+    ...
+  ],
+  "exports": [
+    {
+      "index": 1,
+      "class_index": 0,
+      "class_name": "Class",
+      "super_index": -5,
+      "super_path": "Engine.Actor",
+      "outer_index": 0,
+      "object_name": "MyClass",
+      "path": "MyPkg.MyClass",
+      "flags": { "bits": 68091908, "names": ["Public", "LoadForClient", "LoadForServer", "LoadForEdit", "Standalone", "Native"], "unknown": 0 },
+      "serial_size": 40,
+      "serial_offset": 202
+    },
+    ...
+  ]
+}
+```
+
+- `size`, `compressed_size`, `version`, `licensee_version` and `summary` are
+  left out with `--no-summary`; `dependencies`, `imports` and `exports` are
+  only there for the tables asked for.
+- A dependency's `index` is its top-level import's.
+- `compressed_size` is the size of the `.uz2` file, or `null`.
+- `tag` is `2653586369` (`0x9E2A83C1`), or `2653586370` (`0x9E2A83C2`) in Red
+  Orchestra and Killing Floor.
+- `file_version` is the version as stored: `version` in the low 16 bits and
+  `licensee_version` in the high 16.
+- `heritage` is `{ "count", "offset" }` before version 68, otherwise `null`.
+- The `*_index` fields are object references as stored: 0 for none (for
+  `class_index`, the export is a class; for `outer_index`, the object is
+  directly in its package), `n` for export `n`, and `-n` for import `-n`.
+  `super_path` is `null` when there's no super, and `serial_offset` when
+  there's no data.
+
+It fails (exit code 2) if the file can't be read, isn't a package (doesn't
+start with the tag `0x9E2A83C1` or `0x9E2A83C2`), or ends early, or if it
+has something the engine would fail on: a negative count in the summary, a
+name or object reference that's out of range, an import inside an export,
+objects inside each other in a loop, or export data that isn't in the file.
+
 ### Global flags
 
 | Flag | Meaning |
@@ -205,6 +427,9 @@ The worker threads, and the UCC processes they start, run at a lower priority
 machine unresponsive.
 
 ## Output formats
+
+These are the formats of `lint` and `parse`. For `pkg list`, see
+[its section](#usagi-pkg-list-path).
 
 | Format | Output |
 |---|---|
@@ -228,7 +453,7 @@ Besides lint codes, a problem's code can be `parse` (a recovered problem),
 | 0 | Nothing to report. Recovered problems alone don't count, unless `--strict` is used. |
 | 1 | `lint`: a lint problem, or a file that failed to parse; with `--fix`, a problem left after fixing; with `--diff`, a change to show. `parse`: a file that failed to parse. |
 | 1 | `build`: a package failed to compile, or a source file failed to parse. |
-| 2 | A usage error, a configuration error or a missing path. `build`: a setup problem, such as a missing folder, or a locked package that would have to be rebuilt. |
+| 2 | A usage error, a configuration error or a missing path. `pkg list`: a file that can't be read or isn't a valid package. `build`: a setup problem, such as a missing folder, or a locked package that would have to be rebuilt. |
 
 ## Configuration
 

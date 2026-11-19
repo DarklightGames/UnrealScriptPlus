@@ -1032,3 +1032,653 @@ fn class_name_mismatch() {
     let out = concise(dir.path(), &["--ignore", "C016"]);
     assert!(!out.contains("C016"), "{}", out);
 }
+
+/// A package with a UT2004 summary, two generations and no tables.
+fn package_bytes() -> Vec<u8> {
+    let mut out = Vec::new();
+    for value in [0x9E2A83C1u32, 128 | 29 << 16, 0x10021, 0, 0, 0, 0, 0, 0] {
+        out.extend_from_slice(&value.to_le_bytes());
+    }
+    for value in [
+        0x01234567u32,
+        0x89ABCDEF,
+        0xDEADBEEF,
+        0x2A,
+        2,
+        5,
+        40,
+        1234,
+        4567,
+    ] {
+        out.extend_from_slice(&value.to_le_bytes());
+    }
+    out
+}
+
+#[test]
+fn pkg_list_prints_the_summary() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("Test.u"), package_bytes()).unwrap();
+    usagi(dir.path())
+        .args(["pkg", "list", "Test.u"])
+        .assert()
+        .code(0)
+        .stdout(
+            "Test.u
+  Tag          0x9E2A83C1
+  Version      128 (licensee 29)
+  Flags        0x00010021 (AllowDownload, Official, unknown 0x00010000)
+  GUID         0123456789ABCDEFDEADBEEF0000002A
+  Names        0 at 0x0
+  Imports      0 at 0x0
+  Exports      0 at 0x0
+  Size         72 bytes
+  Generations  2
+    1     5 exports    40 names
+    2  1234 exports  4567 names
+
+Dependencies (0)
+",
+        );
+}
+
+#[test]
+fn pkg_list_json() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("Test.u"), package_bytes()).unwrap();
+    let output = usagi(dir.path())
+        .args(["pkg", "list", "Test.u", "--format", "json"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["path"], "Test.u");
+    assert_eq!(json["size"], 72);
+    assert_eq!(json["compressed_size"], serde_json::Value::Null);
+    assert_eq!(json["version"], 128);
+    assert_eq!(json["licensee_version"], 29);
+    let summary = &json["summary"];
+    assert_eq!(summary["tag"], 0x9E2A83C1u32);
+    assert_eq!(summary["package_flags"]["bits"], 0x10021);
+    assert_eq!(
+        summary["package_flags"]["names"],
+        serde_json::json!(["AllowDownload", "Official"])
+    );
+    assert_eq!(summary["guid"], "0123456789ABCDEFDEADBEEF0000002A");
+    assert_eq!(
+        summary["generations"][1],
+        serde_json::json!({ "export_count": 1234, "name_count": 4567 })
+    );
+    assert_eq!(summary["heritage"], serde_json::Value::Null);
+}
+
+#[test]
+fn pkg_list_old_and_compressed_packages() {
+    use std::io::Write;
+    let dir = TempDir::new().unwrap();
+    // Version 60, no flags, an empty heritage table at offset 99.
+    let mut old = Vec::new();
+    for value in [0x9E2A83C1u32, 60, 0, 0, 0, 0, 0, 0, 0, 0, 99] {
+        old.extend_from_slice(&value.to_le_bytes());
+    }
+    fs::write(dir.path().join("Old.u"), &old).unwrap();
+    usagi(dir.path())
+        .args(["pkg", "list", "Old.u"])
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains(
+            "  Version      60 (licensee 0)\n  Flags        0x00000000\n",
+        ))
+        .stdout(predicate::str::contains("  Heritage     0 GUIDs at 0x63\n"))
+        .stdout(predicate::str::contains(
+            "  Generations  1\n    1  0 exports  0 names\n",
+        ));
+
+    let bytes = package_bytes();
+    let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+    encoder.write_all(&bytes).unwrap();
+    let data = encoder.finish().unwrap();
+    let mut uz2 = Vec::new();
+    uz2.extend_from_slice(&(data.len() as u32).to_le_bytes());
+    uz2.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+    uz2.extend_from_slice(&data);
+    fs::write(dir.path().join("Test.u.uz2"), &uz2).unwrap();
+    usagi(dir.path())
+        .args(["pkg", "list", "Test.u.uz2"])
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains(format!(
+            "  Size         72 bytes ({} compressed)\n",
+            uz2.len()
+        )));
+}
+
+#[test]
+fn pkg_list_red_orchestra_packages() {
+    let dir = TempDir::new().unwrap();
+    let mut bytes = package_bytes();
+    bytes[0] = 0xC2;
+    fs::write(dir.path().join("Test.ukx"), bytes).unwrap();
+    usagi(dir.path())
+        .args(["pkg", "list", "Test.ukx"])
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains(
+            "Test.ukx\n  Tag          0x9E2A83C2 (Red Orchestra, Killing Floor)\n  Version      128 (licensee 29)\n",
+        ));
+}
+
+#[test]
+fn pkg_list_errors() {
+    let dir = project(&[("Foo.uc", CLEAN)]);
+    usagi(dir.path())
+        .args(["pkg", "list", "Missing.u"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::starts_with("usagi: Missing.u: "));
+    usagi(dir.path())
+        .args(["pkg", "list", "Foo.uc"])
+        .assert()
+        .code(2)
+        .stderr(
+            "usagi: Foo.uc: not an Unreal package (the tag is 0x73616C63, not 0x9E2A83C1 or 0x9E2A83C2)\n",
+        );
+    usagi(dir.path()).args(["pkg", "list"]).assert().code(2);
+}
+
+/// A compact index, as the engine writes it.
+fn compact_index(value: i32) -> Vec<u8> {
+    let mut v = value.unsigned_abs();
+    let mut out = vec![(if value < 0 { 0x80 } else { 0 }) | (v & 0x3f) as u8];
+    if v >= 0x40 {
+        out[0] |= 0x40;
+        v >>= 6;
+        loop {
+            let more = v >= 0x80;
+            out.push((v & 0x7f) as u8 | if more { 0x80 } else { 0 });
+            if !more {
+                break;
+            }
+            v >>= 7;
+        }
+    }
+    out
+}
+
+/// `MyPkg`: a package with these imports and exports.
+///
+/// ```text
+/// -1  Core.Package  Core
+/// -2  Core.Package  Engine
+/// -3  Core.Class    Engine.Texture
+/// -4  Core.Class    Core.Package
+/// -5  Core.Class      Engine.Actor
+/// -6  Core.Package    Engine.Group      (a group)
+/// -7  Engine.Texture  Engine.Group.Rock
+///  1  Class         MyClass        (extends Engine.Actor)
+///  2  Package       MyGroup
+///  3  Texture       MyGroup.MyTex
+///  4  Class         None           (no data)
+/// ```
+fn tables_package_bytes() -> Vec<u8> {
+    let names = [
+        "None", "Core", "Package", "Class", "Engine", "Texture", "MyGroup", "MyTex", "MyClass",
+        "Actor", "Group", "Rock",
+    ];
+    // (class package, class name, outer, object name)
+    let imports = [
+        (1, 2, 0, 1),
+        (1, 2, 0, 4),
+        (1, 3, -2, 5),
+        (1, 3, -1, 2),
+        (1, 3, -2, 9),
+        (1, 2, -2, 10),
+        (4, 5, -6, 11),
+    ];
+    // (class, super, outer, object name, flags, size)
+    let exports = [
+        (0, -5, 0, 8, 0x040F0004u32, 40),
+        (-4, 0, 0, 6, 0x00070004, 1),
+        (-3, 0, 2, 7, 0x00070004, 5),
+        (0, 0, 0, 0, 0, 0),
+    ];
+    let mut body = Vec::new();
+    for name in names {
+        body.extend(compact_index(name.len() as i32 + 1));
+        body.extend(name.as_bytes());
+        body.push(0);
+        body.extend(0x00070010u32.to_le_bytes());
+    }
+    let mut offsets = Vec::new();
+    for export in &exports {
+        offsets.push(64 + body.len() as i32);
+        body.resize(body.len() + export.5 as usize, 0);
+    }
+    let import_offset = 64 + body.len() as i32;
+    for (class_package, class_name, outer, object_name) in imports {
+        body.extend(compact_index(class_package));
+        body.extend(compact_index(class_name));
+        body.extend((outer as i32).to_le_bytes());
+        body.extend(compact_index(object_name));
+    }
+    let export_offset = 64 + body.len() as i32;
+    for (export, offset) in exports.iter().zip(offsets) {
+        let (class, super_struct, outer, object_name, flags, size) = *export;
+        body.extend(compact_index(class));
+        body.extend(compact_index(super_struct));
+        body.extend((outer as i32).to_le_bytes());
+        body.extend(compact_index(object_name));
+        body.extend(flags.to_le_bytes());
+        body.extend(compact_index(size));
+        if size != 0 {
+            body.extend(compact_index(offset));
+        }
+    }
+    let mut out = Vec::new();
+    let header: [i32; 9] = [
+        0x9E2A83C1u32 as i32,
+        128 | 29 << 16,
+        0x21,
+        names.len() as i32,
+        64,
+        exports.len() as i32,
+        export_offset,
+        imports.len() as i32,
+        import_offset,
+    ];
+    for value in header {
+        out.extend(value.to_le_bytes());
+    }
+    for value in [0x01234567u32, 0x89ABCDEF, 0xDEADBEEF, 0x2A, 1, 4, 10] {
+        out.extend(value.to_le_bytes());
+    }
+    out.extend(body);
+    out
+}
+
+fn tables_dir() -> TempDir {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("MyPkg.u"), tables_package_bytes()).unwrap();
+    dir
+}
+
+const DEPENDENCIES_TEXT: &str = "
+Dependencies (2)
+  Package  Imports  Classes
+  Core           1  Class (1)
+  Engine         3  Class (2), Texture (1)
+";
+
+const IMPORTS_TEXT: &str = "
+Imports (7)
+   #  Class           Path
+  -1  Core.Package    Core
+  -2  Core.Package    Engine
+  -3  Core.Class      Engine.Texture
+  -4  Core.Class      Core.Package
+  -5  Core.Class      Engine.Actor
+  -6  Core.Package    Engine.Group
+  -7  Engine.Texture  Engine.Group.Rock
+";
+
+const EXPORTS_TEXT: &str = "
+Exports (4)
+  #  Class    Path                 Size  Offset  Super         Flags
+  1  Class    MyPkg.MyClass          40    0xCA  Engine.Actor  Public,LoadForClient,LoadForServer,LoadForEdit,Standalone,Native
+  2  Package  MyPkg.MyGroup           1    0xF2                Public,LoadForClient,LoadForServer,LoadForEdit
+  3  Texture  MyPkg.MyGroup.MyTex     5    0xF3                Public,LoadForClient,LoadForServer,LoadForEdit
+  4  Class    MyPkg.None              0
+";
+
+fn pkg_text(dir: &Path, args: &[&str]) -> String {
+    let output = usagi(dir)
+        .args(["pkg", "list", "MyPkg.u", "--color", "never"])
+        .args(args)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0), "{:?}", output);
+    String::from_utf8(output.stdout).unwrap()
+}
+
+#[test]
+fn pkg_list_imports_and_exports() {
+    let dir = tables_dir();
+    let all = format!(
+        "MyPkg.u\n{}{}{}",
+        DEPENDENCIES_TEXT, IMPORTS_TEXT, EXPORTS_TEXT
+    );
+    assert_eq!(pkg_text(dir.path(), &["--all", "--no-summary"]), all);
+    assert_eq!(
+        pkg_text(
+            dir.path(),
+            &["--dependencies", "--imports", "--exports", "--no-summary"]
+        ),
+        all
+    );
+    assert_eq!(
+        pkg_text(dir.path(), &["--imports", "--exports", "--no-summary"]),
+        format!("MyPkg.u\n{}{}", IMPORTS_TEXT, EXPORTS_TEXT)
+    );
+    assert_eq!(
+        pkg_text(dir.path(), &["--imports", "--no-summary"]),
+        format!("MyPkg.u\n{}", IMPORTS_TEXT)
+    );
+    assert_eq!(
+        pkg_text(dir.path(), &["--exports", "--no-summary"]),
+        format!("MyPkg.u\n{}", EXPORTS_TEXT)
+    );
+    // With no table asked for, the dependencies are listed.
+    let dependencies = format!("MyPkg.u\n{}", DEPENDENCIES_TEXT);
+    assert_eq!(pkg_text(dir.path(), &["--no-summary"]), dependencies);
+    assert_eq!(
+        pkg_text(dir.path(), &["--dependencies", "--no-summary"]),
+        dependencies
+    );
+    // With the summary, the tables follow it.
+    let text = pkg_text(dir.path(), &[]);
+    assert!(
+        text.starts_with("MyPkg.u\n  Tag          0x9E2A83C1\n"),
+        "{}",
+        text
+    );
+    assert!(text.ends_with(DEPENDENCIES_TEXT), "{}", text);
+    let text = pkg_text(dir.path(), &["--exports"]);
+    assert!(text.ends_with(EXPORTS_TEXT), "{}", text);
+    assert!(!text.contains("Dependencies ("), "{}", text);
+}
+
+#[test]
+fn pkg_list_concise() {
+    let dir = tables_dir();
+    let concise = |args: &[&str]| pkg_text(dir.path(), &[&["--format", "concise"], args].concat());
+    // The dependencies' names, without the summary.
+    assert_eq!(concise(&[]), "Core\nEngine\n");
+    assert_eq!(concise(&["--sort", "size"]), "Engine\nCore\n");
+    assert_eq!(
+        concise(&["--imports"]),
+        "Core\nEngine\nEngine.Texture\nCore.Package\nEngine.Actor\nEngine.Group\nEngine.Group.Rock\n"
+    );
+    assert_eq!(
+        concise(&["--exports", "--sort", "path", "--reverse"]),
+        "MyPkg.None\nMyPkg.MyGroup.MyTex\nMyPkg.MyGroup\nMyPkg.MyClass\n"
+    );
+    let all = concise(&["--all"]);
+    assert!(all.starts_with("Core\nEngine\nCore\n"), "{}", all);
+    assert!(
+        all.ends_with(
+            "Engine.Group.Rock\nMyPkg.MyClass\nMyPkg.MyGroup\nMyPkg.MyGroup.MyTex\nMyPkg.None\n"
+        ),
+        "{}",
+        all
+    );
+}
+
+#[test]
+fn pkg_list_tables_json() {
+    let dir = tables_dir();
+    let json = |args: &[&str]| -> serde_json::Value {
+        let output = usagi(dir.path())
+            .args([
+                "pkg", "list", "MyPkg.u", "--format", "json", "--color", "always",
+            ])
+            .args(args)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(0));
+        assert!(!output.stdout.contains(&0x1b), "JSON is never coloured");
+        serde_json::from_slice(&output.stdout).unwrap()
+    };
+    let all = json(&["--all"]);
+    assert_eq!(all["summary"]["import_count"], 7);
+    assert_eq!(
+        all["dependencies"],
+        serde_json::json!([
+            { "name": "Core", "index": -1, "import_count": 1, "classes": [{ "name": "Class", "count": 1 }] },
+            {
+                "name": "Engine",
+                "index": -2,
+                "import_count": 3,
+                "classes": [{ "name": "Class", "count": 2 }, { "name": "Texture", "count": 1 }],
+            },
+        ])
+    );
+    assert_eq!(
+        all["imports"][2],
+        serde_json::json!({
+            "index": -3,
+            "class_package": "Core",
+            "class_name": "Class",
+            "outer_index": -2,
+            "object_name": "Texture",
+            "path": "Engine.Texture",
+        })
+    );
+    assert_eq!(
+        all["exports"][0],
+        serde_json::json!({
+            "index": 1,
+            "class_index": 0,
+            "class_name": "Class",
+            "super_index": -5,
+            "super_path": "Engine.Actor",
+            "outer_index": 0,
+            "object_name": "MyClass",
+            "path": "MyPkg.MyClass",
+            "flags": {
+                "bits": 0x040F0004,
+                "names": ["Public", "LoadForClient", "LoadForServer", "LoadForEdit", "Standalone", "Native"],
+                "unknown": 0,
+            },
+            "serial_size": 40,
+            "serial_offset": 202,
+        })
+    );
+    assert_eq!(all["exports"][2]["path"], "MyPkg.MyGroup.MyTex");
+    assert_eq!(all["exports"][2]["super_path"], serde_json::Value::Null);
+    assert_eq!(all["exports"][3]["serial_offset"], serde_json::Value::Null);
+
+    // --no-summary leaves out the summary and its sizes; the tables are
+    // only there when asked for.
+    let exports = json(&["--exports", "--no-summary"]);
+    let mut keys: Vec<&String> = exports.as_object().unwrap().keys().collect();
+    keys.sort();
+    assert_eq!(keys, ["exports", "path"]);
+    let summary = json(&[]);
+    assert!(summary.get("imports").is_none() && summary.get("exports").is_none());
+    assert!(summary.get("summary").is_some());
+}
+
+#[test]
+fn pkg_list_colour() {
+    let dir = tables_dir();
+    let output = usagi(dir.path())
+        .args(["pkg", "list", "MyPkg.u", "--all", "--color", "always"])
+        .output()
+        .unwrap();
+    let text = String::from_utf8(output.stdout).unwrap();
+    for expected in [
+        "\x1b[1mMyPkg.u\x1b[0m\n",
+        "\x1b[36m  Version      \x1b[0m128",
+        "(\x1b[32mAllowDownload\x1b[0m, \x1b[32mOfficial\x1b[0m)",
+        "\x1b[1mImports (7)\x1b[0m",
+        "  \x1b[2m-3\x1b[0m  \x1b[36mCore.Class\x1b[0m      Engine.Texture\n",
+        "  Engine         3  \x1b[36mClass (2), Texture (1)\x1b[0m\n",
+        "  \x1b[1m#\x1b[0m  \x1b[1mClass\x1b[0m    \x1b[1mPath\x1b[0m",
+        "\x1b[32mPublic,LoadForClient,LoadForServer,LoadForEdit\x1b[0m",
+    ] {
+        assert!(text.contains(expected), "{:?} not in {:?}", expected, text);
+    }
+    // Unknown package flags are red, and a Tripwire tag's note is dim.
+    let mut bytes = package_bytes();
+    bytes[0] = 0xC2;
+    fs::write(dir.path().join("Ro.u"), bytes).unwrap();
+    let output = usagi(dir.path())
+        .args(["pkg", "list", "Ro.u", "--color", "always"])
+        .output()
+        .unwrap();
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        text.contains("\x1b[31munknown 0x00010000\x1b[0m"),
+        "{:?}",
+        text
+    );
+    assert!(
+        text.contains("\x1b[2m(Red Orchestra, Killing Floor)\x1b[0m"),
+        "{:?}",
+        text
+    );
+    assert!(!pkg_text(dir.path(), &["--all"]).contains('\x1b'));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_closed_pipe_stops_quietly() {
+    use std::io::Read;
+    use std::os::unix::process::ExitStatusExt;
+    use std::process::Stdio;
+    // Close the read end before `usagi` writes, as `head` does once it has
+    // what it needs. `usagi` is stopped by SIGPIPE, without an error.
+    let mut child = std::process::Command::new(assert_cmd::cargo::cargo_bin("usagi"))
+        .args(["rule", "--all"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    drop(child.stdout.take());
+    let mut stderr = String::new();
+    child
+        .stderr
+        .take()
+        .unwrap()
+        .read_to_string(&mut stderr)
+        .unwrap();
+    let status = child.wait().unwrap();
+    assert_eq!(stderr, "");
+    assert!(
+        status.success() || status.signal() == Some(libc::SIGPIPE),
+        "{:?}",
+        status
+    );
+}
+
+/// The export or import numbers in a table of `pkg list` output, in order.
+fn table_numbers(text: &str, table: &str) -> Vec<i32> {
+    text.split(&format!("{} (", table))
+        .nth(1)
+        .unwrap()
+        .lines()
+        .skip(2)
+        .take_while(|line| !line.is_empty())
+        .map(|line| line.split_whitespace().next().unwrap().parse().unwrap())
+        .collect()
+}
+
+#[test]
+fn pkg_list_sorts_the_tables() {
+    let dir = tables_dir();
+    let order = |args: &[&str]| {
+        let text = pkg_text(dir.path(), &[&["--all", "--no-summary"], args].concat());
+        (
+            table_numbers(&text, "Imports"),
+            table_numbers(&text, "Exports"),
+        )
+    };
+    let all = vec![-1, -2, -3, -4, -5, -6, -7];
+    assert_eq!(order(&[]), (all.clone(), vec![1, 2, 3, 4]));
+    assert_eq!(
+        order(&["--sort", "index", "--reverse"]),
+        (vec![-7, -6, -5, -4, -3, -2, -1], vec![4, 3, 2, 1])
+    );
+    // Paths: Core, Core.Package, Engine, Engine.Actor, Engine.Group,
+    // Engine.Group.Rock, Engine.Texture; and MyPkg.MyClass, MyPkg.MyGroup,
+    // MyPkg.MyGroup.MyTex, MyPkg.None.
+    assert_eq!(
+        order(&["--sort", "path"]),
+        (vec![-1, -4, -2, -5, -6, -7, -3], vec![1, 2, 3, 4])
+    );
+    // Classes: Class, Package and Texture. Ties keep table order, even
+    // reversed.
+    assert_eq!(
+        order(&["--sort", "class"]),
+        (vec![-3, -4, -5, -1, -2, -6, -7], vec![1, 4, 2, 3])
+    );
+    assert_eq!(
+        order(&["--sort", "class", "--reverse"]),
+        (vec![-7, -1, -2, -6, -3, -4, -5], vec![3, 2, 1, 4])
+    );
+    // Size: largest first; imports have no size, so keep table order.
+    assert_eq!(order(&["--sort", "size"]), (all, vec![1, 3, 2, 4]));
+    assert_eq!(order(&["--sort", "size", "--reverse"]).1, vec![4, 2, 3, 1]);
+    // Offset: exports with no data last, so first when reversed. (The
+    // data is in table order, as the engine writes it.)
+    assert_eq!(order(&["--sort", "offset"]).1, vec![1, 2, 3, 4]);
+    assert_eq!(
+        order(&["--sort", "offset", "--reverse"]).1,
+        vec![4, 3, 2, 1]
+    );
+
+    // JSON is sorted the same way.
+    let output = usagi(dir.path())
+        .args([
+            "pkg",
+            "list",
+            "MyPkg.u",
+            "--exports",
+            "--format",
+            "json",
+            "--sort",
+            "size",
+        ])
+        .output()
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let indices: Vec<i64> = json["exports"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["index"].as_i64().unwrap())
+        .collect();
+    assert_eq!(indices, [1, 3, 2, 4]);
+}
+
+#[test]
+fn pkg_list_humanize() {
+    let dir = tables_dir();
+    let text = pkg_text(dir.path(), &["--all", "--humanize"]);
+    for expected in [
+        "  Size         351 B\n",
+        "  Exports      4 at 0x129\n",
+        "  1  Class    MyPkg.MyClass        40 B    0xCA  Engine.Actor",
+        "  4  Class    MyPkg.None            0 B\n",
+    ] {
+        assert!(text.contains(expected), "{:?} not in {}", expected, text);
+    }
+    // Units and separators, on the summary of a package whose sizes and
+    // counts are large: 15,530 names (zero bytes are empty names) in a
+    // 2.6 MB file.
+    let mut bytes = package_bytes();
+    bytes[12..16].copy_from_slice(&15530i32.to_le_bytes());
+    bytes[16..20].copy_from_slice(&100i32.to_le_bytes());
+    bytes.resize(2_722_417, 0);
+    fs::write(dir.path().join("Big.u"), &bytes).unwrap();
+    let output = usagi(dir.path())
+        .args(["pkg", "list", "Big.u", "--humanize", "--color", "never"])
+        .output()
+        .unwrap();
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.contains("  Names        15,530 at 0x64\n"), "{}", text);
+    assert!(text.contains("  Size         2.6 MB\n"), "{}", text);
+    assert!(
+        text.contains("    2  1,234 exports  4,567 names\n"),
+        "{}",
+        text
+    );
+    // Without --humanize, the raw numbers.
+    let output = usagi(dir.path())
+        .args(["pkg", "list", "Big.u", "--color", "never"])
+        .output()
+        .unwrap();
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.contains("  Names        15530 at 0x64\n"), "{}", text);
+    assert!(text.contains("  Size         2722417 bytes\n"), "{}", text);
+}

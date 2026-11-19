@@ -6,6 +6,7 @@ mod cli;
 mod config;
 mod discover;
 mod output;
+mod pkg;
 
 use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
@@ -15,10 +16,11 @@ use clap::Parser;
 use usagi_core::{Applicability, Lint, ProgramErrorSeverity};
 
 use check::{CheckOptions, FileReport};
-use cli::{Cli, ColorChoice, Command, FileArgs, OutputFormat};
+use cli::{Cli, ColorChoice, Command, FileArgs, OutputFormat, PkgCommand};
 use config::{ConfigError, Overrides, Settings};
 
 fn main() -> ExitCode {
+    restore_sigpipe();
     let cli = Cli::parse();
     match run(cli) {
         Ok(true) => ExitCode::SUCCESS,
@@ -164,6 +166,12 @@ fn run(cli: Cli) -> Result<bool, String> {
             Ok(true)
         }
         Command::Format(_) => Err("format is not implemented yet".to_string()),
+        Command::Pkg(args) => match &args.command {
+            PkgCommand::List(args) => {
+                pkg::list(args, color, &mut io::stdout().lock())?;
+                Ok(true)
+            }
+        },
         Command::Build(args) => {
             let config = load_root()?;
             let mod_name = if args.no_mod {
@@ -207,6 +215,17 @@ fn run(cli: Cli) -> Result<bool, String> {
                 version_class: build.version_class.clone(),
             })
         }
+    }
+}
+
+/// Rust ignores `SIGPIPE`, so writing to a closed pipe (`usagi ... | head`)
+/// is an error, which would be reported. Restore the default, so that `usagi`
+/// stops quietly, like other command-line tools.
+fn restore_sigpipe() {
+    #[cfg(unix)]
+    // SAFETY: called first thing in `main`, before any other thread exists.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
     }
 }
 

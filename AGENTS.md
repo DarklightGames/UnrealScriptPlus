@@ -5,12 +5,13 @@ Guidance for AI coding agents working on this repository.
 ## Project
 
 usagi is a Cargo workspace for parsing Unreal Engine 2 UnrealScript, running
-static analysis on it, and building mods with UCC:
+static analysis on it, building mods with UCC, and reading package files:
 
 | Crate | Contents |
 |---|---|
 | `crates/usagi-core` | The library (`usagi_core`): parser, AST, symbol table and lints. |
-| `crates/usagi-cli` | The `usagi` binary: `parse`, `lint`, `rule`, `build` (in `src/build/`) and configuration files. Its tests are in `tests/cli.rs`. |
+| `crates/usagi-pkg` | The package reader (`usagi_pkg`). See [Packages](#packages). |
+| `crates/usagi-cli` | The `usagi` binary: `parse`, `lint`, `rule`, `build` (in `src/build/`), `pkg` (in `src/pkg.rs`) and configuration files. Its tests are in `tests/cli.rs`. |
 
 Paths below are relative to `crates/usagi-core`.
 
@@ -94,10 +95,39 @@ install; use a scratch copy (copy `System/Default.ini`, the mod's `System`
 folder and the `.ini` files, and symlink the source package folders).
 
 Releases are built by `.github/workflows/release.yml` when a `v*` tag is
-pushed. It also publishes `usagi-core` and then `usagi-cli` to crates.io, so
-before tagging, set `version` in the root `Cargo.toml` to match the tag, and
-the `usagi-core` dependency's `version` in `crates/usagi-cli/Cargo.toml` to
-the same.
+pushed. It also publishes `usagi-core`, `usagi-pkg` and then `usagi-cli` to
+crates.io, so before tagging, set `version` in the root `Cargo.toml` to match
+the tag, and the `usagi-core` and `usagi-pkg` dependencies' `version` in
+`crates/usagi-cli/Cargo.toml` to the same.
+
+## Packages
+
+`crates/usagi-pkg` reads UE2 package files. **Keep
+[`docs/PACKAGE_FORMAT.md`](docs/PACKAGE_FORMAT.md) up to date:** it documents
+the binary format, with references to the engine source, and the crate
+follows it. When the crate reads something new, or turns out to differ from the
+document, update the document in the same change.
+
+| Path | Contents |
+|---|---|
+| `src/summary.rs` | The package summary (`Summary`), its GUID and generations. |
+| `src/tables.rs` | The name, import and export tables, object references (`ObjectRef`), and the checks the engine would fail on. |
+| `src/flags.rs` | Package flags and object flags. |
+| `src/uz2.rs` | Decompressing `.uz2` files. |
+| `src/package.rs` | `Package`: reads a file (decompressing a `.uz2`), and looks up names, paths and outers. |
+| `src/reader.rs` | The byte cursor: integers, compact indices and strings. |
+| `src/error.rs` | `Error`. |
+| `tests/` | Integration tests; `tests/common/mod.rs` writes packages (summary, tables and data) and `.uz2` files. |
+
+Read the package exactly as the engine does (`ULinkerLoad` in
+`Core/Src/UnLinker.cpp`), including what it accepts that looks wrong, and
+reject only what it would fail on. The crate has 100% line, region and
+function coverage from its own tests (`cargo llvm-cov --summary-only -p
+usagi-pkg --all-features`); keep it that way, as for the parser.
+
+Tests write their packages as bytes: there are no game files in the
+repository. Check changes against a real game's packages (every one should
+read) on a local install, which is read-only: never write to it.
 
 ## Static analysis
 

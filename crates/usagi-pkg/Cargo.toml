@@ -1,0 +1,25 @@
+[package]
+name = "usagi-pkg"
+description = "Reader for Unreal Engine 2 package files"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+homepage.workspace = true
+readme = "../../README.md"
+keywords = ["unreal", "package", "modding", "file-format"]
+categories = ["parser-implementations", "game-development"]
+repository.workspace = true
+
+[lib]
+name = "usagi_pkg"
+
+[features]
+serde = ["dep:serde"]
+
+[dependencies]
+flate2 = "1"
+serde = { version = "1", features = ["derive"], optional = true }
+
+[dev-dependencies]
+serde_json = "1"
+tempfile = "3"
