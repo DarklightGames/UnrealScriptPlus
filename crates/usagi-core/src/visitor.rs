@@ -2051,7 +2051,15 @@ fn check_symbols(visitor: &mut Visitor) {
             SymbolKind::Argument { .. } => "Argument",
             _ => "",
         };
-        if !what.is_empty() {
+        // A function without a body, such as a delegate or native function,
+        // has no code for its arguments to hide anything from.
+        let has_body = match symbols.scope(symbol.scope).kind {
+            ScopeKind::Function(f) => {
+                !matches!(symbols.symbol(f).kind, SymbolKind::Function { has_body: false, .. })
+            }
+            _ => true,
+        };
+        if !what.is_empty() && has_body {
             let scope = symbols.scope(symbol.scope);
             // A static function can't see instance variables, only consts.
             let in_static_function = symbols.is_static_function_scope(symbol.scope);

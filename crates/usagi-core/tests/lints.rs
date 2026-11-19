@@ -543,6 +543,12 @@ fn shadowed_variable() {
     let source = "class Foo extends Object;\nvar int V;\n\
                   static function F() { local int V; V = 1; G(V); }\n";
     assert_eq!(only(&["S015"], source), Vec::<&str>::new());
+    // A function without a body has no code for an argument to hide from.
+    let source = "class Foo extends Object;\nvar int V;\ndelegate D(int V);\n\
+                  native function N(int V);\nfunction F(int V);\n";
+    assert_eq!(only(&["S015"], source), Vec::<&str>::new());
+    let source = "class Foo extends Object;\nvar int V;\ndelegate D(int V) {}\n";
+    assert_eq!(only(&["S015"], source), vec!["S015"]);
     // Enum values and functions aren't variables.
     let source = "class Foo extends Object;\nenum EA\n{\n    X\n};\nfunction G();\n\
                   function F(int X, int G) {}\n";

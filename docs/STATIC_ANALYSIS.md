@@ -102,7 +102,7 @@ never applied from the command line; they are for an editor to offer.
 | S012 | `rotator-component-not-integer` | Warning |  | A rotator literal component that isn't an integer. |
 | S013 | `default-property-type-mismatch` | Warning |  | A `defaultproperties` value whose literal type doesn't match the variable's type. |
 | S014 | `duplicate-replicated-member` | Warning |  | A member listed more than once in the replication block. |
-| S015 | `shadowed-variable` | Warning |  | A local or argument with the same name as a variable or const of the class (or state). In a `static` function only consts count, since instance variables aren't accessible there. |
+| S015 | `shadowed-variable` | Warning |  | A local or argument with the same name as a variable or const of the class (or state). In a `static` function only consts count, since instance variables aren't accessible there. Arguments of a function without a body, such as a delegate or native function, aren't checked. |
 | S016 | `missing-return` | Warning |  | A function with a return type where some path reaches the end without `return`; UCC returns zero or `None` there. Understands `if`/`else`, `switch` with `default` (including fallthrough into a case that returns) and `while (true)`/`for (;;)` loops without `break`. |
 
 ### Performance
