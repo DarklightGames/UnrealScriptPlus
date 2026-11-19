@@ -3,7 +3,11 @@ name = "usagi-core"
 description = "Parser and static analysis for Unreal Engine 2 UnrealScript"
 version.workspace = true
 edition.workspace = true
-license-file = "../../LICENSE"
+license.workspace = true
+homepage.workspace = true
+readme = "../../README.md"
+keywords = ["unrealscript", "unreal", "parser", "linter", "static-analysis"]
+categories = ["development-tools", "parser-implementations"]
 repository.workspace = true
 
 [lib]
@@ -17,4 +21,4 @@ strum_macros = "0.28"
 pest_consume = "1.1"
 pest_consume_macros = "1.1"
 convert_case = "0.12"
-t3d = { git = "https://github.com/DarklightGames/t3d-rs", rev = "3dd7fa2037206641d956b2095e34595dc58e2f37" }
+t3d = "0.1"

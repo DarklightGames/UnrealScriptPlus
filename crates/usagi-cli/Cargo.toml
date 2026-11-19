@@ -3,7 +3,11 @@ name = "usagi-cli"
 description = "Command-line parser, linter and mod build tool for Unreal Engine 2 UnrealScript"
 version.workspace = true
 edition.workspace = true
-license-file = "../../LICENSE"
+license.workspace = true
+homepage.workspace = true
+readme = "../../README.md"
+keywords = ["unrealscript", "unreal", "linter", "modding", "cli"]
+categories = ["development-tools", "command-line-utilities"]
 repository.workspace = true
 
 [[bin]]

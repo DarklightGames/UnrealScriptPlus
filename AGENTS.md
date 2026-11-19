@@ -25,7 +25,7 @@ Paths below are relative to `crates/usagi-core`.
 | `tests/` | Integration tests. `tests/lints.rs` covers the lints and `tests/symbols.rs` the symbol table. |
 
 `defaultproperties` blocks aren't parsed by the grammar. They are parsed by the
-`t3d` crate (a git dependency pinned by `rev` in `Cargo.toml`).
+`t3d` crate (on crates.io).
 
 ## Commands
 
