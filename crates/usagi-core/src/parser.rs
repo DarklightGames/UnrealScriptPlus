@@ -83,8 +83,8 @@ fn precedence(verb: &DyadicVerb) -> u8 {
         | DyadicVerb::CompareEqual
         | DyadicVerb::CompareApproximatelyEqual
         | DyadicVerb::ClockwiseFrom => 24,
-        DyadicVerb::CompareNotEqual
-        | DyadicVerb::BitwiseAnd
+        DyadicVerb::CompareNotEqual => 26,
+        DyadicVerb::BitwiseAnd
         | DyadicVerb::BitwiseExclusiveOr
         | DyadicVerb::BitwiseOr => 28,
         DyadicVerb::LogicalAnd | DyadicVerb::LogicalExclusiveOr => 30,
@@ -92,6 +92,8 @@ fn precedence(verb: &DyadicVerb) -> u8 {
         DyadicVerb::MultiplyAssign | DyadicVerb::DivideAssign | DyadicVerb::AddAssign => 34,
         DyadicVerb::Concatenate | DyadicVerb::ConcatenateSpace => 40,
         DyadicVerb::ConcatenateAssign | DyadicVerb::ConcatenateSpaceAssign => 44,
+        // TODO: `-=` is 45 for strings but 34 for numbers, vectors and
+        // rotators (see Object.uc). Use the operand's type once it's known.
         DyadicVerb::SubtractAssign => 45,
         DyadicVerb::Assign => 46, // TODO: just a guess
     }
@@ -254,11 +256,13 @@ fn parse_expression_from_nodes(nodes: &[Node]) -> Result<Box<AstNode<Expression>
             dyadic_verbs.push((precedence(&verb), index, verb));
         }
     }
-    // Split the expression at the operator with the highest precedence value
-    // (the first one, if there's a tie; the sort is stable).
-    // TODO: secondarily, sort by order!
-    dyadic_verbs.sort_by(|a, b| b.0.cmp(&a.0));
-    if let Some((_, index, verb)) = dyadic_verbs.into_iter().next() {
+    // Split the expression at the operator with the highest precedence value,
+    // the last one if there's a tie: operators of equal precedence group from
+    // the left, as in UCC (`A - B - C` is `(A - B) - C`).
+    if let Some((_, index, verb)) = dyadic_verbs
+        .into_iter()
+        .max_by_key(|&(precedence, index, _)| (precedence, index))
+    {
         return Ok(Box::new(AstNode {
             span: AstSpan::from(nodes),
             data: Expression::DyadicExpression {

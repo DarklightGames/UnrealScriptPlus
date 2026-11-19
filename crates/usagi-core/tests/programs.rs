@@ -455,13 +455,36 @@ fn operator_precedence() {
         ("A -= B + C", DyadicVerb::SubtractAssign),
         ("A = B -= C", DyadicVerb::Assign),
         ("A dot B + C", DyadicVerb::Add),
-        ("A dot B * C", DyadicVerb::Dot), // a tie goes to the first
+        // Operators of equal precedence group from the left, so a tie goes
+        // to the last: `(A dot B) * C`.
+        ("A dot B * C", DyadicVerb::Multiply),
+        ("A * B dot C", DyadicVerb::Dot),
+        // `!=` (26) binds more tightly than `&` (28).
+        ("A != B & C", DyadicVerb::BitwiseAnd),
+        ("A & B != C", DyadicVerb::BitwiseAnd),
         ("A ClockwiseFrom B", DyadicVerb::ClockwiseFrom),
     ] {
         match &expression(source).data {
             Expression::DyadicExpression { verb: v, .. } => assert_eq!(*v, verb, "{}", source),
             other => panic!("{}: {:?}", source, other),
         }
+    }
+}
+
+#[test]
+fn equal_precedence_groups_from_the_left() {
+    use usagi_core::ast::{DyadicVerb, Expression};
+    // `A - B - C` is `(A - B) - C`.
+    match &expression("A - B - C").data {
+        Expression::DyadicExpression { lhs, verb, rhs } => {
+            assert_eq!(*verb, DyadicVerb::Subtract);
+            assert!(matches!(
+                lhs.data,
+                Expression::DyadicExpression { verb: DyadicVerb::Subtract, .. }
+            ));
+            assert!(matches!(rhs.data, Expression::Identifier(_)));
+        }
+        other => panic!("{:?}", other),
     }
 }
 
