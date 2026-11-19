@@ -41,6 +41,14 @@ Ideas that aren't implemented yet. For the lints that exist, see
 * Unsafe fixes for an editor to offer.
 * SARIF output, for GitHub code scanning.
 
+## Testing against the engine
+
+* Check what UnrealScript actually does by running it in the engine. usagi
+  would generate UnrealScript test classes (e.g. to pin down operator
+  precedence, or whether a lint's fix changes behavior), then either run them
+  with UCC itself or hand them to the user to run, and read the results back
+  from the log.
+
 ## Build
 
 * Clean up after an interrupted build: on Ctrl-C, stop UCC and remove the
