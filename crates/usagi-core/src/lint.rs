@@ -223,6 +223,8 @@ lints! {
         "A bare `return;` as the last statement of a function."),
     RedundantCaseBeforeDefault = ("R014", "redundant-case-before-default", Redundancy, Warning, Sometimes,
         "An empty `case` that falls through to `default`."),
+    RedundantVarCategory = ("R015", "redundant-var-category", Redundancy, Warning, Always,
+        "A `var(Category)` whose category is the class's name, which `var()` uses already."),
 
     // Naming
     ConstNameCase = ("N001", "const-name-case", Naming, Warning, Never,

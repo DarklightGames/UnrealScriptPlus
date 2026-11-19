@@ -1850,6 +1850,26 @@ impl Visit for Rc<AstNode<VarDeclaration>> {
             .map(|m| (m.data.to_string(), m.span))
             .collect();
         check_modifier_order(&modifiers, "Variable", self.span, visitor);
+
+        // `var()` puts the variable in a category named after the class.
+        if let Some(category) = &self.category
+            && let Some(class) = visitor.symbols.class()
+            && category.data.eq_ignore_ascii_case(&class.name.string)
+        {
+            let fix = Fix::safe(
+                "Replace with `var()`",
+                vec![Edit::replace(category.span.start..category.span.end, "()")],
+            );
+            visitor.report_with_fix(
+                Lint::RedundantVarCategory,
+                format!(
+                    "The category {:?} is the class's name, which `var()` uses already",
+                    category.data
+                ),
+                category.span,
+                fix,
+            )
+        }
     }
 }
 

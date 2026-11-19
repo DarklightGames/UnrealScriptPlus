@@ -129,6 +129,7 @@ never applied from the command line; they are for an editor to offer.
 | R012 | `redundant-self` | Warning | Yes | A `Self.` qualifier that doesn't change what a name refers to: no argument, local or const of the enclosing function hides the member. |
 | R013 | `redundant-return` | Warning | Sometimes | A bare `return;` as the last statement of a function. A body that is only `return;` is allowed, since it deliberately stubs out the parent's version. |
 | R014 | `redundant-case-before-default` | Warning | Sometimes | An empty `case` label directly before `default:`, which runs the same code without it. Labels whose value has side effects, such as a function call, are allowed. |
+| R015 | `redundant-var-category` | Warning | Yes | A `var(Category)` whose category is the class's name, e.g. `var(Foo)` in class `Foo`. `var()` already uses the class's name. |
 
 ### Naming
 

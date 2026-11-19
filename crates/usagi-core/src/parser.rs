@@ -466,12 +466,14 @@ impl UnrealScriptParser {
         )
     }
 
-    fn var_category(input: Node) -> Result<String> {
-        match_nodes!(input.into_children();
-            [unqualified_identifier(id)] => Ok(id.data.string),
+    fn var_category(input: Node) -> Result<AstNode<String>> {
+        let span = AstSpan::from(&input);
+        let data = match_nodes!(input.into_children();
+            [unqualified_identifier(id)] => id.data.string,
             // we still want to mark the category as present, even if it's empty
-            [] => Ok(String::new())
-        )
+            [] => String::new()
+        );
+        Ok(AstNode { span, data })
     }
 
     // https://stackoverflow.com/questions/69612563/pattern-matching-in-rust-macro
@@ -609,7 +611,7 @@ impl UnrealScriptParser {
     }
 
     fn var_declaration(input: Node) -> Result<AstNode<VarDeclaration>> {
-        let mut category: Option<String> = None;
+        let mut category: Option<AstNode<String>> = None;
         let mut modifiers = Vec::new();
         let mut type_: Option<Type> = None;
         let mut names = Vec::new();

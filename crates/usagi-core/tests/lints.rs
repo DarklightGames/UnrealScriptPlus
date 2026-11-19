@@ -1335,6 +1335,11 @@ fn class_with(body: &str) -> String {
 #[test]
 fn fixes() {
     assert_fix(
+        "R015",
+        "class Foo extends Object;\nvar( foo ) config int A;\nvar() int B;\nvar(Bar) int C;\n",
+        "class Foo extends Object;\nvar() config int A;\nvar() int B;\nvar(Bar) int C;\n",
+    );
+    assert_fix(
         "F003",
         "class Foo extends Object;\nvar config /* c */ private int A;\nstatic final private function F();\n",
         "class Foo extends Object;\nvar private /* c */ config int A;\nprivate final static function F();\n",

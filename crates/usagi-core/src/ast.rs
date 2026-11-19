@@ -342,7 +342,8 @@ pub struct StructDeclaration {
 
 #[derive(Debug)]
 pub struct VarDeclaration {
-    pub category: Option<String>,
+    /// The `(...)` after `var`, with its span (parentheses included).
+    pub category: Option<AstNode<String>>,
     pub modifiers: Vec<AstNode<VarModifier>>,
     pub type_: Type,
     pub names: Vec<AstNode<VarName>>,
