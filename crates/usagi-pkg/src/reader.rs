@@ -2,6 +2,7 @@
 
 use crate::{Error, Result};
 
+#[derive(Debug, Clone)]
 pub struct Reader<'a> {
     bytes: &'a [u8],
     pos: usize,
@@ -40,6 +41,11 @@ impl<'a> Reader<'a> {
     pub fn u32(&mut self, what: &'static str) -> Result<u32> {
         let bytes = self.bytes(4, what)?;
         Ok(u32::from_le_bytes(bytes.try_into().expect("4 bytes")))
+    }
+
+    pub fn u16(&mut self, what: &'static str) -> Result<u16> {
+        let bytes = self.bytes(2, what)?;
+        Ok(u16::from_le_bytes(bytes.try_into().expect("2 bytes")))
     }
 
     pub fn i32(&mut self, what: &'static str) -> Result<i32> {

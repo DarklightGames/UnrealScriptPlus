@@ -115,7 +115,8 @@ document, update the document in the same change.
 | `src/flags.rs` | Package flags and object flags. |
 | `src/uz2.rs` | Decompressing and compressing `.uz2` files. |
 | `src/edit.rs` | Changing package files in place (`set_package_flags`). |
-| `src/package.rs` | `Package`: reads a file (decompressing a `.uz2`), and looks up names, paths and outers. |
+| `src/properties.rs` | Objects' tagged properties (`Package::properties`), and their values as T3D. |
+| `src/package.rs` | `Package`: reads a file (decompressing a `.uz2`), keeps its exports' data, and looks up names, paths, outers and references. |
 | `src/reader.rs` | The byte cursor: integers, compact indices and strings. |
 | `src/error.rs` | `Error`. |
 | `tests/` | Integration tests; `tests/common/mod.rs` writes packages (summary, tables and data) and `.uz2` files. |

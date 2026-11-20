@@ -12,12 +12,14 @@ also at version 128 and licensee version 29, but a different
 those games' installs and the Darkest Hour source tree.
 
 The [`usagi-pkg`](../crates/usagi-pkg) crate reads this format (so far, the
-summary, the name, import and export tables, and `.uz2` files), and
-`usagi pkg list` prints a package's summary, imports and exports.
+summary, the name, import and export tables, objects' tagged properties, and
+`.uz2` files), and `usagi pkg list` prints a package's summary, imports and
+exports.
 
 It covers the *container*: the summary, the name, import and export tables, and
-how they reference each other. It doesn't cover what's inside an export's data
-(properties, bytecode, textures and so on).
+how they reference each other. Of what's inside an export's data, it covers
+only the [tagged properties](#tagged-properties) at its start, not the native
+data after them (bytecode, texture mipmaps and so on).
 
 The references are to the engine source (`Core/...`) and were checked by
 reading all 847 packages of a UT2004 install, versions 68 to 128, with a
@@ -32,6 +34,8 @@ throwaway reader. Every one of them matched the layout below.
 | `Core/Src/UnMisc.cpp` | `FString`. |
 | `Core/Src/UnCoreNet.cpp` | `UPackageMap`, which uses generations. |
 | `Core/Inc/FFileManagerGeneric.h` | `.uz2` compression. |
+| `Core/Src/UnClass.cpp` | `FPropertyTag` and `UStruct::SerializeTaggedProperties`: tagged properties. |
+| `Core/Src/UnProp.cpp` | Each property type's `SerializeItem` (its value) and `ExportTextItem` (its T3D text). |
 
 ## Primitive types
 
@@ -365,6 +369,122 @@ followed by the array. The loader uses it to skip the array and load it later.
 So **moving an export's data within the file breaks it** unless those offsets
 are fixed up, which needs knowledge of the object's format. Copying export data
 verbatim is only safe at the same offset.
+
+## Tagged properties
+
+Most objects' data starts with their *tagged properties*: the script-visible
+properties whose values differ from their class's defaults (`UObject::Serialize`
+in `Core/Src/UnObj.cpp`, then `UStruct::SerializeTaggedProperties` in
+`Core/Src/UnClass.cpp`). Each is a tag followed by its value, and the list
+ends with the name `None`. What follows is the object's native data, if its
+class has any: a texture's mipmaps, a mesh's vertices, a function's bytecode.
+
+usagi reads them as described here. This was
+checked on the 1,703 packages of a Red Orchestra install with Darkest Hour
+(textures, meshes, sounds, scripts and maps): every object's properties read
+to their `None`.
+
+### Where they are
+
+- An object with `RF_HasStack` (such as an actor in a map) starts with its
+  state frame (`FStateFrame`): `Node` (an object reference), `StateNode` (an
+  object reference), `ProbeMask` (`u64`), `LatentAction` (`i32`) and, if
+  `Node` isn't 0, the offset in its code (a compact index). The properties
+  follow it.
+- A class (`ClassIndex` 0) has no tagged properties at the start: its data is
+  its `UStruct`, `UState` and `UClass` fields (including its bytecode), and its
+  default properties come at the end, as tagged properties. usagi doesn't
+  read them yet.
+- Every other object starts with its properties. Objects of native classes
+  with no script properties (functions, properties, enums, ...) start with
+  `None` alone.
+
+### The tag (`FPropertyTag`)
+
+| Field | Type | Notes |
+|---|---|---|
+| `Name` | compact index | A name. `None` ends the list, and the tag has nothing else. |
+| `Info` | `u8` | Bits 0-3: the type. Bits 4-6: the size. Bit 7: an array index follows, or for a bool, its value. |
+| `StructName` | compact index | A name. Only for a struct (type 10). |
+| `Size` | `u8`, `u16` or `i32` | Only if bits 4-6 are 5, 6 or 7. |
+| `ArrayIndex` | 1, 2 or 4 bytes | Only if bit 7 is set and the type isn't bool. |
+
+Bits 4-6 of `Info` are the value's size: 0 to 4 for 1, 2, 4, 12 and 16
+bytes, and 5, 6 and 7 for a size in a `u8`, `u16` or `i32` after the tag.
+
+The array index is the element of a static array (`var int Foo[4]`). If the
+first byte's top bit is clear, it's the index; if the top two bits are `10`,
+the index is the other 6 bits and the next byte (big-endian, 14 bits);
+if they're `11`, it's the other 6 bits and the next three bytes (30 bits).
+
+The types (`Core/Inc/UnNames.h`), and their values (`SerializeItem`):
+
+| Type | Name | Value |
+|---|---|---|
+| 1 | `ByteProperty` | `u8`. An enum's value is its number: which enum isn't stored. |
+| 2 | `IntProperty` | `i32` |
+| 3 | `BoolProperty` | None: the value is bit 7 of `Info`, and the size is 0. |
+| 4 | `FloatProperty` | `f32` |
+| 5 | `ObjectProperty` | An object reference (compact index). |
+| 6 | `NameProperty` | A name (compact index). |
+| 7 | `DelegateProperty` | An object reference, then a name: the function. |
+| 8 | `ClassProperty` | An object reference. |
+| 9 | `ArrayProperty` | A dynamic array: see [Arrays](#arrays). |
+| 10 | `StructProperty` | A struct: see [Structs](#structs). |
+| 11 | `VectorProperty` | 3 `f32`s. Not in Red Orchestra's packages: a vector is a struct. |
+| 12 | `RotatorProperty` | 3 `i32`s. Not in Red Orchestra's packages: a rotator is a struct. |
+| 13 | `StrProperty` | An `FString`. |
+| 14 | `MapProperty` | Not in Red Orchestra's packages. |
+| 15 | `FixedArrayProperty` | Not in Red Orchestra's packages, but for two tags in one Darkest Hour map, whose name (`None,Tree_round_Lowpoly3,1All_Trees_veg`) isn't a property's. The engine skips them by their size. |
+
+When the engine loads an object, it looks each tag's name up in the class.
+A property it doesn't find, or whose type or struct name doesn't match, is
+skipped by its size, with a warning. So a reader without the classes can skip
+any property by its size, except, from licensee version 28, a struct
+(below).
+
+### Structs
+
+From licensee version 28 (`0x1C`; UT2004 and Red Orchestra are 29), a
+struct's value is itself a list of tagged properties ending in `None`, except
+for `Vector`, `Rotator` and `Color`, which are stored in binary
+(`UStructProperty::SerializeItem`). Before it, every struct is stored in
+binary: its fields in order, with no tags, so reading one needs its
+definition.
+
+In binary, `Vector` is `X`, `Y`, `Z` (`f32`s), `Rotator` is `Pitch`, `Yaw`,
+`Roll` (`i32`s), and `Color` is `B`, `G`, `R`, `A` (bytes), in the order the
+struct declares them in `Object.uc`.
+
+**The size in a tagged struct's tag can be wrong**, and the loader ignores
+it: from licensee version 28, it reads the struct by its tags, and doesn't
+seek to where the size says it ends. The size is wrong because of how the
+engine works it out when it saves: it serializes the value to a counting
+archive (`FArchiveCountSize`), and to build each tag inside the struct, it
+counts that property's value with a second counting archive whose
+`MapObject` and `MapName` are the first's, which aren't overridden and return
+0. So every object and name inside the struct is counted as one byte. When
+the real index takes 3 bytes or more (an index of 8,192 or more), the
+property's real size is 3 or more, so its tag gets a size byte (bits 4-6 are
+5), which the struct's size didn't count. A struct's size is short by one
+byte for each such property in it. This happens in big maps, where export
+and name indices are large: an actor's `Region`, whose `Zone` is an object.
+
+So a tagged struct must be read by its tags, as usagi does.
+
+### Arrays
+
+A dynamic array's value is its length (a compact index), then its elements,
+each as `SerializeItem` writes the element type. The tag doesn't say what the
+element type is, so the elements can't be read without the class, except
+that an array of tagged structs is self-describing.
+
+The size of an array of tagged structs is wrong in the same way as a
+struct's (Materials of a static mesh in a big map, for example). usagi takes
+an array's elements to be tagged structs if they read as such (each a
+non-empty list of properties of known types ending in `None`), and either
+end where the tag's size says, or there's no tag where the size says but
+there is one where they end. Otherwise it skips the array by its size.
 
 ## Compressed packages (`.uz2`)
 

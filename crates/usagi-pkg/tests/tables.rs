@@ -63,6 +63,7 @@ fn sample() -> PackageBytes {
                 ..ExportBytes::default()
             },
         ],
+        data: Vec::new(),
     }
 }
 

@@ -181,6 +181,9 @@ pub struct PackageBytes {
     pub names: Vec<Vec<u8>>,
     pub imports: Vec<ImportBytes>,
     pub exports: Vec<ExportBytes>,
+    /// The data of the first exports; the others get `size` filler bytes.
+    /// An export's `size` isn't changed to match.
+    pub data: Vec<Vec<u8>>,
 }
 
 impl PackageBytes {
@@ -192,9 +195,12 @@ impl PackageBytes {
             body.extend(entry);
         }
         let mut offsets = Vec::new();
-        for export in &self.exports {
+        for (i, export) in self.exports.iter().enumerate() {
             offsets.push(summary_len + body.len() as i32);
-            body.resize(body.len() + export.size.max(0) as usize, 0xAB);
+            match self.data.get(i) {
+                Some(data) => body.extend(data),
+                None => body.resize(body.len() + export.size.max(0) as usize, 0xAB),
+            }
         }
         let import_offset = summary_len + body.len() as i32;
         for import in &self.imports {
