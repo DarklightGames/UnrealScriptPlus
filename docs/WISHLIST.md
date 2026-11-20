@@ -49,6 +49,16 @@ Ideas that aren't implemented yet. For the lints that exist, see
   with UCC itself or hand them to the user to run, and read the results back
   from the log.
 
+## A persistent runtime
+
+* A usagi runtime that loads a game's packages (and, potentially, its source)
+  into memory once, up front, and keeps indexes and caches: classes and their
+  defaults, where each object is, who refers to what. Commands now read every
+  file they need each time they run; exporting with class defaults and
+  cross-package references (see [ASSET_PIPELINE.md](ASSET_PIPELINE.md)) would
+  read many. The same runtime could serve an interactive mode, a TUI, and a
+  language server.
+
 ## Build
 
 * Clean up after an interrupted build: on Ctrl-C, stop UCC and remove the

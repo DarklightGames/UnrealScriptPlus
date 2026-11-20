@@ -18,8 +18,9 @@ exports, and `usagi pkg obj` objects' properties.
 
 It covers the *container*: the summary, the name, import and export tables, and
 how they reference each other. Of what's inside an export's data, it covers
-only the [tagged properties](#tagged-properties) at its start, not the native
-data after them (bytecode, texture mipmaps and so on).
+the [tagged properties](#tagged-properties) at its start and, for some
+classes, the [native data](#native-data) after them (so far, textures and
+palettes, which usagi doesn't read yet).
 
 The references are to the engine source (`Core/...`) and were checked by
 reading all 847 packages of a UT2004 install, versions 68 to 128, with a
@@ -36,6 +37,8 @@ throwaway reader. Every one of them matched the layout below.
 | `Core/Inc/FFileManagerGeneric.h` | `.uz2` compression. |
 | `Core/Src/UnClass.cpp` | `FPropertyTag` and `UStruct::SerializeTaggedProperties`: tagged properties. |
 | `Core/Src/UnProp.cpp` | Each property type's `SerializeItem` (its value) and `ExportTextItem` (its T3D text). |
+| `Engine/Inc/UnTex.h`, `Engine/Src/UnTex.cpp` | `UTexture`, `FMipmap` and `UPalette`: textures' native data. |
+| `Engine/Inc/UnRenderResource.h` | `ETextureFormat` and `FColor`. |
 
 ## Primitive types
 
@@ -485,6 +488,85 @@ an array's elements to be tagged structs if they read as such (each a
 non-empty list of properties of known types ending in `None`), and either
 end where the tag's size says, or there's no tag where the size says but
 there is one where they end. Otherwise it skips the array by its size.
+
+## Native data
+
+After an object's tagged properties (after their `None`) comes its class's
+native data, written by the class's C++ `Serialize` after `Super::Serialize`
+has written the properties. Its layout depends on the class, and isn't
+described anywhere in the data: a reader has to know the class. `usagi pkg
+export` writes it, unread, to an object's `.bin` file.
+
+### Textures (`Engine.Texture`)
+
+`UTexture::Serialize` (`Engine/Src/UnTex.cpp`) writes only the mipmaps, with
+`SerializeMips`; `UMaterial` and `UBitmapMaterial` write nothing of their own.
+The mipmaps are an array of `FMipmap` (`Engine/Inc/UnTex.h`, its
+`operator<<`):
+
+| Field | Type | Notes |
+|---|---|---|
+| Count | compact index | The number of mipmaps, largest first. |
+
+then for each mipmap:
+
+| Field | Type | Notes |
+|---|---|---|
+| `SeekPos` | `i32` | The absolute offset in the file of the end of `Data` (see [Absolute offsets inside export data](#absolute-offsets-inside-export-data)). It's only there to skip the data; it's not needed to read it. |
+| `Data` | compact index count, then that many bytes | The pixels, in the texture's `Format` (a `TLazyArray<BYTE>`, `Core/Inc/UnTemplate.h`). |
+| `USize`, `VSize` | `i32`, `i32` | The mipmap's width and height. |
+| `UBits`, `VBits` | `u8`, `u8` | Their base-2 logarithms: `USize` is `1 << UBits`. |
+
+The texture's format isn't in the native data: it's the tagged property
+`Format` (`ETextureFormat`, `Engine/Inc/UnRenderResource.h`), and when it
+isn't stored, it's the default, 0 (`TEXF_P8`). How each format stores a
+mipmap's pixels, with the number of textures of each in UT2004's
+`Textures/*.utx`:
+
+| `Format` | Name | Pixels | Textures |
+|---|---|---|---|
+| 0 | `TEXF_P8` | 1 byte per pixel: an index into the texture's `Palette` (a tagged property, a reference to a `Palette` object). | 559 |
+| 1 | `TEXF_RGBA7` | Not found in UT2004's textures, so not described here. | 0 |
+| 2 | `TEXF_RGB16` | Not found in UT2004's textures, so not described here. | 0 |
+| 3 | `TEXF_DXT1` | BC1: 8 bytes per 4×4 block. | 2,992 |
+| 4 | `TEXF_RGB8` | Not found in UT2004's textures, so not described here. | 0 |
+| 5 | `TEXF_RGBA8` | 4 bytes per pixel, in the order **B, G, R, A** (`FColor` in memory on Intel; UModel reads it as BGRA8). | 663 |
+| 6 | `TEXF_NODATA` | Not found in UT2004's textures, so not described here. | 0 |
+| 7 | `TEXF_DXT3` | BC2: 16 bytes per 4×4 block. | 1,511 |
+| 8 | `TEXF_DXT5` | BC3: 16 bytes per 4×4 block. | 3,860 |
+| 9 | `TEXF_L8` | 1 byte per pixel, grey. | 0 |
+| 10 | `TEXF_G16` | 2 bytes per pixel, grey. | 3 |
+| 11 | `TEXF_RRRGGGBBB` | Not found in UT2004's textures, so not described here. | 0 |
+
+A compressed mipmap smaller than a block (a 2×2 or 1×1 DXT mipmap) still
+takes a whole block. Rows run top to bottom.
+
+Every one of those 9,588 textures (objects of class `Texture` exactly, not
+its subclasses) read this way to the last byte of its data, with each
+mipmap's size matching its format and dimensions and its `UBits` and `VBits`
+matching its size.
+
+Things to allow for, from the engine and UModel (`Unreal/UnrealMaterial/
+UnTexture2.cpp`):
+
+- A mipmap's data can be empty; UModel uses the first mipmap that has data
+  (it cites `DemoPlayerSkins.utx`).
+- A procedural texture (`bParametric`, such as `FireTexture`) has its data
+  emptied when it's saved: it's made at run time.
+- Before version 84, a texture with `bHasComp` has two arrays of mipmaps,
+  and the first is thrown away.
+
+UnrealEd exports DXT1, DXT3 and DXT5 textures as DDS (`UTextureExporterDDS`
+in `Editor/Src/UnEdFact.cpp`): a DDS header, then every mipmap's data as it
+is. It exports `TEXF_RGBA8` as TGA (`UTextureExporterTGA`), the rows of the
+first mipmap bottom to top, the bytes as they are, since TGA is BGRA too.
+
+### Palettes (`Engine.Palette`)
+
+`UPalette::Serialize` writes its colours, a `TArray<FColor>`: a compact index
+count (256 in every palette in UT2004's textures), then 4 bytes each, in the
+order **R, G, B, A** (`FColor`'s `operator<<`). Before version 66, the alpha
+isn't stored right: the engine sets it to 255 when loading.
 
 ## Compressed packages (`.uz2`)
 
