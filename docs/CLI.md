@@ -519,8 +519,22 @@ It's an error (exit code 2) if an object without wildcards isn't in the
 package, if its class isn't the one given (`Shader'MyTex.Brick'` when it's a
 texture: subclasses don't count), or if a pattern with wildcards matches
 nothing. For an object that the package only refers to, in another
-package, the error says which package it's in; `pkg obj` doesn't read other
-packages. The class in a pattern with wildcards only filters the objects.
+package, the error says which package it's in. The class in a pattern with
+wildcards only filters the objects.
+
+A class's properties are its default properties.
+
+Properties are read by their declarations, as the engine reads them
+([PACKAGE_FORMAT.md](PACKAGE_FORMAT.md#reading-by-the-declarations)): a
+texture's properties are declared by `Engine.Texture` and its superclasses,
+in `System/Engine.u`. usagi finds those packages as the game does, by the
+`Paths` in the `System/Default.ini` of the game the file is in: the nearest
+folder above the file that has one. If that folder is a mod's (a folder in
+another game folder, such as `RedOrchestra/DarkestHour`), the mod's
+`Default.ini` changes the game's `Paths` with `+Paths` and `-Paths`, as UCC
+does for `-mod=`. When a property's declaration can't be found (the file
+isn't in a game folder, or a package is missing), its value is read as well
+as its tag allows, which for some arrays is a guess.
 
 | Flag | Meaning |
 |---|---|
@@ -551,21 +565,20 @@ End Object
 Values are written as UnrealEd writes them: floats with six decimals, objects
 as `Class'Package.Group.Name'` (or `None`), strings in double quotes, names
 bare, bools as `True` and `False`, structs as `(Field=...,...)`, and arrays
-of structs as `((...),(...))`. `Foo(2)=` is element 2 of a static array.
-Only the properties stored in the file are shown: a property whose value is
-the class's default isn't stored. Some values can't be read from the file
-alone, and are written in angle brackets, which isn't T3D:
+as `(1,2,3)` (of structs, `((...),(...))`). `Foo(2)=` is element 2 of a static
+array. Only the properties stored in the file are shown: a property whose
+value is the class's default isn't stored. A byte is its number, even when
+its property is an enum (`LODSet=5`, not `LODSet=LODSET_Interface`). Without
+a property's declaration, some values can't be read from the file alone,
+and are written in angle brackets, which isn't T3D:
 
-- A byte is its number: which enum it belongs to isn't stored, so
-  `LODSet=5`, not `LODSet=LODSET_Interface`.
 - An array whose elements aren't structs: its length and size, since its
   element type isn't stored (`<3 elements, 12 bytes>`).
 - A struct stored in binary (in packages before licensee version 28), or a
   value that doesn't fit its type: its bytes (`<4 bytes: 01 02 03 04>`, up to
   16).
 
-A class's default properties come after its script, which isn't read, so a
-class is shown as a comment saying so.
+For a class, the comment is followed by its default properties.
 
 With `--property`, the text format is a table instead: a row for each object,
 and a column for each property, in the order given. A property that isn't
@@ -591,7 +604,8 @@ Texture'MyTex.UI.Stamina' Format=8
 the object's data, its type (with a struct's name), its array index, its size
 and its value's bytes (the first 32), then the `None` that ends the list and
 the native data after it. An object with a state frame (`RF_HasStack`, such
-as an actor in a map) shows its size first. A struct whose tag has the wrong
+as an actor in a map) shows its size first, and a class the size of its own
+data (`Class data`), which comes before its defaults. A struct whose tag has the wrong
 size (see [PACKAGE_FORMAT.md](PACKAGE_FORMAT.md#structs)) shows both:
 `7 (tag: 6)`.
 
@@ -620,10 +634,12 @@ data. `type` is the engine's name for the type, and `struct` a struct's name.
 A value is a number, a bool, a string (a name, a string, or an object's
 reference), `null` (no object), an object of fields (a vector, rotator or
 colour, or a delegate's `object` and `function`), an array of properties (a
-struct), an array of those (an array of structs), or `{"length": 3, "bytes":
-"..."}` for any other array and `{"bytes": "..."}` for a value that can't be
-read, with every byte in hex. `properties` is `null` for a class, and
-`native_size` is `null` when the properties couldn't all be read.
+struct), an array of values (an array read by its declaration), an array
+of arrays of properties (an array of structs read without it), or
+`{"length": 3, "bytes": "..."}` for any other array and `{"bytes": "..."}` for
+a value that can't be read, with every byte in hex. A class's `properties`
+are its defaults. `native_size` is `null` when the properties couldn't all be
+read.
 
 If an object's data is malformed (a tag that runs past its end, or a name
 out of range), the properties before the problem are shown, then the
@@ -678,10 +694,11 @@ combiner made from it. The exception is the same package given twice, from
 two files: then the collisions are listed, nothing is written, and the command
 exits with code 2.
 
-A class's default properties can't be read (see `pkg obj`), so a class is
-skipped, with a note on standard error. An object whose properties are
-malformed isn't written either: the problem is reported on standard error,
-the other objects are written, and the command exits with code 1.
+A class's `.t3d` is its default properties, and its `.bin` is empty, since
+its own data comes before them. An object whose properties are malformed
+isn't written: the problem is reported on standard error, the other objects
+are written, and the command exits with code 1. Properties are read by their
+declarations, found as for `pkg obj`.
 
 ### Global flags
 

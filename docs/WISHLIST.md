@@ -49,6 +49,15 @@ Ideas that aren't implemented yet. For the lints that exist, see
   with UCC itself or hand them to the user to run, and read the results back
   from the log.
 
+## Packages
+
+* Write a byte whose property is an enum as the enum's value
+  (`LODSet=LODSET_Interface`), as UnrealEd does: the declaration now gives
+  the enum.
+* Fill in properties that aren't stored from the class's defaults, which are
+  a chain: a class's defaults are only those that differ from its
+  superclass's (see [ASSET_PIPELINE.md](ASSET_PIPELINE.md)).
+
 ## A persistent runtime
 
 * A usagi runtime that loads a game's packages (and, potentially, its source)

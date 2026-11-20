@@ -1,6 +1,7 @@
 //! `usagi pkg`: inspect package files.
 
 pub mod export;
+pub mod game;
 pub mod obj;
 
 use std::borrow::Cow;

@@ -5,7 +5,9 @@ use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 
-use usagi_pkg::{Error, ObjectPattern, ObjectRef, Package};
+use std::rc::Rc;
+
+use usagi_pkg::{ObjectPattern, ObjectRef, Package, Packages, SearchPath};
 
 use super::Style;
 use super::obj::{Object, explain, is_class, not_found, write_t3d};
@@ -14,7 +16,9 @@ use crate::cli::{PkgExportArgs, PkgExportLayout};
 /// A package file that has been read.
 struct Input {
     file: String,
-    package: Package,
+    package: Rc<Package>,
+    /// The packages of the game it's in, which declare its objects' classes.
+    packages: Rc<Packages>,
 }
 
 /// `usagi pkg export`: writes each object asked for to a `.bin` file (its
@@ -26,33 +30,34 @@ pub fn export(
     out: &mut impl Write,
     err: &mut impl Write,
 ) -> Result<bool, String> {
+    // One set of packages per game, so each package is read once.
+    let mut games: HashMap<Vec<SearchPath>, Rc<Packages>> = HashMap::new();
     let inputs = args
         .paths
         .iter()
         .map(|path| {
             let file = path.display().to_string();
-            Package::read(path)
-                .map(|package| Input {
-                    file: file.clone(),
-                    package,
-                })
-                .map_err(|e| format!("{}: {}", file, e))
+            let package = Package::read(path).map_err(|e| format!("{}: {}", file, e))?;
+            let packages = Rc::clone(
+                games
+                    .entry(super::game::search_paths(path))
+                    .or_insert_with_key(|paths| Rc::new(Packages::new(paths.clone()))),
+            );
+            Ok(Input {
+                file,
+                package: packages.add(package),
+                packages,
+            })
         })
-        .collect::<Result<Vec<_>, _>>()?;
+        .collect::<Result<Vec<_>, String>>()?;
     let selected = select(&inputs, args)?;
 
     let mut ok = true;
     let mut exports = Vec::new();
     for (input, export) in selected {
-        let object = Object::read(&input.package, export, &[]);
+        let object = Object::read(&input.packages, &input.package, export, &[]);
         match (&object.error, object.end) {
             (None, Some(end)) => exports.push((input, object, end)),
-            (Some(error @ Error::Unsupported(_)), _) => writeln!(
-                err,
-                "usagi: {}: {}: skipped: {}",
-                input.file, object.reference, error
-            )
-            .map_err(|e| e.to_string())?,
             (error, _) => {
                 let error = error.as_ref().expect("an error, since the end isn't known");
                 writeln!(

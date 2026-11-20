@@ -12,15 +12,18 @@ also at version 128 and licensee version 29, but a different
 those games' installs and the Darkest Hour source tree.
 
 The [`usagi-pkg`](../crates/usagi-pkg) crate reads this format (so far, the
-summary, the name, import and export tables, objects' tagged properties, and
-`.uz2` files). `usagi pkg list` prints a package's summary, imports and
-exports, and `usagi pkg obj` objects' properties.
+summary, the name, import and export tables, objects' tagged properties,
+classes and the other native data marked below, and `.uz2` files), and finds
+the packages a package refers to. `usagi pkg list` prints a package's
+summary, imports and exports, and `usagi pkg obj` objects' properties.
 
 It covers the *container*: the summary, the name, import and export tables, and
 how they reference each other. Of what's inside an export's data, it covers
 the [tagged properties](#tagged-properties) at its start and, for some
-classes, the [native data](#native-data) after them (so far, textures and
-palettes, which usagi doesn't read yet).
+classes, the [native data](#native-data) after them: classes, states,
+functions and structs (with their [bytecode](#bytecode)), property
+declarations, enums, constants and text buffers, which usagi reads and writes
+back; and textures and palettes, which it doesn't read yet.
 
 The references are to the engine source (`Core/...`) and were checked by
 reading all 847 packages of a UT2004 install, versions 68 to 128, with a
@@ -35,8 +38,10 @@ throwaway reader. Every one of them matched the layout below.
 | `Core/Src/UnMisc.cpp` | `FString`. |
 | `Core/Src/UnCoreNet.cpp` | `UPackageMap`, which uses generations. |
 | `Core/Inc/FFileManagerGeneric.h` | `.uz2` compression. |
-| `Core/Src/UnClass.cpp` | `FPropertyTag` and `UStruct::SerializeTaggedProperties`: tagged properties. |
-| `Core/Src/UnProp.cpp` | Each property type's `SerializeItem` (its value) and `ExportTextItem` (its T3D text). |
+| `Core/Src/UnClass.cpp` | `FPropertyTag` and `UStruct::SerializeTaggedProperties`: tagged properties. `UField`, `UStruct`, `UState`, `UClass`, `UFunction` and `UConst`'s `Serialize`, and `UStruct::SerializeExpr`: bytecode. |
+| `Core/Inc/UnStack.h` | The bytecode's tokens (`EExprToken`). |
+| `Core/Src/UnProp.cpp` | Each property type's `Serialize` (its declaration), `SerializeItem` (its value) and `ExportTextItem` (its T3D text). |
+| `Core/Src/UnMisc.cpp` | `appFindPackageFile`: finding a package's file by its name. |
 | `Engine/Inc/UnTex.h`, `Engine/Src/UnTex.cpp` | `UTexture`, `FMipmap` and `UPalette`: textures' native data. |
 | `Engine/Inc/UnRenderResource.h` | `ETextureFormat` and `FColor`. |
 
@@ -344,6 +349,20 @@ So rebuilding a package that others import from doesn't break them as long
 as the names, classes, outers and `RF_Public` flags they import stay the same.
 The indices can change freely.
 
+## Finding packages
+
+A package is found by its name (`appFindPackageFile`, `Core/Src/UnMisc.cpp`):
+the engine tries each of the game's `Paths` (`[Core.System]` in its ini) in
+turn. A path is a folder and a file pattern, `../Textures/*.utx`, relative to
+the game's `System` folder: the engine looks for the file named the package's
+name and the pattern's extension (what follows the `*`) in the folder (what
+comes before it), and the first that exists is the package.
+
+A mod's `Paths` (with UCC's `-mod=`) come from its configuration, which UCC
+makes from the game's `Default.ini` changed by the mod's (`+Paths=` adds,
+`-Paths=` removes). They're still relative to the game's `System` folder, so
+a mod's own folders are written `../MyMod/System/*.u`.
+
 ## GUID and generations
 
 Each package has a GUID, generated when it is first saved, and a list of
@@ -395,9 +414,9 @@ to their `None`.
   `Node` isn't 0, the offset in its code (a compact index). The properties
   follow it.
 - A class (`ClassIndex` 0) has no tagged properties at the start: its data is
-  its `UStruct`, `UState` and `UClass` fields (including its bytecode), and its
-  default properties come at the end, as tagged properties. usagi doesn't
-  read them yet.
+  its `UStruct`, `UState` and `UClass` fields (including its bytecode; see
+  [Classes](#classes-states-functions-and-structs)), and its default
+  properties come at the end, as tagged properties.
 - Every other object starts with its properties. Objects of native classes
   with no script properties (functions, properties, enums, ...) start with
   `None` alone.
@@ -483,11 +502,59 @@ element type is, so the elements can't be read without the class, except
 that an array of tagged structs is self-describing.
 
 The size of an array of tagged structs is wrong in the same way as a
-struct's (Materials of a static mesh in a big map, for example). usagi takes
-an array's elements to be tagged structs if they read as such (each a
-non-empty list of properties of known types ending in `None`), and either
-end where the tag's size says, or there's no tag where the size says but
-there is one where they end. Otherwise it skips the array by its size.
+struct's (Materials of a static mesh in a big map, for example), and in some
+other ways too: Darkest Hour's class defaults have arrays of structs whose
+size is 2 bytes short, with no large indices involved. The loader doesn't
+look at it ([below](#reading-by-the-declarations)).
+
+Without the declarations, usagi takes an array's elements to be tagged
+structs if they read as such (each a non-empty list of properties of known
+types ending in `None`), and either end where the tag's size says, or a tag
+follows them and no property's tag is where the size says. A `None` where
+the size says doesn't count: in a short array, the size can end at the `None`
+that ends its last element. Otherwise it skips the array by its size. This is
+a guess, and it's wrong for some of Darkest Hour's arrays: an array of names
+whose bytes happen to read as structs, followed by properties. With the
+declarations, nothing is guessed.
+
+### Reading by the declarations
+
+The loader reads each property by its declaration, which it finds by the
+tag's name in the class (or, for a struct's properties, the struct) and its
+superclasses (`UStruct::SerializeTaggedProperties`):
+
+1. If there's no such property, the value is skipped, by the tag's size.
+2. Old packages: a static array saved before the property became a dynamic
+   array (the tag's type is the array's element type) is read as one element
+   at the tag's array index; and a byte saved before the property became a
+   float is read as a byte.
+3. If the tag's type isn't the property's (`GetID`, the index of its class's
+   name: a `ClassProperty`'s is `ObjectProperty`'s), the array index is
+   beyond a static array's size, a struct's name isn't the property's struct's,
+   or the property isn't stored (`CPF_Native`, or `CPF_Transient`), the value is
+   skipped, by its size.
+4. Otherwise, it's read as the declaration's type reads it (`SerializeItem`),
+   whatever the tag's size says. From licensee version 28, that's where it
+   ends. Before it, the loader then seeks to where the tag's size says it
+   ends, if that's elsewhere (for a struct that has changed).
+
+`SerializeItem` reads a byte, int, float or pointer as such; a bool inside
+an array or struct as a byte (a property's own bool is in its tag); an
+object or name as a compact index; a string as an `FString`; a delegate as an
+object and a name; a dynamic array as its length (a compact index) and its
+elements; a static array (`FixedArrayProperty`) as its elements; a struct as
+[above](#structs), and in binary by its declaration (its own properties, then
+its superclass's, each element of a static array in turn, except those that
+aren't stored); and a map (`MapProperty`) as nothing at all.
+
+usagi reads tagged properties this way when it can find the declarations: in
+the package or the packages it imports, which it finds as
+[the engine does](#finding-packages). A class's declarations are its
+`Children`, a chain of fields through each one's `Next`, and its superclass is
+its `SuperField`. For a property whose declaration can't be found, because a
+package or a superclass can't be read, it guesses as above. This reads every
+class's defaults in UT2004's, Red Orchestra's and Darkest Hour's `.u` files
+(15,147 classes) to their last byte.
 
 ## Native data
 
@@ -496,6 +563,123 @@ native data, written by the class's C++ `Serialize` after `Super::Serialize`
 has written the properties. Its layout depends on the class, and isn't
 described anywhere in the data: a reader has to know the class. `usagi pkg
 export` writes it, unread, to an object's `.bin` file.
+
+### Classes, states, functions and structs
+
+Each serializes its parent's data, then its own (`Core/Src/UnClass.cpp`). A
+class's data comes right after its state frame, if it has one; a state's,
+function's or struct's, after its tagged properties (`None` alone).
+
+`UField`:
+
+| Field | Type | Notes |
+|---|---|---|
+| `SuperField` | object | The superclass, parent state, or the function or struct this one overrides or extends. |
+| `Next` | object | The next field of the struct this one is in. |
+
+`UStruct`, after `UField`:
+
+| Field | Type | Notes |
+|---|---|---|
+| `ScriptText` | object | The source code, a `TextBuffer`. |
+| `Children` | object | The first of its fields. |
+| `FriendlyName` | name | |
+| `StructFlags` | `u32` | From licensee version 26 (`0x1A`). |
+| `Line`, `TextPos` | `i32`, `i32` | Where it is in the source. |
+| `ScriptSize` | `i32` | The size of the [bytecode](#bytecode) in memory. |
+| `Script` | | The bytecode. |
+
+`UState`, after `UStruct`: `ProbeMask` (`u64`), `IgnoreMask` (`u64`),
+`LabelTableOffset` (`u16`) and `StateFlags` (`u32`).
+
+`UClass`, after `UState`, then its default properties as tagged properties:
+
+| Field | Type | Notes |
+|---|---|---|
+| `OldClassRecordSize` | `i32` | Up to version 61. |
+| `ClassFlags` | `u32` | |
+| `ClassGuid` | GUID | |
+| `Dependencies` | array | Each a class (object), `Deep` (`u32`) and `ScriptTextCRC` (`u32`) (`FDependency`). |
+| `PackageImports` | array of names | |
+| `ClassWithin` | object | From version 62. |
+| `ClassConfigName` | name | From version 62. |
+| `HideCategories` | array of names | From version 99. |
+
+An array is a compact index count, then the items.
+
+`UFunction`, after `UStruct`:
+
+| Field | Type | Notes |
+|---|---|---|
+| `ParmsSize` | `u16` | Up to version 63. |
+| `iNative` | `u16` | Its native function number, or 0. |
+| `NumParms` | `u8` | Up to version 63. |
+| `OperPrecedence` | `u8` | |
+| `ReturnValueOffset` | `u16` | Up to version 63. |
+| `FunctionFlags` | `u32` | |
+| `RepOffset` | `u16` | Only if replicated (`FUNC_Net`, `0x40`). |
+
+A struct (`Core.Struct`) is `UStruct` alone.
+
+### Bytecode
+
+The `ScriptSize` before a struct's code is its size **in memory**, which
+isn't its size in the file: in memory, an object reference or a name takes 4
+bytes, and in the file it's a compact index of 1 to 5. So the code can't be
+skipped by its size. The loader reads it expression by expression
+(`UStruct::SerializeExpr`), keeping count of the size in memory, until that
+reaches `ScriptSize`; it fails if it doesn't match exactly. Jump offsets in
+the code are offsets in memory too.
+
+An expression is a token (`EExprToken`, `Core/Inc/UnStack.h`), a byte, then
+what that token reads: values, and other expressions. A token from `0x70`
+calls the native final function with that number; from `0x60`, the native
+function `(token - 0x60) << 8 | next byte`. Both are followed by their
+arguments, expressions up to `EX_EndFunctionParms` (`0x16`). So are
+`EX_VirtualFunction` and `EX_GlobalFunction` (after a name),
+`EX_FinalFunction` (after an object). A function call that's followed by an
+`EX_DebugInfo` (`0x42`) whose version is 100 reads it as part of the call.
+Tokens the engine doesn't read (`0x03`, `0x15`, `0x2B`, `0x35`, `0x3A` to
+`0x3F`, `0x46`, `0x48` to `0x5F`) are an error.
+
+The expressions are as `SerializeExpr` reads them, which isn't always what
+they mean: `EX_BoolVariable` (`0x2D`) has nothing after it, since the
+variable it's about is read as an expression of its own. An `EX_LabelTable`
+(`0x0C`) must start 4-byte aligned in memory; its entries are a name and an
+`i32` each (8 bytes in memory), up to the one named `None`.
+
+Every class, state, function and struct in UT2004's and Red Orchestra's
+and Darkest Hour's `.u` files reads this way to the last byte, and is
+written back the same, byte for byte.
+
+### Property declarations
+
+A property declaration (`IntProperty`, `ArrayProperty`, ...) is a field of a
+class, struct or function: after its tagged properties, `UField`, then
+`UProperty::Serialize` (`Core/Src/UnProp.cpp`), then its class's:
+
+| Field | Type | Notes |
+|---|---|---|
+| `ArrayDim` | `i32` | A static array's size; 1 otherwise. |
+| `PropertyFlags` | `u32` | `CPF_` flags. |
+| `Category` | name | |
+| `RepOffset` | `u16` | Only if replicated (`CPF_Net`, `0x20`). |
+| `CommentString` | `FString` | Only with `CPF_CommentString` (`0x02000000`). |
+
+then, by its class: `ByteProperty`, its enum (object, or 0);
+`ObjectProperty`, its class; `ClassProperty`, its class and metaclass;
+`DelegateProperty`, its function; `StructProperty`, its struct;
+`ArrayProperty`, its element, `Inner` (a property, an object reference);
+`FixedArrayProperty`, `Inner` and its count (`i32`); `MapProperty`, its key
+and value (objects). `IntProperty`, `BoolProperty`, `FloatProperty`,
+`NameProperty`, `StrProperty` and `PointerProperty` add nothing.
+
+### Enums, constants and text buffers
+
+After `UField`, an enum (`UEnum`) has its values, an array of names; a
+constant (`UConst`), its value as source text, an `FString`. A text buffer
+(`UTextBuffer`, a class's source code), after its tagged properties, has
+`Pos` and `Top` (`i32`s) and `Text` (an `FString`).
 
 ### Textures (`Engine.Texture`)
 

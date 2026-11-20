@@ -11,7 +11,7 @@ static analysis on it, building mods with UCC, and reading package files:
 |---|---|
 | `crates/usagi-core` | The library (`usagi_core`): parser, AST, symbol table and lints. |
 | `crates/usagi-pkg` | The package reader (`usagi_pkg`). See [Packages](#packages). |
-| `crates/usagi-cli` | The `usagi` binary: `parse`, `lint` (and `lint rule`), `build` (in `src/build/`), `pkg` (in `src/pkg/`; `pkg obj` in `obj.rs`) and configuration files. Its tests are in `tests/cli.rs`. |
+| `crates/usagi-cli` | The `usagi` binary: `parse`, `lint` (and `lint rule`), `build` (in `src/build/`), `pkg` (in `src/pkg/`; `pkg obj` in `obj.rs`, `pkg export` in `export.rs`, and finding a game's `Paths` in `game.rs`) and configuration files. Its tests are in `tests/cli.rs`. |
 
 Paths below are relative to `crates/usagi-core`.
 
@@ -115,7 +115,11 @@ document, update the document in the same change.
 | `src/flags.rs` | Package flags and object flags. |
 | `src/uz2.rs` | Decompressing and compressing `.uz2` files. |
 | `src/edit.rs` | Changing package files in place (`set_package_flags`). |
-| `src/properties.rs` | Objects' tagged properties (`Package::properties`), and their values as T3D. |
+| `src/properties.rs` | Objects' tagged properties (`Package::properties`), read by their declarations when they can be found, and their values as T3D. |
+| `src/archive.rs` | `Archive` and `Serialize`: native data read and written by one function per type, as the engine does (`Loader`, `Saver`), and `FString`. |
+| `src/class.rs` | Classes, states, functions, structs, property declarations, enums, constants and text buffers (`Package::class`, `Package::read_native`). |
+| `src/script.rs` | UnrealScript bytecode (`Script`, `Expr`). |
+| `src/packages.rs` | `Packages`: finding packages by a game's `Paths`, resolving imports, and finding properties' declarations. |
 | `src/pattern.rs` | Object references and globs (`ObjectPattern`), and finding the objects they match. |
 | `src/package.rs` | `Package`: reads a file (decompressing a `.uz2`), keeps its exports' data, and looks up names, paths, outers and references. |
 | `src/reader.rs` | The byte cursor: integers, compact indices and strings. |

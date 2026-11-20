@@ -41,15 +41,21 @@ What every reader needs, from one place:
 - The package's version and licensee version.
 
 Class chains and defaults come from the game's `.u` files, not from a table
-in usagi: a package only names its classes (`Engine.Texture`), and the
+in usagi (`Packages`, in `usagi-pkg`, does this now: it finds packages by the
+game's `Paths`, resolves imports, finds properties' declarations through the
+class chain, and reads tagged properties by them, including classes'
+defaults): a package only names its classes (`Engine.Texture`), and the
 superclass and `defaultproperties` are in the package that declares the
 class. This needs:
 
 - Reading a class export's data: its `UStruct`, `UState` and `UClass`
   fields, then its default properties (tagged properties, after the script).
-  `usagi pkg obj` can't read them yet.
-- Finding a class's package from the game directory (`--game DIR`, or the
-  root in `usagi.toml`).
+  Done.
+- Finding a class's package from the game directory. Done, from the game's
+  `System/Default.ini` (and a mod's).
+- Not done: a property's value isn't yet combined with its class's default
+  when it isn't stored. The defaults are a chain too: a class's are only
+  those that differ from its superclass's.
 
 ### 1. Native data (`usagi-pkg`)
 

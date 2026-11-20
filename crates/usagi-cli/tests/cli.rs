@@ -2238,11 +2238,33 @@ fn obj_package() -> Vec<u8> {
             (-3, 1, n("Button"), flags, button),
             (-3, 1, n("Bar"), flags, bar),
             (-4, 0, n("Mix"), flags, mix),
-            (0, 0, n("MyClass"), flags, vec![0, 0, 0, 0]),
+            (0, 0, n("MyClass"), flags, class_data()),
             (-3, 0, n("Broken"), flags, broken),
             (-3, 0, n("Odd"), flags | 0x02000000, odd),
         ],
     )
+}
+
+/// A class with no fields or script, whose defaults set `USize=7`: its
+/// `UField`, `UStruct`, `UState` and `UClass` data, then its defaults.
+fn class_data() -> Vec<u8> {
+    let mut data = vec![0, 0]; // SuperField, Next
+    data.extend([0, 0]); // ScriptText, Children
+    data.extend(compact_index(obj_name("MyClass"))); // FriendlyName
+    data.extend(0u32.to_le_bytes()); // StructFlags
+    data.extend(0i32.to_le_bytes()); // Line
+    data.extend(0i32.to_le_bytes()); // TextPos
+    data.extend(0i32.to_le_bytes()); // Script size
+    data.extend([0; 8 + 8 + 2 + 4]); // ProbeMask, IgnoreMask, LabelTableOffset, StateFlags
+    data.extend(0u32.to_le_bytes()); // ClassFlags
+    data.extend([0; 16]); // ClassGuid
+    data.extend([0, 0]); // Dependencies, PackageImports
+    data.push(0); // ClassWithin
+    data.extend(compact_index(obj_name("None"))); // ClassConfigName
+    data.push(0); // HideCategories
+    data.extend(obj_prop("USize", 2, None, &7i32.to_le_bytes()));
+    data.push(0);
+    data
 }
 
 fn obj_dir() -> TempDir {
@@ -2323,7 +2345,7 @@ fn pkg_obj_every_object() {
     let text = String::from_utf8(output).unwrap();
     let expected = format!(
         "// Package'MyPkg.UI'\nBegin Object Class=Package Name=UI\nEnd Object\n\n{}\n{}\n{}\n\
-         // Class'MyPkg.MyClass'\n// a class's default properties can't be read yet\n\n\
+         // Class'MyPkg.MyClass'\nBegin Object Class=Class Name=MyClass\n    USize=7\nEnd Object\n\n\
          // Texture'MyPkg.Broken'\nBegin Object Class=Texture Name=Broken\n    \
          // invalid data at offset 2: the data ends in the property value\nEnd Object\n\n{}",
         BUTTON_T3D, BAR_T3D, MIX_T3D, ODD_T3D
@@ -2447,13 +2469,12 @@ fn pkg_obj_json() {
         properties[6]["value"],
         serde_json::json!({ "length": 2, "bytes": "0102" })
     );
-    // A class: no properties. Cut short: those read, and the error.
-    assert_eq!(objects[4]["properties"], serde_json::Value::Null);
-    assert_eq!(
-        objects[4]["error"],
-        "a class's default properties can't be read yet"
-    );
-    assert_eq!(objects[4]["native_size"], serde_json::Value::Null);
+    // A class: its defaults, after its own data. Cut short: those read, and
+    // the error.
+    assert_eq!(objects[4]["properties"][0]["name"], "USize");
+    assert_eq!(objects[4]["properties"][0]["offset"], 68);
+    assert_eq!(objects[4]["error"], serde_json::Value::Null);
+    assert_eq!(objects[4]["native_size"], 0);
     assert_eq!(objects[5]["properties"], serde_json::json!([]));
     assert_eq!(
         objects[5]["error"],
@@ -2485,10 +2506,13 @@ Texture'MyPkg.UI.Button': 55 bytes at 0x1E8
     pkg_obj(dir.path(), &["MyPkg.MyClass", "MyPkg.Broken", "--raw"])
         .code(1)
         .stdout(
-            "Class'MyPkg.MyClass': 4 bytes at 0x227
-  a class's default properties can't be read yet
+            "Class'MyPkg.MyClass': 75 bytes at 0x227
+  Class data  68 bytes
+  Offset  Name   Type         Index  Size  Bytes
+    0x44  USize  IntProperty      0     4  07 00 00 00
+    0x4A  None
 
-Texture'MyPkg.Broken': 3 bytes at 0x22B
+Texture'MyPkg.Broken': 3 bytes at 0x272
   invalid data at offset 2: the data ends in the property value
 ",
         );
@@ -2553,7 +2577,7 @@ fn pkg_obj_other_types() {
     // After the state frame; a struct whose tag has the wrong size; bytes
     // after the first 32 left out.
     pkg_obj(dir.path(), &["MyPkg.Odd", "--raw"]).code(0).stdout(
-        "Texture'MyPkg.Odd': 121 bytes at 0x22E
+        "Texture'MyPkg.Odd': 121 bytes at 0x275
   State frame  14 bytes
   Offset  Name       Type                      Index        Size  Bytes
      0xE  Scale      FloatProperty                 0           4  00 00 00 3F
@@ -2682,26 +2706,28 @@ fn pkg_export_writes_native_data_and_t3d() {
 #[test]
 fn pkg_export_every_object() {
     let dir = obj_dir();
-    // Not the group, UI.
+    // Not the group, UI. A class's .t3d is its defaults.
     pkg_export(dir.path(), &["MyPkg.utx", "-o", "out"])
         .code(1)
-        .stdout("Exported 4 objects to out\n")
+        .stdout("Exported 5 objects to out\n")
         .stderr(
-            "usagi: MyPkg.utx: Class'MyPkg.MyClass': skipped: a class's default properties \
-             can't be read yet\n\
-             usagi: MyPkg.utx: Texture'MyPkg.Broken': invalid data at offset 2: the data ends in \
+            "usagi: MyPkg.utx: Texture'MyPkg.Broken': invalid data at offset 2: the data ends in \
              the property value\n",
         );
     let out = dir.path().join("out");
-    assert_eq!(files_under(&out).len(), 8);
+    assert_eq!(files_under(&out).len(), 10);
+    assert_eq!(
+        fs::read_to_string(out.join("Class'MyPkg.MyClass'.t3d")).unwrap(),
+        "// Class'MyPkg.MyClass'\nBegin Object Class=Class Name=MyClass\n    USize=7\nEnd Object\n"
+    );
     assert_eq!(
         fs::read_to_string(out.join("Texture'MyPkg.Odd'.t3d")).unwrap(),
         ODD_T3D
     );
-    // A class alone isn't an error, and nor is a group asked for by name.
+    // A group asked for by name isn't an error.
     pkg_export(dir.path(), &["MyPkg.utx", "--class", "Class", "-o", "x"])
         .code(0)
-        .stdout("Exported 0 objects to x\n");
+        .stdout("Exported 1 object to x\n");
     pkg_export(
         dir.path(),
         &["MyPkg.utx", "--object", "MyPkg.UI", "-o", "x"],
@@ -2729,6 +2755,8 @@ fn pkg_export_folder_layout() {
     assert_eq!(
         files_under(&dir.path().join("out")),
         [
+            "MyPkg/Class/MyClass.bin",
+            "MyPkg/Class/MyClass.t3d",
             "MyPkg/Combiner/Mix.bin",
             "MyPkg/Combiner/Mix.t3d",
             "MyPkg/Texture/Odd.bin",

@@ -4,7 +4,9 @@ use std::collections::BTreeSet;
 use std::io::{self, Write};
 
 use serde_json::{Map, Value as Json, json};
-use usagi_pkg::{Error, ObjectPattern, ObjectRef, Package, Property, Value};
+use std::rc::Rc;
+
+use usagi_pkg::{Error, ObjectPattern, ObjectRef, Package, Packages, Property, Value};
 
 use super::{Align, BOLD, CYAN, Column, DIM, Style, column, separated, write_table};
 use crate::cli::{PkgObjArgs, PkgObjFormat};
@@ -22,11 +24,12 @@ pub fn obj(
         return Err("--raw only works with --format text".to_string());
     }
     let file = args.path.display().to_string();
-    let package = Package::read(&args.path).map_err(|e| format!("{}: {}", file, e))?;
+    let packages = Packages::new(super::game::search_paths(&args.path));
+    let package = packages.add(Package::read(&args.path).map_err(|e| format!("{}: {}", file, e))?);
     let exports = select(&package, args, &file)?;
     let objects: Vec<Object> = exports
         .into_iter()
-        .map(|export| Object::read(&package, export, &args.property))
+        .map(|export| Object::read(&packages, &package, export, &args.property))
         .collect();
     let view = View {
         package: &package,
@@ -141,7 +144,14 @@ pub(super) struct Object {
 }
 
 impl Object {
-    pub(super) fn read(package: &Package, export: usize, wanted: &[String]) -> Object {
+    /// Reads an export's properties, by their declarations if `packages`
+    /// has them.
+    pub(super) fn read(
+        packages: &Packages,
+        package: &Rc<Package>,
+        export: usize,
+        wanted: &[String],
+    ) -> Object {
         let mut object = Object {
             export,
             reference: package.reference(ObjectRef::Export(export)),
@@ -151,7 +161,7 @@ impl Object {
             size: package.export_data(export).len(),
             error: None,
         };
-        match package.properties(export) {
+        match packages.properties(package, export) {
             Err(e) => object.error = Some(e),
             Ok(mut properties) => {
                 object.start = properties.start();
@@ -270,7 +280,13 @@ impl View<'_> {
             };
             writeln!(out, "{}", style.paint(BOLD, &header))?;
             if object.start > 0 {
-                writeln!(out, "  State frame  {} bytes", object.start)?;
+                // A class's defaults come after its own data; another
+                // object's properties, after its state frame.
+                let label = match export.class {
+                    ObjectRef::Null => "Class data",
+                    _ => "State frame",
+                };
+                writeln!(out, "  {}  {} bytes", label, object.start)?;
             }
             let data = self.package.export_data(object.export);
             let mut rows: Vec<Vec<String>> = object
@@ -348,7 +364,6 @@ impl View<'_> {
             .iter()
             .map(|object| {
                 let export = &self.package.exports()[object.export];
-                let unsupported = matches!(object.error, Some(Error::Unsupported(_)));
                 json!({
                     "index": ObjectRef::Export(object.export).raw(),
                     "reference": object.reference,
@@ -356,7 +371,7 @@ impl View<'_> {
                     "path": self.package.full_path(ObjectRef::Export(object.export)),
                     "offset": export.serial_offset,
                     "size": object.size,
-                    "properties": (!unsupported).then(|| self.json_properties(&object.properties)),
+                    "properties": self.json_properties(&object.properties),
                     "native_size": object.native_size(),
                     "error": object.error.as_ref().map(|e| e.to_string()),
                 })
@@ -421,6 +436,9 @@ impl View<'_> {
                     .map(|element| self.json_properties(element))
                     .collect(),
             ),
+            Value::List(elements) => {
+                Json::Array(elements.iter().map(|e| self.json_value(e)).collect())
+            }
             Value::Array { len, data } => json!({ "length": len, "bytes": hex_compact(data) }),
             Value::Raw(bytes) => json!({ "bytes": hex_compact(bytes) }),
         }
@@ -443,10 +461,6 @@ pub(super) fn write_t3d(
         ));
     }
     writeln!(out, "{}", style.paint(DIM, &comment))?;
-    if let Some(error @ Error::Unsupported(_)) = &object.error {
-        writeln!(out, "{}", style.paint(DIM, &format!("// {}", error)))?;
-        return Ok(());
-    }
     let export = &package.exports()[object.export];
     writeln!(
         out,
