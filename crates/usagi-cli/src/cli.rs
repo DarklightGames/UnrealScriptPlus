@@ -63,6 +63,51 @@ pub enum PkgCommand {
     /// Show or change packages' flags (`AllowDownload`, `ServerSideOnly`,
     /// ...).
     Flags(PkgFlagsArgs),
+    /// Print objects' properties (`Format`, `USize`, ...) as T3D; with
+    /// `--property`, as a table with a column for each property.
+    Obj(PkgObjArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct PkgObjArgs {
+    /// The package file. A `.uz2` file is decompressed first.
+    pub path: PathBuf,
+
+    /// The objects, as UnrealScript refers to them: `Texture'MyPkg.Walls.Brick'`,
+    /// or without the class, `MyPkg.Walls.Brick`. In the path, `*` matches
+    /// any characters within a name, `**` any characters, and `?` one
+    /// character. Default: every object in the package.
+    #[arg(value_name = "OBJECT")]
+    pub objects: Vec<String>,
+
+    /// Only objects of these classes, by name (`Texture`) or with their
+    /// package (`Engine.Texture`). Subclasses don't match.
+    #[arg(long, value_name = "CLASS", value_delimiter = ',')]
+    pub class: Vec<String>,
+
+    /// Only these properties. The text format shows them as a table, with a
+    /// row for each object and a column for each property.
+    #[arg(long, value_name = "NAME", value_delimiter = ',')]
+    pub property: Vec<String>,
+
+    /// Show where each property is in the object's data, its type and size,
+    /// and its value's bytes. Text format only.
+    #[arg(long)]
+    pub raw: bool,
+
+    /// How to print the properties.
+    #[arg(long, value_enum, default_value_t = PkgObjFormat::Text)]
+    pub format: PkgObjFormat,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum PkgObjFormat {
+    /// T3D, as UnrealEd exports objects; with `--property`, a table.
+    Text,
+    /// One property per line, after its object: `Texture'MyPkg.Brick' Format=5`.
+    Concise,
+    /// A JSON array of objects.
+    Json,
 }
 
 #[derive(Debug, Args)]

@@ -2023,3 +2023,568 @@ fn pkg_flags_colour() {
             "A.u: 0x00010001 (\x1b[32mAllowDownload\x1b[0m, \x1b[31munknown 0x00010000\x1b[0m)\n",
         );
 }
+
+/// A package with these names, imports (class package, class name, outer,
+/// object name) and exports (class, outer, object name, flags, data).
+fn package_file(
+    names: &[&str],
+    imports: &[(i32, i32, i32, i32)],
+    exports: &[(i32, i32, i32, u32, Vec<u8>)],
+) -> Vec<u8> {
+    const HEADER: i32 = 64;
+    let mut body = Vec::new();
+    for name in names {
+        body.extend(compact_index(name.len() as i32 + 1));
+        body.extend(name.as_bytes());
+        body.push(0);
+        body.extend(0x00070010u32.to_le_bytes());
+    }
+    let mut offsets = Vec::new();
+    for export in exports {
+        offsets.push(HEADER + body.len() as i32);
+        body.extend(&export.4);
+    }
+    let import_offset = HEADER + body.len() as i32;
+    for &(class_package, class_name, outer, object_name) in imports {
+        body.extend(compact_index(class_package));
+        body.extend(compact_index(class_name));
+        body.extend(outer.to_le_bytes());
+        body.extend(compact_index(object_name));
+    }
+    let export_offset = HEADER + body.len() as i32;
+    for (export, offset) in exports.iter().zip(offsets) {
+        let (class, outer, object_name, flags, data) = export;
+        body.extend(compact_index(*class));
+        body.extend(compact_index(0));
+        body.extend(outer.to_le_bytes());
+        body.extend(compact_index(*object_name));
+        body.extend(flags.to_le_bytes());
+        body.extend(compact_index(data.len() as i32));
+        if !data.is_empty() {
+            body.extend(compact_index(offset));
+        }
+    }
+    let mut out = Vec::new();
+    for value in [
+        0x9E2A83C1u32 as i32,
+        128 | 29 << 16,
+        0x1,
+        names.len() as i32,
+        HEADER,
+        exports.len() as i32,
+        export_offset,
+        imports.len() as i32,
+        import_offset,
+    ] {
+        out.extend(value.to_le_bytes());
+    }
+    for value in [0x01234567u32, 0x89ABCDEF, 0xDEADBEEF, 0x2A, 1, 4, 10] {
+        out.extend(value.to_le_bytes());
+    }
+    out.extend(body);
+    out
+}
+
+const OBJ_NAMES: &[&str] = &[
+    "None",
+    "Core",
+    "Package",
+    "Class",
+    "Engine",
+    "Texture",
+    "Combiner",
+    "UI",
+    "Button",
+    "Bar",
+    "Mix",
+    "MyClass",
+    "Broken",
+    "Format",
+    "USize",
+    "bMasked",
+    "Region",
+    "Zone",
+    "Pos",
+    "Vector",
+    "Materials",
+    "Material1",
+    "Plane",
+    "Tag",
+    "DefaultTexture",
+    "Actor",
+    "Odd",
+    "Scale",
+    "Text",
+    "OnClick",
+    "Rot",
+    "Rotator",
+    "Tint",
+    "Color",
+    "Items",
+    "Blob",
+    "Inner",
+];
+
+fn obj_name(text: &str) -> i32 {
+    OBJ_NAMES.iter().position(|&n| n == text).unwrap() as i32
+}
+
+/// A property tag for a value of `size` bytes (at most 255), with no array
+/// index, then the value.
+fn obj_prop(name: &str, kind: u8, struct_name: Option<&str>, value: &[u8]) -> Vec<u8> {
+    let mut out = compact_index(obj_name(name));
+    let size = value.len();
+    let bits = match size {
+        1 => 0x00,
+        2 => 0x10,
+        4 => 0x20,
+        12 => 0x30,
+        16 => 0x40,
+        _ => 0x50,
+    };
+    out.push(kind | bits);
+    if let Some(struct_name) = struct_name {
+        out.extend(compact_index(obj_name(struct_name)));
+    }
+    if bits == 0x50 {
+        out.push(size as u8);
+    }
+    out.extend(value);
+    out
+}
+
+/// ```text
+/// -1  Core.Package  Core
+/// -2  Core.Package  Engine
+/// -3  Core.Class    Engine.Texture
+/// -4  Core.Class    Engine.Combiner
+/// -5  Core.Class    Core.Package
+/// -6  Engine.Texture  Engine.DefaultTexture
+///  1  Package   UI
+///  2  Texture   UI.Button   (properties of most types, then native data)
+///  3  Texture   UI.Bar
+///  4  Combiner  Mix
+///  5  Class     MyClass
+///  6  Texture   Broken      (a property tag cut short)
+///  7  Texture   Odd         (a state frame, then the other types)
+/// ```
+fn obj_package() -> Vec<u8> {
+    let n = obj_name;
+    let imports = [
+        (n("Core"), n("Package"), 0, n("Core")),
+        (n("Core"), n("Package"), 0, n("Engine")),
+        (n("Core"), n("Class"), -2, n("Texture")),
+        (n("Core"), n("Class"), -2, n("Combiner")),
+        (n("Core"), n("Class"), -1, n("Package")),
+        (n("Engine"), n("Texture"), -2, n("DefaultTexture")),
+    ];
+    let mut button = obj_prop("Format", 1, None, &[5]);
+    button.extend(obj_prop("USize", 2, None, &256i32.to_le_bytes()));
+    // bMasked=True: the value is the tag's array bit.
+    button.extend([n("bMasked") as u8, 0x80 | 0x50 | 3, 0]);
+    // Tag(2)=Actor
+    button.extend([n("Tag") as u8, 0x80 | 6, 2, n("Actor") as u8]);
+    let vector: Vec<u8> = [1.0f32, 2.5, -3.0]
+        .iter()
+        .flat_map(|v| v.to_le_bytes())
+        .collect();
+    button.extend(obj_prop("Pos", 10, Some("Vector"), &vector));
+    let mut region = obj_prop("Zone", 5, None, &[0x86]);
+    region.extend(obj_prop("USize", 2, None, &7i32.to_le_bytes()));
+    region.push(0);
+    button.extend(obj_prop("Region", 10, Some("Plane"), &region));
+    button.extend(obj_prop("Materials", 9, None, &[2, 1, 2]));
+    button.push(0);
+    button.extend([0xAA, 0xBB, 0xCC]);
+    let mut bar = obj_prop("Format", 1, None, &[3]);
+    bar.push(0);
+    let mut mix = obj_prop("Material1", 5, None, &[2]);
+    mix.push(0);
+    let broken = obj_prop("USize", 2, None, &256i32.to_le_bytes())[..3].to_vec();
+    // Node, StateNode, ProbeMask, LatentAction.
+    let mut odd = vec![0; 14];
+    odd.extend(obj_prop("Scale", 4, None, &0.5f32.to_le_bytes()));
+    odd.extend(obj_prop("Text", 13, None, &[3, b'h', b'i', 0]));
+    odd.extend(obj_prop("OnClick", 7, None, &[0, n("OnClick") as u8]));
+    let rotator: Vec<u8> = [1i32, 2, 3].iter().flat_map(|v| v.to_le_bytes()).collect();
+    odd.extend(obj_prop("Rot", 10, Some("Rotator"), &rotator));
+    odd.extend(obj_prop("Tint", 10, Some("Color"), &[1, 2, 3, 4]));
+    odd.extend(obj_prop("Material1", 5, None, &[0]));
+    let mut element = obj_prop("USize", 2, None, &7i32.to_le_bytes());
+    element.push(0);
+    odd.extend(obj_prop("Items", 9, None, &[&[1][..], &element].concat()));
+    // A struct whose tag says it's a byte shorter than it is.
+    let mut inner = obj_prop("Inner", 10, Some("Plane"), &element);
+    inner[3] -= 1;
+    odd.extend(inner);
+    odd.extend(obj_prop("Blob", 14, None, &(0..40).collect::<Vec<u8>>()));
+    odd.push(0);
+    let flags = 0x00070004;
+    package_file(
+        OBJ_NAMES,
+        &imports,
+        &[
+            (-5, 0, n("UI"), flags, vec![]),
+            (-3, 1, n("Button"), flags, button),
+            (-3, 1, n("Bar"), flags, bar),
+            (-4, 0, n("Mix"), flags, mix),
+            (0, 0, n("MyClass"), flags, vec![0, 0, 0, 0]),
+            (-3, 0, n("Broken"), flags, broken),
+            (-3, 0, n("Odd"), flags | 0x02000000, odd),
+        ],
+    )
+}
+
+fn obj_dir() -> TempDir {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("MyPkg.utx"), obj_package()).unwrap();
+    dir
+}
+
+fn pkg_obj(dir: &Path, args: &[&str]) -> assert_cmd::assert::Assert {
+    usagi(dir)
+        .args(["pkg", "obj", "MyPkg.utx", "--color", "never"])
+        .args(args)
+        .assert()
+}
+
+const BUTTON_T3D: &str = "\
+// Texture'MyPkg.UI.Button' (3 bytes of native data)
+Begin Object Class=Texture Name=Button
+    Format=5
+    USize=256
+    bMasked=True
+    Tag(2)=Actor
+    Pos=(X=1.000000,Y=2.500000,Z=-3.000000)
+    Region=(Zone=Texture'Engine.DefaultTexture',USize=7)
+    Materials=<2 elements, 2 bytes>
+End Object
+";
+
+const BAR_T3D: &str = "\
+// Texture'MyPkg.UI.Bar'
+Begin Object Class=Texture Name=Bar
+    Format=3
+End Object
+";
+
+const MIX_T3D: &str = "\
+// Combiner'MyPkg.Mix'
+Begin Object Class=Combiner Name=Mix
+    Material1=Texture'MyPkg.UI.Button'
+End Object
+";
+
+#[test]
+fn pkg_obj_prints_t3d() {
+    let dir = obj_dir();
+    pkg_obj(dir.path(), &["Texture'MyPkg.UI.Button'"])
+        .code(0)
+        .stdout(BUTTON_T3D);
+    // Without the class, and in any case.
+    pkg_obj(dir.path(), &["mypkg.ui.BUTTON"])
+        .code(0)
+        .stdout(BUTTON_T3D);
+    // Several, once each, in table order.
+    pkg_obj(dir.path(), &["MyPkg.Mix", "MyPkg.UI.*", "MyPkg.UI.Bar"])
+        .code(0)
+        .stdout(format!("{}\n{}\n{}", BUTTON_T3D, BAR_T3D, MIX_T3D));
+    usagi(dir.path())
+        .args(["pkg", "obj", "MyPkg.utx", "MyPkg.Mix", "--color", "always"])
+        .assert()
+        .code(0)
+        .stdout(predicate::str::starts_with(
+            "\x1b[2m// Combiner'MyPkg.Mix'\x1b[0m\n",
+        ));
+}
+
+#[test]
+fn pkg_obj_every_object() {
+    let dir = obj_dir();
+    let output = pkg_obj(dir.path(), &[])
+        .code(1)
+        .stderr(
+            "usagi: MyPkg.utx: Texture'MyPkg.Broken': invalid data at offset 2: the data ends in \
+             the property value\n",
+        )
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(output).unwrap();
+    let expected = format!(
+        "// Package'MyPkg.UI'\nBegin Object Class=Package Name=UI\nEnd Object\n\n{}\n{}\n{}\n\
+         // Class'MyPkg.MyClass'\n// a class's default properties can't be read yet\n\n\
+         // Texture'MyPkg.Broken'\nBegin Object Class=Texture Name=Broken\n    \
+         // invalid data at offset 2: the data ends in the property value\nEnd Object\n\n{}",
+        BUTTON_T3D, BAR_T3D, MIX_T3D, ODD_T3D
+    );
+    assert_eq!(text, expected);
+}
+
+#[test]
+fn pkg_obj_classes() {
+    let dir = obj_dir();
+    pkg_obj(dir.path(), &["--class", "combiner"])
+        .code(0)
+        .stdout(MIX_T3D);
+    pkg_obj(dir.path(), &["--class", "Engine.Combiner"])
+        .code(0)
+        .stdout(MIX_T3D);
+    pkg_obj(
+        dir.path(),
+        &["--class", "Core.Package", "--format", "concise"],
+    )
+    .code(0)
+    .stdout("");
+    pkg_obj(dir.path(), &["--class", "Class"])
+        .code(0)
+        .stdout(predicate::str::starts_with("// Class'MyPkg.MyClass'\n"));
+    pkg_obj(dir.path(), &["MyPkg.**", "--class", "Package,Combiner"])
+        .code(0)
+        .stdout(format!(
+            "// Package'MyPkg.UI'\nBegin Object Class=Package Name=UI\nEnd Object\n\n{}",
+            MIX_T3D
+        ));
+    // A class matches only its own objects, not a subclass's.
+    pkg_obj(dir.path(), &["--class", "Object"])
+        .code(0)
+        .stdout("");
+}
+
+#[test]
+fn pkg_obj_table() {
+    let dir = obj_dir();
+    pkg_obj(
+        dir.path(),
+        &["MyPkg.UI.*", "--property", "Format,usize,bMasked,Tag"],
+    )
+    .code(0)
+    .stdout(
+        "  Object                    Format  usize  bMasked  Tag
+  Texture'MyPkg.UI.Button'  5       256    True     (2)=Actor
+  Texture'MyPkg.UI.Bar'     3       -      -        -
+",
+    );
+    // `?`: an object whose properties couldn't all be read.
+    pkg_obj(dir.path(), &["MyPkg.Broken", "--property", "USize"])
+        .code(1)
+        .stdout("  Object                 USize\n  Texture'MyPkg.Broken'  ?\n");
+}
+
+#[test]
+fn pkg_obj_concise() {
+    let dir = obj_dir();
+    pkg_obj(dir.path(), &["MyPkg.UI.*", "--format", "concise"])
+        .code(0)
+        .stdout(
+            "Texture'MyPkg.UI.Button' Format=5
+Texture'MyPkg.UI.Button' USize=256
+Texture'MyPkg.UI.Button' bMasked=True
+Texture'MyPkg.UI.Button' Tag(2)=Actor
+Texture'MyPkg.UI.Button' Pos=(X=1.000000,Y=2.500000,Z=-3.000000)
+Texture'MyPkg.UI.Button' Region=(Zone=Texture'Engine.DefaultTexture',USize=7)
+Texture'MyPkg.UI.Button' Materials=<2 elements, 2 bytes>
+Texture'MyPkg.UI.Bar' Format=3
+",
+        );
+    pkg_obj(
+        dir.path(),
+        &["MyPkg.UI.*", "--format", "concise", "--property", "format"],
+    )
+    .code(0)
+    .stdout("Texture'MyPkg.UI.Button' Format=5\nTexture'MyPkg.UI.Bar' Format=3\n");
+}
+
+#[test]
+fn pkg_obj_json() {
+    let dir = obj_dir();
+    let output = pkg_obj(dir.path(), &["--format", "json"])
+        .code(1)
+        .get_output()
+        .stdout
+        .clone();
+    let objects: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    let button = &objects[1];
+    assert_eq!(button["index"], 2);
+    assert_eq!(button["reference"], "Texture'MyPkg.UI.Button'");
+    assert_eq!(button["class"], "Texture");
+    assert_eq!(button["path"], "MyPkg.UI.Button");
+    assert_eq!(button["size"], 55);
+    assert_eq!(button["native_size"], 3);
+    assert_eq!(button["error"], serde_json::Value::Null);
+    let properties = &button["properties"];
+    assert_eq!(
+        properties[0],
+        serde_json::json!({
+            "name": "Format", "type": "ByteProperty", "index": 0, "offset": 0,
+            "size": 1, "tag_size": 1, "value": 5
+        })
+    );
+    assert_eq!(properties[2]["value"], true);
+    assert_eq!(properties[3]["index"], 2);
+    assert_eq!(properties[3]["value"], "Actor");
+    assert_eq!(properties[4]["struct"], "Vector");
+    assert_eq!(
+        properties[4]["value"],
+        serde_json::json!({ "X": 1.0, "Y": 2.5, "Z": -3.0 })
+    );
+    assert_eq!(
+        properties[5]["value"][0]["value"],
+        "Texture'Engine.DefaultTexture'"
+    );
+    assert_eq!(properties[5]["value"][1]["value"], 7);
+    assert_eq!(
+        properties[6]["value"],
+        serde_json::json!({ "length": 2, "bytes": "0102" })
+    );
+    // A class: no properties. Cut short: those read, and the error.
+    assert_eq!(objects[4]["properties"], serde_json::Value::Null);
+    assert_eq!(
+        objects[4]["error"],
+        "a class's default properties can't be read yet"
+    );
+    assert_eq!(objects[4]["native_size"], serde_json::Value::Null);
+    assert_eq!(objects[5]["properties"], serde_json::json!([]));
+    assert_eq!(
+        objects[5]["error"],
+        "invalid data at offset 2: the data ends in the property value"
+    );
+}
+
+#[test]
+fn pkg_obj_raw() {
+    let dir = obj_dir();
+    pkg_obj(dir.path(), &["MyPkg.UI", "MyPkg.UI.Button", "--raw"])
+        .code(0)
+        .stdout(
+            "Package'MyPkg.UI': no data
+
+Texture'MyPkg.UI.Button': 55 bytes at 0x1E8
+  Offset  Name       Type                     Index  Size  Bytes
+     0x0  Format     ByteProperty                 0     1  05
+     0x3  USize      IntProperty                  0     4  00 01 00 00
+     0x9  bMasked    BoolProperty                 0     0
+     0xC  Tag        NameProperty                 2     1  19
+    0x10  Pos        StructProperty (Vector)      0    12  00 00 80 3F 00 00 20 40 00 00 40 C0
+    0x1F  Region     StructProperty (Plane)       0    10  11 05 86 0E 22 07 00 00 00 00
+    0x2D  Materials  ArrayProperty                0     3  02 01 02
+    0x33  None
+  Native data  3 bytes at 0x34
+",
+        );
+    pkg_obj(dir.path(), &["MyPkg.MyClass", "MyPkg.Broken", "--raw"])
+        .code(1)
+        .stdout(
+            "Class'MyPkg.MyClass': 4 bytes at 0x227
+  a class's default properties can't be read yet
+
+Texture'MyPkg.Broken': 3 bytes at 0x22B
+  invalid data at offset 2: the data ends in the property value
+",
+        );
+    pkg_obj(dir.path(), &["--raw", "--format", "json"])
+        .code(2)
+        .stderr("usagi: --raw only works with --format text\n");
+}
+
+#[test]
+fn pkg_obj_errors() {
+    let dir = obj_dir();
+    for (object, message) in [
+        (
+            "Shader'MyPkg.UI.Button'",
+            "Shader'MyPkg.UI.Button' isn't a Shader: it's Texture'MyPkg.UI.Button'",
+        ),
+        ("MyPkg.Nope", "MyPkg.Nope isn't in MyPkg.utx"),
+        (
+            "MyPkg.Nope.*",
+            "MyPkg.Nope.* matches no objects in MyPkg.utx",
+        ),
+        (
+            "Texture'Engine.DefaultTexture'",
+            "Texture'Engine.DefaultTexture' isn't in MyPkg.utx: it's imported from the package \
+             Engine",
+        ),
+        (
+            "Texture'MyPkg.Mix",
+            "invalid object reference \"Texture'MyPkg.Mix\": it doesn't end with a '",
+        ),
+    ] {
+        pkg_obj(dir.path(), &[object])
+            .code(2)
+            .stderr(format!("usagi: {}\n", message));
+    }
+    usagi(dir.path())
+        .args(["pkg", "obj", "Missing.utx"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::starts_with("usagi: Missing.utx: "));
+}
+
+const ODD_T3D: &str = "\
+// Texture'MyPkg.Odd'
+Begin Object Class=Texture Name=Odd
+    Scale=0.500000
+    Text=\"hi\"
+    OnClick=None.None
+    Rot=(Pitch=1,Yaw=2,Roll=3)
+    Tint=(B=1,G=2,R=3,A=4)
+    Material1=None
+    Items=((USize=7))
+    Inner=(USize=7)
+    Blob=<40 bytes: 00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F ...>
+End Object
+";
+
+#[test]
+fn pkg_obj_other_types() {
+    let dir = obj_dir();
+    pkg_obj(dir.path(), &["MyPkg.Odd"]).code(0).stdout(ODD_T3D);
+    // After the state frame; a struct whose tag has the wrong size; bytes
+    // after the first 32 left out.
+    pkg_obj(dir.path(), &["MyPkg.Odd", "--raw"]).code(0).stdout(
+        "Texture'MyPkg.Odd': 121 bytes at 0x22E
+  State frame  14 bytes
+  Offset  Name       Type                      Index        Size  Bytes
+     0xE  Scale      FloatProperty                 0           4  00 00 00 3F
+    0x14  Text       StrProperty                   0           4  03 68 69 00
+    0x1A  OnClick    DelegateProperty              0           2  00 1D
+    0x1E  Rot        StructProperty (Rotator)      0          12  01 00 00 00 02 00 00 00 03 00 00 00
+    0x2D  Tint       StructProperty (Color)        0           4  01 02 03 04
+    0x34  Material1  ObjectProperty                0           1  00
+    0x37  Items      ArrayProperty                 0           8  01 0E 22 07 00 00 00 00
+    0x42  Inner      StructProperty (Plane)        0  7 (tag: 6)  0E 22 07 00 00 00 00
+    0x4D  Blob       MapProperty                   0          40  00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F 10 11 12 13 14 15 16 17 18 19 1A 1B 1C 1D 1E 1F ...
+    0x78  None
+",
+    );
+    let output = pkg_obj(dir.path(), &["MyPkg.Odd", "--format", "json"])
+        .code(0)
+        .get_output()
+        .stdout
+        .clone();
+    let objects: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    let values: Vec<&serde_json::Value> = objects[0]["properties"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| &p["value"])
+        .collect();
+    assert_eq!(
+        serde_json::Value::Array(values.into_iter().cloned().collect()),
+        serde_json::json!([
+            0.5,
+            "hi",
+            { "object": null, "function": "OnClick" },
+            { "Pitch": 1, "Yaw": 2, "Roll": 3 },
+            { "B": 1, "G": 2, "R": 3, "A": 4 },
+            null,
+            [[{ "name": "USize", "type": "IntProperty", "index": 0, "offset": 59,
+                "size": 4, "tag_size": 4, "value": 7 }]],
+            [{ "name": "USize", "type": "IntProperty", "index": 0, "offset": 70,
+               "size": 4, "tag_size": 4, "value": 7 }],
+            { "bytes": (0..40u8).map(|b| format!("{:02x}", b)).collect::<String>() },
+        ])
+    );
+    assert_eq!(objects[0]["properties"][7]["tag_size"], 6);
+}

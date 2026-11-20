@@ -13,8 +13,8 @@ those games' installs and the Darkest Hour source tree.
 
 The [`usagi-pkg`](../crates/usagi-pkg) crate reads this format (so far, the
 summary, the name, import and export tables, objects' tagged properties, and
-`.uz2` files), and `usagi pkg list` prints a package's summary, imports and
-exports.
+`.uz2` files). `usagi pkg list` prints a package's summary, imports and
+exports, and `usagi pkg obj` objects' properties.
 
 It covers the *container*: the summary, the name, import and export tables, and
 how they reference each other. Of what's inside an export's data, it covers
@@ -379,7 +379,7 @@ in `Core/Src/UnObj.cpp`, then `UStruct::SerializeTaggedProperties` in
 ends with the name `None`. What follows is the object's native data, if its
 class has any: a texture's mipmaps, a mesh's vertices, a function's bytecode.
 
-usagi reads them as described here. This was
+usagi reads them as described here; `usagi pkg obj` prints them. This was
 checked on the 1,703 packages of a Red Orchestra install with Darkest Hour
 (textures, meshes, sounds, scripts and maps): every object's properties read
 to their `None`.

@@ -1,5 +1,7 @@
 //! `usagi pkg`: inspect package files.
 
+pub mod obj;
+
 use std::borrow::Cow;
 use std::io::{self, Write};
 use std::path::Path;

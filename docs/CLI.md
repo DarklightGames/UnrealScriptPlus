@@ -8,6 +8,7 @@ cargo install usagi-cli                  # or download a binary from the Release
 usagi lint                               # lint every .uc file under the current directory
 usagi build                              # compile the mod's out-of-date packages
 usagi pkg list System/Engine.u --all     # show a package's summary, imports and exports
+usagi pkg obj Textures/UI.utx "Texture'UI.HUD.*'" --property Format,LODSet
 ```
 
 ## Commands
@@ -20,6 +21,7 @@ usagi pkg list System/Engine.u --all     # show a package's summary, imports and
 | [`build`](#usagi-build) | Compile a mod's out-of-date packages with UCC. |
 | [`pkg list`](#usagi-pkg-list-path) | Show a package file's summary, dependencies, imports and exports. |
 | [`pkg flags`](#usagi-pkg-flags-paths) | Show or change package files' flags. |
+| [`pkg obj`](#usagi-pkg-obj-path-objects) | Show objects' properties, as T3D or as a table. |
 | [`format`](#usagi-format) | Not implemented yet. |
 
 Every command that takes paths accepts files and directories. Directories are
@@ -489,6 +491,144 @@ Each file is changed, or fails, on its own. If any fails (it can't be read,
 isn't a package, or is official), the command reports each failure and exits
 with code 2.
 
+### `usagi pkg obj <PATH> [OBJECTS]...`
+
+Prints the properties of objects in a package file: the script-visible
+properties stored with each object (a texture's `Format`, `USize`, `LODSet`,
+...), read as described in
+[PACKAGE_FORMAT.md](PACKAGE_FORMAT.md#tagged-properties).
+
+```sh
+usagi pkg obj MyTex.utx "Texture'MyTex.Walls.Brick'"           # one object, as T3D
+usagi pkg obj MyTex.utx MyTex.Walls.Brick                      # the class is optional
+usagi pkg obj MyTex.utx "Texture'MyTex.UI.*'" --property LODSet   # a table, for an audit
+usagi pkg obj MyTex.utx --class Shader --format json
+```
+
+Objects are named as UnrealScript names them, `Class'Package.Group.Name'`,
+or without the class, `Package.Group.Name`. Names are matched ignoring case.
+In the path, `*` matches any characters within a name, `**` any characters
+(including `.`), and `?` one character within a name: `MyTex.UI.*` is every
+object directly in the group `UI`, and `MyTex.UI.**` every object in it and
+its groups. With no objects, every object in the package is shown. Objects
+are shown in the order of the export table, once each.
+
+It's an error (exit code 2) if an object without wildcards isn't in the
+package, if its class isn't the one given (`Shader'MyTex.Brick'` when it's a
+texture: subclasses don't count), or if a pattern with wildcards matches
+nothing. For an object that the package only refers to, in another
+package, the error says which package it's in; `pkg obj` doesn't read other
+packages. The class in a pattern with wildcards only filters the objects.
+
+| Flag | Meaning |
+|---|---|
+| `--class CLASS,...` | Only objects of these classes: by name (`Texture`) or with their package (`Engine.Texture`), in any case. Subclasses don't match. Can be given more than once. |
+| `--property NAME,...` | Only these properties, in any case. In the text format, the objects are shown as a table. Can be given more than once. |
+| `--raw` | Show where each property is in the object's data, its type, its size and its value's bytes. Text format only. |
+| `--format text\|concise\|json` | How to print the properties. Default: `text`. |
+
+`text` prints each object as T3D, as UnrealEd exports objects, after a
+comment with its reference and how much native data follows its
+properties:
+
+```text
+// Texture'MyTex.UI.Stamina' (32,786 bytes of native data)
+Begin Object Class=Texture Name=Stamina
+    InternalTime=2027224930
+    InternalTime(1)=1082066665
+    bAlphaTexture=True
+    LODSet=5
+    Format=8
+    UClampMode=1
+    UBits=7
+    USize=128
+    UClamp=128
+End Object
+```
+
+Values are written as UnrealEd writes them: floats with six decimals, objects
+as `Class'Package.Group.Name'` (or `None`), strings in double quotes, names
+bare, bools as `True` and `False`, structs as `(Field=...,...)`, and arrays
+of structs as `((...),(...))`. `Foo(2)=` is element 2 of a static array.
+Only the properties stored in the file are shown: a property whose value is
+the class's default isn't stored. Some values can't be read from the file
+alone, and are written in angle brackets, which isn't T3D:
+
+- A byte is its number: which enum it belongs to isn't stored, so
+  `LODSet=5`, not `LODSet=LODSET_Interface`.
+- An array whose elements aren't structs: its length and size, since its
+  element type isn't stored (`<3 elements, 12 bytes>`).
+- A struct stored in binary (in packages before licensee version 28), or a
+  value that doesn't fit its type: its bytes (`<4 bytes: 01 02 03 04>`, up to
+  16).
+
+A class's default properties come after its script, which isn't read, so a
+class is shown as a comment saying so.
+
+With `--property`, the text format is a table instead: a row for each object,
+and a column for each property, in the order given. A property that isn't
+stored is `-`; a static array is shown as `(0)=... (2)=...`. Use it to check
+that a setting is the same everywhere, such as every texture in a UI group
+having `LODSet=5`:
+
+```text
+  Object                      Format  LODSet  USize
+  Texture'MyTex.UI.Stamina'   8       5       128
+  Texture'MyTex.UI.Needle'    8       -       128
+```
+
+`concise` prints one line per property, after its object's reference, for
+`grep` and the like:
+
+```text
+Texture'MyTex.UI.Stamina' LODSet=5
+Texture'MyTex.UI.Stamina' Format=8
+```
+
+`--raw` prints a table for each object of where each property's tag starts in
+the object's data, its type (with a struct's name), its array index, its size
+and its value's bytes (the first 32), then the `None` that ends the list and
+the native data after it. An object with a state frame (`RF_HasStack`, such
+as an actor in a map) shows its size first. A struct whose tag has the wrong
+size (see [PACKAGE_FORMAT.md](PACKAGE_FORMAT.md#structs)) shows both:
+`7 (tag: 6)`.
+
+`json` prints an array with an object for each:
+
+```json
+{
+  "index": 2,
+  "reference": "Texture'MyTex.UI.Stamina'",
+  "class": "Texture",
+  "path": "MyTex.UI.Stamina",
+  "offset": 73246,
+  "size": 32845,
+  "properties": [
+    { "name": "bAlphaTexture", "type": "BoolProperty", "index": 0, "offset": 13, "size": 0, "tag_size": 0, "value": true },
+    { "name": "LODSet", "type": "ByteProperty", "index": 0, "offset": 16, "size": 1, "tag_size": 1, "value": 5 }
+  ],
+  "native_size": 32786,
+  "error": null
+}
+```
+
+`index` is the export's number, `offset` and `size` its data's place in the
+file, and each property's `offset` is where its tag starts in the object's
+data. `type` is the engine's name for the type, and `struct` a struct's name.
+A value is a number, a bool, a string (a name, a string, or an object's
+reference), `null` (no object), an object of fields (a vector, rotator or
+colour, or a delegate's `object` and `function`), an array of properties (a
+struct), an array of those (an array of structs), or `{"length": 3, "bytes":
+"..."}` for any other array and `{"bytes": "..."}` for a value that can't be
+read, with every byte in hex. `properties` is `null` for a class, and
+`native_size` is `null` when the properties couldn't all be read.
+
+If an object's data is malformed (a tag that runs past its end, or a name
+out of range), the properties before the problem are shown, then the
+problem: as a comment in T3D, a line in `--raw`, `error` in JSON, and `?` in a
+table for a property that wasn't found. Each such problem is also reported on
+standard error, and the command exits with code 1.
+
 ### Global flags
 
 | Flag | Meaning |
@@ -504,8 +644,8 @@ machine unresponsive.
 
 ## Output formats
 
-These are the formats of `lint` and `parse`. For `pkg list`, see
-[its section](#usagi-pkg-list-path).
+These are the formats of `lint` and `parse`. For `pkg list` and `pkg obj`,
+see [their](#usagi-pkg-list-path) [sections](#usagi-pkg-obj-path-objects).
 
 | Format | Output |
 |---|---|
@@ -529,7 +669,8 @@ Besides lint codes, a problem's code can be `parse` (a recovered problem),
 | 0 | Nothing to report. Recovered problems alone don't count, unless `--strict` is used. |
 | 1 | `lint`: a lint problem, or a file that failed to parse; with `--fix`, a problem left after fixing; with `--diff`, a change to show. `parse`: a file that failed to parse. |
 | 1 | `build`: a package failed to compile, or a source file failed to parse. |
-| 2 | A usage error, a configuration error or a missing path. `pkg list`, `pkg flags`: a file that can't be read or isn't a valid package; `pkg flags`: an official package without `--force`. `build`: a setup problem, such as a missing folder, or a locked package that would have to be rebuilt. |
+| 1 | `pkg obj`: an object whose data is malformed. |
+| 2 | A usage error, a configuration error or a missing path. `pkg list`, `pkg flags`, `pkg obj`: a file that can't be read or isn't a valid package; `pkg flags`: an official package without `--force`; `pkg obj`: an object that isn't in the package or isn't of the class given, or an invalid object reference. `build`: a setup problem, such as a missing folder, or a locked package that would have to be rebuilt. |
 
 ## Configuration
 
