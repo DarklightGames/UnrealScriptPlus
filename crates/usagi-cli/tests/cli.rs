@@ -249,16 +249,26 @@ fn windows_1252_source() {
 fn rule() {
     let dir = project(&[]);
     usagi(dir.path())
-        .args(["rule", "self-assignment"])
+        .args(["lint", "rule", "self-assignment"])
         .assert()
         .code(0)
         .stdout(predicate::str::starts_with("S003 self-assignment"));
     usagi(dir.path())
-        .args(["rule", "--all"])
+        .args(["lint", "rule", "--all"])
         .assert()
         .code(0)
         .stdout(predicate::str::contains("R013"));
-    usagi(dir.path()).args(["rule", "Z999"]).assert().code(2);
+    usagi(dir.path())
+        .args(["lint", "rule", "Z999"])
+        .assert()
+        .code(2);
+    // `rule` is no longer a command of its own.
+    usagi(dir.path()).args(["rule", "S003"]).assert().code(2);
+    // Lint flags don't go with `rule`.
+    usagi(dir.path())
+        .args(["lint", "--fix", "rule", "S003"])
+        .assert()
+        .code(2);
 }
 
 #[test]
@@ -1555,7 +1565,7 @@ fn a_closed_pipe_stops_quietly() {
     // Close the read end before `usagi` writes, as `head` does once it has
     // what it needs. `usagi` is stopped by SIGPIPE, without an error.
     let mut child = std::process::Command::new(assert_cmd::cargo::cargo_bin("usagi"))
-        .args(["rule", "--all"])
+        .args(["lint", "rule", "--all"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

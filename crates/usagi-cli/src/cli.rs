@@ -38,8 +38,6 @@ pub enum Command {
     Parse(ParseArgs),
     /// Parse files and report lint problems.
     Lint(LintArgs),
-    /// Explain a lint, or list every lint.
-    Rule(RuleArgs),
     /// Format files (not implemented yet).
     Format(FormatArgs),
     /// Compile a mod's out-of-date packages with UCC.
@@ -321,7 +319,11 @@ pub struct ParseArgs {
 }
 
 #[derive(Debug, Args)]
+#[command(args_conflicts_with_subcommands = true)]
 pub struct LintArgs {
+    #[command(subcommand)]
+    pub command: Option<LintCommand>,
+
     #[command(flatten)]
     pub files: FileArgs,
 
@@ -354,6 +356,12 @@ pub struct LintArgs {
     /// changing any file.
     #[arg(long, conflicts_with = "fix")]
     pub diff: bool,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum LintCommand {
+    /// Explain a lint, or list every lint.
+    Rule(RuleArgs),
 }
 
 #[derive(Debug, Args)]

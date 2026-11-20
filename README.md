@@ -43,8 +43,8 @@ Run usagi from the root of your source tree:
 usagi lint              # check every .uc file under the current directory
 usagi lint --fix        # apply safe fixes, then report what's left
 usagi lint --diff       # preview the fixes without changing any file
-usagi rule S003         # explain what a lint means
-usagi rule --all        # list every lint
+usagi lint rule S003    # explain what a lint means
+usagi lint rule --all   # list every lint
 ```
 
 To keep your settings with your project, add a `usagi.toml`:

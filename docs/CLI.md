@@ -17,7 +17,7 @@ usagi pkg obj Textures/UI.utx "Texture'UI.HUD.*'" --property Format,LODSet
 |---|---|
 | [`lint`](#usagi-lint-paths) | Parse files and report lint problems; apply fixes. |
 | [`parse`](#usagi-parse-paths) | Parse files and report syntax errors. |
-| [`rule`](#usagi-rule-codename--usagi-rule---all) | Explain a lint, or list every lint. |
+| [`lint rule`](#usagi-lint-rule-codename--usagi-lint-rule---all) | Explain a lint, or list every lint. |
 | [`build`](#usagi-build) | Compile a mod's out-of-date packages with UCC. |
 | [`pkg list`](#usagi-pkg-list-path) | Show a package file's summary, dependencies, imports and exports. |
 | [`pkg flags`](#usagi-pkg-flags-paths) | Show or change package files' flags. |
@@ -68,6 +68,11 @@ file) is not applied.
 
 Use `--diff` as a dry run: it prints what would change and writes nothing.
 
+### `usagi lint rule <CODE|NAME>` / `usagi lint rule --all`
+
+Explains a lint, or lists every lint. It doesn't take `lint`'s flags or
+paths. A path named `rule` has to be written another way, such as `./rule`.
+
 ### `usagi parse [PATHS]...`
 
 Parses each file and reports syntax errors and recovered problems.
@@ -78,10 +83,6 @@ Parses each file and reports syntax errors and recovered problems.
 | `--ast` | Print each file's syntax tree. |
 | `--statistics` | Print how many files had each outcome: `ok`, `recovered`, `strict_error`, `syntax_error`, `panic` or `io_error`. |
 | `--format`, `--include`, `--exclude` | As for `lint`. |
-
-### `usagi rule <CODE|NAME>` / `usagi rule --all`
-
-Explains a lint, or lists every lint.
 
 ### `usagi format`
 
