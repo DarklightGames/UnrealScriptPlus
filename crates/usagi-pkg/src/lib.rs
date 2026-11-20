@@ -16,6 +16,7 @@ mod edit;
 mod error;
 mod flags;
 mod package;
+mod pattern;
 mod properties;
 mod reader;
 mod summary;
@@ -26,6 +27,7 @@ pub use edit::set_package_flags;
 pub use error::{Error, Result};
 pub use flags::{ObjectFlags, PackageFlags};
 pub use package::{Package, package_name};
+pub use pattern::ObjectPattern;
 pub use properties::{Properties, Property, PropertyType, TAGGED_STRUCTS_LICENSEE_VERSION, Value};
 pub use summary::{
     Generation, Guid, Heritage, PACKAGE_FILE_TAG, Summary, TRIPWIRE_PACKAGE_FILE_TAG,
