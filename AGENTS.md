@@ -126,6 +126,12 @@ reject only what it would fail on. The crate has 100% line, region and
 function coverage from its own tests (`cargo llvm-cov --summary-only -p
 usagi-pkg --all-features`); keep it that way, as for the parser.
 
+Objects are addressed UnrealScript-style, as the SDK and UnrealScript do:
+`Class'Package.Group.Name'` (e.g. `Texture'MyPkg.Walls.Brick'`). Use this
+form wherever the CLI prints an object reference. Where it takes one, the
+class is optional (`MyPkg.Walls.Brick`), since the path alone identifies the
+object.
+
 Tests write their packages as bytes: there are no game files in the
 repository. Check changes against a real game's packages (every one should
 read) on a local install, which is read-only: never write to it.
