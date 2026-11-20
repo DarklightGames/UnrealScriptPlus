@@ -58,6 +58,11 @@ Ideas that aren't implemented yet. For the lints that exist, see
   a chain: a class's defaults are only those that differ from its
   superclass's (see [ASSET_PIPELINE.md](ASSET_PIPELINE.md)).
 
+## A compiler
+
+* Compile UnrealScript to packages without UCC: see
+  [COMPILER.md](COMPILER.md).
+
 ## A persistent runtime
 
 * A usagi runtime that loads a game's packages (and, potentially, its source)
@@ -85,3 +90,7 @@ of the annoyances of UnrealScript. For example:
 
 This would require a transpiler step, but investigation needs to be done as to how
 feasible this is given the odd environment that `UCC` operates in.
+
+With usagi's own compiler ([COMPILER.md](COMPILER.md#extending-the-language)),
+no transpiler is needed: new syntax compiles straight to the engine's
+bytecode, as long as it can be expressed in it.
