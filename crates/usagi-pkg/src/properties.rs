@@ -10,6 +10,9 @@
 //! say how: a byte's enum, a dynamic array's element type, and the layout of
 //! a struct stored in binary.
 
+use std::rc::Rc;
+
+use crate::packages::{Decl, Lookup, Packages, Scope, Type};
 use crate::reader::Reader;
 use crate::{Error, ObjectRef, Package, Result};
 
@@ -18,9 +21,6 @@ use crate::{Error, ObjectRef, Package, Result};
 /// struct is stored in binary, in the struct's layout
 /// (`UStructProperty::SerializeItem`).
 pub const TAGGED_STRUCTS_LICENSEE_VERSION: u16 = 0x1C;
-
-/// `RF_HasStack`: the object's data starts with its state frame.
-const RF_HAS_STACK: u32 = 0x0200_0000;
 
 /// How deeply structs are read inside structs. A struct nested deeper is
 /// kept as raw bytes.
@@ -182,6 +182,9 @@ pub enum Value {
     /// follows them when there's none where the size says (for a size
     /// that's wrong, as above).
     StructArray(Vec<Vec<Property>>),
+    /// A dynamic or static array read by its declaration, which gives its
+    /// elements' type.
+    List(Vec<Value>),
     /// A dynamic array: its length, and its elements' bytes, whose type
     /// isn't stored.
     Array {
@@ -204,6 +207,8 @@ pub struct Properties<'a> {
     reader: Reader<'a>,
     start: usize,
     done: bool,
+    /// Where the properties' declarations are, if they're read by them.
+    schema: Option<(&'a Packages, Scope)>,
 }
 
 impl Properties<'_> {
@@ -228,7 +233,11 @@ impl Iterator for Properties<'_> {
         if self.done {
             return None;
         }
-        let property = read_property(self.package, &mut self.reader, 0)
+        let schema = self
+            .schema
+            .as_ref()
+            .map(|(packages, scope)| Schema { packages, scope });
+        let property = read_property(self.package, &mut self.reader, 0, schema)
             .map_err(data_error)
             .transpose();
         self.done = !matches!(property, Some(Ok(_)));
@@ -238,35 +247,35 @@ impl Iterator for Properties<'_> {
 
 impl Package {
     /// The tagged properties of export `export`. They're at the start of
-    /// its data, after its state frame if it has one (`RF_HasStack`). An
-    /// export with no data has none.
+    /// its data, after its state frame if it has one (`RF_HasStack`); for a
+    /// class, they're its default properties, after its script
+    /// ([`Package::class`]). An export with no data has none.
     ///
     /// # Errors
     ///
-    /// [`Error::Unsupported`] for a class: its default properties come after
-    /// its script, which isn't read. [`Error::InvalidData`] if its state
-    /// frame is cut short.
+    /// [`Error::InvalidData`] if its state frame, or a class's data before
+    /// its defaults, is malformed.
     ///
     /// # Panics
     ///
     /// If `export` is out of range.
     pub fn properties(&self, export: usize) -> Result<Properties<'_>> {
-        let flags = self.exports()[export].flags;
-        if self.exports()[export].class == ObjectRef::Null {
-            return Err(Error::Unsupported(
-                "a class's default properties can't be read yet".to_string(),
-            ));
-        }
         let data = self.export_data(export);
+        let start = if data.is_empty() {
+            0
+        } else if self.exports()[export].class == ObjectRef::Null {
+            self.class(export)?.1
+        } else {
+            self.state_frame(export)?.1
+        };
         let mut reader = Reader::new(data);
-        if !data.is_empty() && flags.0 & RF_HAS_STACK != 0 {
-            skip_state_frame(&mut reader).map_err(data_error)?;
-        }
+        reader.seek(start);
         Ok(Properties {
             package: self,
             start: reader.pos(),
             reader,
             done: data.is_empty(),
+            schema: None,
         })
     }
 
@@ -300,6 +309,10 @@ impl Package {
             Value::Struct(properties) => self.t3d_struct(properties),
             Value::StructArray(elements) => {
                 let elements: Vec<String> = elements.iter().map(|e| self.t3d_struct(e)).collect();
+                format!("({})", elements.join(","))
+            }
+            Value::List(elements) => {
+                let elements: Vec<String> = elements.iter().map(|e| self.t3d_value(e)).collect();
                 format!("({})", elements.join(","))
             }
             Value::Array { len, data } => format!(
@@ -349,23 +362,9 @@ fn plural(count: usize) -> &'static str {
     if count == 1 { "" } else { "s" }
 }
 
-/// Skips an object's state frame (`FStateFrame`, in `UObject::Serialize`):
-/// its state's code (`Node`), its state, its probe mask (a `QWORD`), its
-/// latent action and, if it has code, the offset in it.
-fn skip_state_frame(r: &mut Reader) -> Result<()> {
-    let node = r.index("state frame")?;
-    r.index("state frame")?;
-    r.bytes(8, "state frame")?;
-    r.i32("state frame")?;
-    if node != 0 {
-        r.index("state frame")?;
-    }
-    Ok(())
-}
-
 /// An error in an export's data: the reader's offsets are in the data, not
 /// the file.
-fn data_error(error: Error) -> Error {
+pub(crate) fn data_error(error: Error) -> Error {
     match error {
         Error::UnexpectedEof { offset, what } => Error::InvalidData {
             offset,
@@ -377,7 +376,12 @@ fn data_error(error: Error) -> Error {
 
 /// Reads a property, or `None` at the `None` that ends the list. `depth` is
 /// how many structs it's inside.
-fn read_property(package: &Package, r: &mut Reader, depth: usize) -> Result<Option<Property>> {
+fn read_property(
+    package: &Package,
+    r: &mut Reader,
+    depth: usize,
+    schema: Option<Schema>,
+) -> Result<Option<Property>> {
     let offset = r.pos();
     let property_name = name(package, r, "property tag")?;
     if property_name.eq_ignore_ascii_case("None") {
@@ -412,19 +416,43 @@ fn read_property(package: &Package, r: &mut Reader, depth: usize) -> Result<Opti
         0
     };
     let value_offset = r.pos();
-    let value = match kind {
-        // A bool's value is the tag's array bit.
-        PropertyType::Bool => {
-            r.bytes(tag_size, "property value")?;
-            Value::Bool(info & 0x80 != 0)
+    let tag = Tag {
+        id: info & 0x0F,
+        kind,
+        struct_name,
+        array_index,
+        size: tag_size,
+        array_bit: info & 0x80 != 0,
+    };
+    let lookup = schema.map(|schema| {
+        (
+            schema,
+            schema.packages.find_property(schema.scope, property_name),
+        )
+    });
+    let declared = match &lookup {
+        Some((schema, Lookup::Found(decl))) => {
+            declared_value(package, *schema, decl, &tag, r, depth)?
         }
-        _ => match tagged_value(package, kind, struct_name, tag_size, r, depth) {
-            Some(value) => value,
-            None => {
-                let bytes = r.bytes(tag_size, "property value")?;
-                decode(package, kind, struct_name, bytes)
-                    .unwrap_or_else(|| Value::Raw(bytes.to_vec()))
+        _ => None,
+    };
+    let value = match declared {
+        Some(value) => value,
+        // The engine skips a property it can't read by its declaration.
+        None if matches!(lookup, Some((_, Lookup::Found(_) | Lookup::Missing))) => {
+            sized_value(package, &tag, r)?
+        }
+        // Without its declaration, it's read as well as the tag allows.
+        None => match kind {
+            // A bool's value is the tag's array bit.
+            PropertyType::Bool => {
+                r.bytes(tag_size, "property value")?;
+                Value::Bool(tag.array_bit)
             }
+            _ => match tagged_value(package, kind, struct_name, tag_size, r, depth) {
+                Some(value) => value,
+                None => sized_value(package, &tag, r)?,
+            },
         },
     };
     Ok(Some(Property {
@@ -472,11 +500,16 @@ fn tagged_value(
                 }
                 elements.push(element);
             }
+            // The engine reads the elements and doesn't look at the size, so
+            // where they end wins if a tag follows them, unless a property's
+            // tag is where the size says: then they're something else that
+            // happens to read as structs, and swallow the properties after.
             let mut sized = r.clone();
             sized.seek(r.pos().saturating_add(tag_size));
             if elements.is_empty()
                 || (t.pos() != sized.pos()
-                    && (is_tag(package, &mut sized) || !is_tag(package, &mut t.clone())))
+                    && (tag_at(package, &mut sized) == Some(TagStart::Property)
+                        || tag_at(package, &mut t.clone()).is_none()))
             {
                 return None;
             }
@@ -486,6 +519,261 @@ fn tagged_value(
     };
     *r = t;
     Some(value)
+}
+
+/// A tag's fields that decide how its value is read.
+struct Tag<'n> {
+    /// The type's ID (`Info & 0x0F`).
+    id: u8,
+    kind: PropertyType,
+    struct_name: Option<&'n str>,
+    array_index: u32,
+    size: usize,
+    /// The tag's array bit, which is a bool's value.
+    array_bit: bool,
+}
+
+/// Where declarations come from, and the struct or class whose properties
+/// are being read.
+#[derive(Clone, Copy)]
+struct Schema<'s> {
+    packages: &'s Packages,
+    scope: &'s Scope,
+}
+
+/// The value as many bytes as the tag says, decoded as well as the tag
+/// allows: how the engine skips a property it doesn't read.
+fn sized_value(package: &Package, tag: &Tag, r: &mut Reader) -> Result<Value> {
+    let bytes = r.bytes(tag.size, "property value")?;
+    Ok(match tag.kind {
+        PropertyType::Bool => Value::Bool(tag.array_bit),
+        _ => decode(package, tag.kind, tag.struct_name, bytes)
+            .unwrap_or_else(|| Value::Raw(bytes.to_vec())),
+    })
+}
+
+/// A value read by its property's declaration, as
+/// `UStruct::SerializeTaggedProperties` does; `None` if the engine would
+/// skip it (its tag doesn't match the declaration, or it isn't stored), or
+/// if a declaration it needs couldn't be read.
+fn declared_value(
+    package: &Package,
+    schema: Schema,
+    decl: &Decl,
+    tag: &Tag,
+    r: &mut Reader,
+    depth: usize,
+) -> Result<Option<Value>> {
+    let start = r.pos();
+    let licensee = package.summary.licensee_version();
+    let value = match &decl.ty {
+        // Old packages: a static array saved before it became dynamic.
+        Type::Array(inner) if tag.id != 9 && inner.id() == tag.id => {
+            typed_value(package, schema.packages, inner, r, depth)?
+        }
+        // Old packages: a byte saved before it became a float.
+        Type::Float if tag.id == 1 => Some(Value::Float(f32::from(r.u8("property value")?))),
+        ty if ty.id() != tag.id => return Ok(None),
+        _ if tag.array_index >= decl.array_dim.max(0) as u32 => return Ok(None),
+        Type::Struct(name, _)
+            if !tag
+                .struct_name
+                .is_some_and(|tag_name| tag_name.eq_ignore_ascii_case(name)) =>
+        {
+            return Ok(None);
+        }
+        _ if !decl.is_stored() => return Ok(None),
+        Type::Bool => Some(Value::Bool(tag.array_bit)),
+        ty => typed_value(package, schema.packages, ty, r, depth)?,
+    };
+    if value.is_none() {
+        r.seek(start);
+    } else if licensee < TAGGED_STRUCTS_LICENSEE_VERSION && r.pos() != start + tag.size {
+        // Before tagged structs, the engine trusts the size.
+        r.seek(start + tag.size);
+    }
+    Ok(value)
+}
+
+/// A value of type `ty`, as its property's `SerializeItem` reads it; `None`
+/// if a declaration it needs couldn't be read.
+fn typed_value(
+    package: &Package,
+    packages: &Packages,
+    ty: &Type,
+    r: &mut Reader,
+    depth: usize,
+) -> Result<Option<Value>> {
+    let what = "property value";
+    let checked_object = |r: &mut Reader| -> Result<ObjectRef> {
+        let at = r.pos();
+        let raw = r.index(what)?;
+        let object = ObjectRef::from_raw(raw);
+        let in_range = match object {
+            ObjectRef::Null => true,
+            ObjectRef::Export(i) => i < package.exports().len(),
+            ObjectRef::Import(i) => i < package.imports().len(),
+        };
+        if in_range {
+            Ok(object)
+        } else {
+            Err(Error::InvalidData {
+                offset: at,
+                reason: format!("object reference {} is out of range", raw),
+            })
+        }
+    };
+    Ok(Some(match ty {
+        Type::Byte(_) => Value::Byte(r.u8(what)?),
+        Type::Int | Type::Pointer => Value::Int(r.i32(what)?),
+        Type::Bool => Value::Bool(r.u8(what)? != 0),
+        Type::Float => Value::Float(f32::from_bits(r.u32(what)?)),
+        Type::Object => Value::Object(checked_object(r)?),
+        Type::Name => Value::Name(name(package, r, what)?.to_string()),
+        Type::Str => Value::Str(r.string(what)?),
+        Type::Delegate => Value::Delegate {
+            object: checked_object(r)?,
+            function: name(package, r, what)?.to_string(),
+        },
+        // `UMapProperty::SerializeItem` reads nothing.
+        Type::Map => Value::Raw(Vec::new()),
+        Type::Array(inner) => {
+            let at = r.pos();
+            let count = r.index(what)?;
+            let count = usize::try_from(count).map_err(|_| Error::InvalidData {
+                offset: at,
+                reason: format!("an array has {} elements", count),
+            })?;
+            let mut elements = Vec::new();
+            for _ in 0..count {
+                let Some(element) = typed_value(package, packages, inner, r, depth)? else {
+                    return Ok(None);
+                };
+                elements.push(element);
+            }
+            Value::List(elements)
+        }
+        Type::FixedArray(inner, count) => {
+            let mut elements = Vec::new();
+            for _ in 0..(*count).max(0) {
+                let Some(element) = typed_value(package, packages, inner, r, depth)? else {
+                    return Ok(None);
+                };
+                elements.push(element);
+            }
+            Value::List(elements)
+        }
+        Type::Struct(name, scope) => {
+            let tagged = package.summary.licensee_version() >= TAGGED_STRUCTS_LICENSEE_VERSION
+                && !is_binary_struct(name);
+            if depth >= MAX_DEPTH {
+                return Ok(None);
+            }
+            if tagged {
+                let schema = scope.as_ref().map(|scope| Schema { packages, scope });
+                let mut properties = Vec::new();
+                while let Some(property) = read_property(package, r, depth + 1, schema)? {
+                    properties.push(property);
+                }
+                Value::Struct(properties)
+            } else if let Some(value) = binary_struct(name, r) {
+                value?
+            } else {
+                let Some(scope) = scope else {
+                    return Ok(None);
+                };
+                let Some(decls) = packages.struct_properties(scope) else {
+                    return Ok(None);
+                };
+                let mut properties = Vec::new();
+                for decl in decls.iter().filter(|decl| decl.is_stored()) {
+                    for array_index in 0..decl.array_dim.max(0) as u32 {
+                        let offset = r.pos();
+                        let Some(value) = typed_value(package, packages, &decl.ty, r, depth + 1)?
+                        else {
+                            return Ok(None);
+                        };
+                        let size = r.pos() - offset;
+                        properties.push(Property {
+                            name: decl.name.clone(),
+                            kind: PropertyType::from_id(decl.ty.id()),
+                            struct_name: match &decl.ty {
+                                Type::Struct(name, _) => Some(name.clone()),
+                                _ => None,
+                            },
+                            array_index,
+                            offset,
+                            value_offset: offset,
+                            size,
+                            tag_size: size,
+                            value,
+                        });
+                    }
+                }
+                Value::Struct(properties)
+            }
+        }
+        Type::Unknown => return Ok(None),
+    }))
+}
+
+/// `Vector`, `Rotator` and `Color`, which are always stored in binary;
+/// `None` for another struct.
+fn binary_struct(name: &str, r: &mut Reader) -> Option<Result<Value>> {
+    let what = "property value";
+    let value = if name.eq_ignore_ascii_case("Vector") {
+        (|| {
+            Ok(Value::Vector {
+                x: f32::from_bits(r.u32(what)?),
+                y: f32::from_bits(r.u32(what)?),
+                z: f32::from_bits(r.u32(what)?),
+            })
+        })()
+    } else if name.eq_ignore_ascii_case("Rotator") {
+        (|| {
+            Ok(Value::Rotator {
+                pitch: r.i32(what)?,
+                yaw: r.i32(what)?,
+                roll: r.i32(what)?,
+            })
+        })()
+    } else if name.eq_ignore_ascii_case("Color") {
+        // In the struct's layout: `var byte B, G, R, A`.
+        r.bytes(4, what).map(|bytes| Value::Color {
+            b: bytes[0],
+            g: bytes[1],
+            r: bytes[2],
+            a: bytes[3],
+        })
+    } else {
+        return None;
+    };
+    Some(value)
+}
+
+impl Packages {
+    /// Export `export`'s tagged properties, read by their declarations, as
+    /// the engine reads them: the declarations are found in its class (or,
+    /// for a class, in itself) and its superclasses, in this set's packages.
+    /// A property whose declaration can't be found is read as
+    /// [`Package::properties`] reads it.
+    ///
+    /// # Errors
+    ///
+    /// As [`Package::properties`].
+    ///
+    /// # Panics
+    ///
+    /// If `export` is out of range.
+    pub fn properties<'a>(
+        &'a self,
+        package: &'a Rc<Package>,
+        export: usize,
+    ) -> Result<Properties<'a>> {
+        let mut properties = package.properties(export)?;
+        properties.schema = self.scope_of(package, export).map(|scope| (self, scope));
+        Ok(properties)
+    }
 }
 
 /// Whether a struct is stored in binary even when others are tagged
@@ -499,25 +787,31 @@ fn is_binary_struct(name: &str) -> bool {
 /// A struct's tagged properties, up to the `None` that ends them.
 fn struct_properties(package: &Package, r: &mut Reader, depth: usize) -> Option<Vec<Property>> {
     let mut properties = Vec::new();
-    while let Some(property) = read_property(package, r, depth + 1).ok()? {
+    while let Some(property) = read_property(package, r, depth + 1, None).ok()? {
         properties.push(property);
     }
     Some(properties)
 }
 
-/// Whether a property tag, or the `None` that ends a list, starts at `r`.
-fn is_tag(package: &Package, r: &mut Reader) -> bool {
-    let Ok(tag_name) = name(package, r, "property tag") else {
-        return false;
-    };
+/// What starts at `r`: a property's tag, or the `None` that ends a list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TagStart {
+    Property,
+    None,
+}
+
+/// The tag that starts at `r`, if it looks like one.
+fn tag_at(package: &Package, r: &mut Reader) -> Option<TagStart> {
+    let tag_name = name(package, r, "property tag").ok()?;
     if tag_name.eq_ignore_ascii_case("None") {
-        return true;
+        return Some(TagStart::None);
     }
-    match r.u8("property tag").map(PropertyType::from_id) {
+    let is_tag = match r.u8("property tag").map(PropertyType::from_id) {
         Ok(PropertyType::Struct) => name(package, r, "property tag").is_ok(),
         Ok(kind) => kind != PropertyType::Unknown,
         Err(_) => false,
-    }
+    };
+    is_tag.then_some(TagStart::Property)
 }
 
 /// A tag's array index: one, two or four bytes, by the top bits of the

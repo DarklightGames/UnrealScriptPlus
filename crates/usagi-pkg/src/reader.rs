@@ -21,6 +21,12 @@ impl<'a> Reader<'a> {
         self.pos = pos;
     }
 
+    /// The next `len` bytes, without moving past them; `None` if there are
+    /// fewer.
+    pub fn peek(&self, len: usize) -> Option<&'a [u8]> {
+        self.bytes.get(self.pos..self.pos.checked_add(len)?)
+    }
+
     pub fn at_end(&self) -> bool {
         self.pos >= self.bytes.len()
     }

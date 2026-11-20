@@ -4,7 +4,14 @@
 //!
 //! The format is described in `docs/PACKAGE_FORMAT.md` in the repository.
 //! The summary and the name, import and export tables are read, and in each
-//! export's data, its tagged properties ([`Package::properties`]).
+//! export's data, its tagged properties ([`Package::properties`]) and, for
+//! classes, states, functions, structs, property declarations and the like,
+//! its native data ([`Package::class`], [`Package::read_native`]).
+//!
+//! Native data is read and written by one function per type, as the engine
+//! does ([`archive::Serialize`]), so what's read can be written back the
+//! same. [`Packages`] finds the packages a package refers to, and reads
+//! tagged properties by their declarations ([`Packages::properties`]).
 //!
 //! ```no_run
 //! let package = usagi_pkg::Package::read("System/Engine.u".as_ref())?;
@@ -12,21 +19,30 @@
 //! # Ok::<(), usagi_pkg::Error>(())
 //! ```
 
+pub mod archive;
+mod class;
 mod edit;
 mod error;
 mod flags;
 mod package;
+mod packages;
 mod pattern;
 mod properties;
 mod reader;
+pub mod script;
 mod summary;
 mod tables;
 pub mod uz2;
 
+pub use class::{
+    Class, Const, Dependency, Enum, Field, Function, PropertyDecl, PropertyKind, State, StateFrame,
+    Struct, TextBuffer,
+};
 pub use edit::set_package_flags;
 pub use error::{Error, Result};
 pub use flags::{ObjectFlags, PackageFlags};
 pub use package::{Package, package_name};
+pub use packages::{Decl, Lookup, Packages, Scope, SearchPath, Type};
 pub use pattern::ObjectPattern;
 pub use properties::{Properties, Property, PropertyType, TAGGED_STRUCTS_LICENSEE_VERSION, Value};
 pub use summary::{

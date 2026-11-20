@@ -32,8 +32,6 @@ pub enum Error {
         /// What's wrong.
         reason: String,
     },
-    /// The data is something this crate can't read yet.
-    Unsupported(String),
     /// A `.uz2` file is malformed.
     Uz2 {
         /// Where the block with the problem starts.
@@ -65,7 +63,6 @@ impl fmt::Display for Error {
             Error::InvalidData { offset, reason } => {
                 write!(f, "invalid data at offset {}: {}", offset, reason)
             }
-            Error::Unsupported(message) => write!(f, "{}", message),
             Error::Uz2 { offset, reason } => {
                 write!(f, "invalid .uz2 block at offset {}: {}", offset, reason)
             }

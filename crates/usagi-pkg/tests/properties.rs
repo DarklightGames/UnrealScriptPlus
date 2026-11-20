@@ -585,9 +585,10 @@ fn arrays_of_structs_with_a_wrong_size() {
 #[test]
 fn arrays_that_arent_structs() {
     let element = region_body();
-    // A tag where the size says: the size is trusted.
+    // A `None` where the size says isn't trusted: it may be the end of the
+    // last element (Darkest Hour has such sizes, which the engine ignores).
     let properties = struct_array(std::slice::from_ref(&element), Some(element.len()), &[]);
-    assert!(matches!(properties[0].value, Value::Array { len: 1, .. }));
+    assert!(matches!(properties[0].value, Value::StructArray(_)));
     // An empty element, or a property of type 0: not structs.
     let properties = struct_array(&[none()], None, &[]);
     assert!(matches!(properties[0].value, Value::Array { len: 1, .. }));
@@ -601,14 +602,16 @@ fn arrays_that_arent_structs() {
 #[test]
 fn what_counts_as_a_tag_after_an_array() {
     // The size says the array is 3 bytes longer than its elements. They're
-    // structs only if a tag starts after them, and none 3 bytes later.
+    // structs only if a tag starts after them, and no property's tag 3 bytes
+    // later.
     let element = region_body();
     let tag_ = n("Tag") as u8;
     let plane = n("Plane") as u8;
     for (after, is_struct) in [
-        // A name out of range 3 bytes later; `None` after the elements.
+        // A name out of range 3 bytes later; `None` after the elements. A
+        // `None` 3 bytes later doesn't count.
         (vec![0, 0, 0, 50], true),
-        (vec![0, 0, 0, 0], false),
+        (vec![0, 0, 0, 0], true),
         (vec![0, 0, 0, tag_, INT], false),
         // Type 0.
         (vec![0, 0, 0, tag_, 0], true),
@@ -690,12 +693,12 @@ fn where_properties_end() {
 #[test]
 fn exports_without_properties() {
     let package = package(vec![]);
-    // A class: its defaults come after its script.
-    assert_eq!(
-        package.properties(1).unwrap_err().to_string(),
-        "a class's default properties can't be read yet"
-    );
-    assert!(matches!(package.properties(1), Err(Error::Unsupported(_))));
+    // A class: its defaults come after its script, and this one's data is
+    // too short to be a class (see tests/class.rs).
+    assert!(matches!(
+        package.properties(1),
+        Err(Error::InvalidData { .. })
+    ));
     // No data.
     let mut properties = package.properties(2).unwrap();
     assert!(properties.next().is_none());

@@ -17,8 +17,9 @@ const MAX_NAME_LEN: usize = 63;
 
 /// A reference to an object: none, an export or an import. On disk it's an
 /// `i32`: 0, export `n - 1` for `n > 0`, or import `-n - 1` for `n < 0`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum ObjectRef {
+    #[default]
     Null,
     /// An index into [`Package::exports`](crate::Package::exports).
     Export(usize),
