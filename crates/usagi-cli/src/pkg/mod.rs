@@ -1,5 +1,6 @@
 //! `usagi pkg`: inspect package files.
 
+use std::borrow::Cow;
 use std::io::{self, Write};
 use std::path::Path;
 
@@ -18,7 +19,7 @@ pub fn list(args: &PkgListArgs, color: bool, out: &mut impl Write) -> Result<(),
     let view = View {
         path: &args.path,
         package: &package,
-        package_name: package_name(&args.path),
+        package_name: usagi_pkg::package_name(&args.path),
         summary: !args.no_summary && args.format != PkgFormat::Concise,
         // The dependencies are listed when no table is asked for.
         dependencies: args.dependencies.or_else(|| {
@@ -38,13 +39,6 @@ pub fn list(args: &PkgListArgs, color: bool, out: &mut impl Write) -> Result<(),
         PkgFormat::Json => view.json(out),
     }
     .map_err(|e| e.to_string())
-}
-
-/// The package's name, which the engine takes from the file name: the part
-/// before the first `.` (so `Engine` for `Engine.u` and `Engine.u.uz2`).
-fn package_name(path: &Path) -> String {
-    let file_name = path.file_name().unwrap_or_default().to_string_lossy();
-    file_name.split('.').next().unwrap_or_default().to_string()
 }
 
 /// What to print.
@@ -215,14 +209,14 @@ enum Align {
 
 /// A column of a table: its header, alignment and colour.
 struct Column {
-    header: &'static str,
+    header: Cow<'static, str>,
     align: Align,
     color: Option<&'static str>,
 }
 
 const fn column(header: &'static str, align: Align, color: Option<&'static str>) -> Column {
     Column {
-        header,
+        header: Cow::Borrowed(header),
         align,
         color,
     }
@@ -244,7 +238,7 @@ fn write_table(
         .collect();
     let widths: Vec<usize> = shown
         .iter()
-        .map(|&c| width(rows.iter().map(|row| &row[c])).max(columns[c].header.len()))
+        .map(|&c| width(rows.iter().map(|row| &row[c])).max(columns[c].header.chars().count()))
         .collect();
     let line = |cells: Vec<(String, Align, Option<&str>)>| {
         let mut line = String::new();
