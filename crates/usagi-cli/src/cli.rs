@@ -64,6 +64,48 @@ pub enum PkgCommand {
     /// Print objects' properties (`Format`, `USize`, ...) as T3D; with
     /// `--property`, as a table with a column for each property.
     Obj(PkgObjArgs),
+    /// Export objects to files: each object's native data (the bytes after
+    /// its properties) to a `.bin` file, and its properties as T3D to a
+    /// `.t3d` file.
+    Export(PkgExportArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct PkgExportArgs {
+    /// The package files. A `.uz2` file is decompressed first.
+    #[arg(required = true)]
+    pub paths: Vec<PathBuf>,
+
+    /// The objects, as UnrealScript refers to them: `Texture'MyPkg.Walls.Brick'`,
+    /// or without the class, `MyPkg.Walls.Brick`. In the path, `*` matches
+    /// any characters within a name, `**` any characters, and `?` one
+    /// character. Default: every object in the packages.
+    #[arg(long = "object", value_name = "OBJECT", value_delimiter = ',')]
+    pub objects: Vec<String>,
+
+    /// Only objects of these classes, by name (`Texture`) or with their
+    /// package (`Engine.Texture`). Subclasses don't match.
+    #[arg(long, value_name = "CLASS", value_delimiter = ',')]
+    pub class: Vec<String>,
+
+    /// The directory to write the files to. It's made if it doesn't exist;
+    /// files already in it are overwritten.
+    #[arg(short, long, value_name = "DIR")]
+    pub output: PathBuf,
+
+    /// Where in the directory each object's files go.
+    #[arg(long, value_enum, default_value_t = PkgExportLayout::Flat)]
+    pub layout: PkgExportLayout,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum PkgExportLayout {
+    /// Every file in the directory, named as UnrealScript refers to the
+    /// object: `Texture'MyPkg.Walls.Brick'.bin`.
+    Flat,
+    /// In folders for the package, the class and the groups:
+    /// `MyPkg/Texture/Walls/Brick.bin`.
+    Folder,
 }
 
 #[derive(Debug, Args)]

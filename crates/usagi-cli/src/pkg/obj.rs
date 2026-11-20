@@ -77,36 +77,40 @@ fn select(package: &Package, args: &PkgObjArgs, file: &str) -> Result<Vec<usize>
 }
 
 /// Why `pattern` matches no export.
-fn not_found(package: &Package, pattern: &ObjectPattern, file: &str) -> String {
+pub(super) fn not_found(package: &Package, pattern: &ObjectPattern, file: &str) -> String {
     if pattern.is_glob() {
         return format!("{} matches no objects in {}", pattern, file);
     }
+    explain(package, pattern, file).unwrap_or_else(|| format!("{} isn't in {}", pattern, file))
+}
+
+/// Why `pattern`, which has no wildcards and matches no export, isn't in
+/// the package, if it's there in some form: an export of another class, or
+/// an import.
+pub(super) fn explain(package: &Package, pattern: &ObjectPattern, file: &str) -> Option<String> {
     let any_class: ObjectPattern = pattern.path().parse().expect("a valid path");
     if let Some(&export) = package.find_exports(&any_class).first() {
-        return format!(
+        return Some(format!(
             "{} isn't a {}: it's {}",
             pattern,
             pattern.class().expect("a class, since the path matches"),
             package.reference(ObjectRef::Export(export))
-        );
+        ));
     }
-    match package.find_imports(&any_class).first() {
-        Some(&import) => {
-            let top = package.top_level(ObjectRef::Import(import));
-            format!(
-                "{} isn't in {}: it's imported from the package {}",
-                pattern,
-                file,
-                package.object_name(top).expect("an import")
-            )
-        }
-        None => format!("{} isn't in {}", pattern, file),
-    }
+    package.find_imports(&any_class).first().map(|&import| {
+        let top = package.top_level(ObjectRef::Import(import));
+        format!(
+            "{} isn't in {}: it's imported from the package {}",
+            pattern,
+            file,
+            package.object_name(top).expect("an import")
+        )
+    })
 }
 
 /// Whether an export's class is `class`: its name (`Texture`), or its path
 /// (`Engine.Texture`), ignoring case.
-fn is_class(package: &Package, export: usize, class: &str) -> bool {
+pub(super) fn is_class(package: &Package, export: usize, class: &str) -> bool {
     let class_ref = package.exports()[export].class;
     let name = package.class_name(&package.exports()[export]);
     let path = match class_ref {
@@ -123,21 +127,21 @@ fn is_class(package: &Package, export: usize, class: &str) -> bool {
 }
 
 /// An export and its properties.
-struct Object {
-    export: usize,
-    reference: String,
+pub(super) struct Object {
+    pub(super) export: usize,
+    pub(super) reference: String,
     /// The properties read, or those asked for.
-    properties: Vec<Property>,
+    pub(super) properties: Vec<Property>,
     /// Where the properties start in the export's data.
     start: usize,
     /// Where they end, after the `None`; `None` if they couldn't all be read.
-    end: Option<usize>,
+    pub(super) end: Option<usize>,
     size: usize,
-    error: Option<Error>,
+    pub(super) error: Option<Error>,
 }
 
 impl Object {
-    fn read(package: &Package, export: usize, wanted: &[String]) -> Object {
+    pub(super) fn read(package: &Package, export: usize, wanted: &[String]) -> Object {
         let mut object = Object {
             export,
             reference: package.reference(ObjectRef::Export(export)),
@@ -193,37 +197,7 @@ impl View<'_> {
             if i > 0 {
                 writeln!(out)?;
             }
-            let mut comment = format!("// {}", object.reference);
-            if let Some(size) = object.native_size().filter(|&size| size > 0) {
-                comment.push_str(&format!(
-                    " ({} bytes of native data)",
-                    separated(size as u64)
-                ));
-            }
-            writeln!(out, "{}", style.paint(DIM, &comment))?;
-            if let Some(error @ Error::Unsupported(_)) = &object.error {
-                writeln!(out, "{}", style.paint(DIM, &format!("// {}", error)))?;
-                continue;
-            }
-            let export = &self.package.exports()[object.export];
-            writeln!(
-                out,
-                "Begin Object Class={} Name={}",
-                self.package.class_name(export),
-                self.package.name(export.object_name)
-            )?;
-            for property in &object.properties {
-                writeln!(
-                    out,
-                    "    {}={}",
-                    property.t3d_name(),
-                    self.package.t3d_value(&property.value)
-                )?;
-            }
-            if let Some(error) = &object.error {
-                writeln!(out, "    {}", style.paint(DIM, &format!("// {}", error)))?;
-            }
-            writeln!(out, "End Object")?;
+            write_t3d(self.package, object, style, out)?;
         }
         Ok(())
     }
@@ -451,6 +425,47 @@ impl View<'_> {
             Value::Raw(bytes) => json!({ "bytes": hex_compact(bytes) }),
         }
     }
+}
+
+/// An object as T3D: a comment with its reference, then a `Begin Object`
+/// block, or a comment saying why there isn't one (a class).
+pub(super) fn write_t3d(
+    package: &Package,
+    object: &Object,
+    style: Style,
+    out: &mut impl Write,
+) -> io::Result<()> {
+    let mut comment = format!("// {}", object.reference);
+    if let Some(size) = object.native_size().filter(|&size| size > 0) {
+        comment.push_str(&format!(
+            " ({} bytes of native data)",
+            separated(size as u64)
+        ));
+    }
+    writeln!(out, "{}", style.paint(DIM, &comment))?;
+    if let Some(error @ Error::Unsupported(_)) = &object.error {
+        writeln!(out, "{}", style.paint(DIM, &format!("// {}", error)))?;
+        return Ok(());
+    }
+    let export = &package.exports()[object.export];
+    writeln!(
+        out,
+        "Begin Object Class={} Name={}",
+        package.class_name(export),
+        package.name(export.object_name)
+    )?;
+    for property in &object.properties {
+        writeln!(
+            out,
+            "    {}={}",
+            property.t3d_name(),
+            package.t3d_value(&property.value)
+        )?;
+    }
+    if let Some(error) = &object.error {
+        writeln!(out, "    {}", style.paint(DIM, &format!("// {}", error)))?;
+    }
+    writeln!(out, "End Object")
 }
 
 /// A float as a JSON number, in its shortest form (`0.1`, not

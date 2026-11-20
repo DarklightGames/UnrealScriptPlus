@@ -22,6 +22,7 @@ usagi pkg obj Textures/UI.utx "Texture'UI.HUD.*'" --property Format,LODSet
 | [`pkg list`](#usagi-pkg-list-path) | Show a package file's summary, dependencies, imports and exports. |
 | [`pkg flags`](#usagi-pkg-flags-paths) | Show or change package files' flags. |
 | [`pkg obj`](#usagi-pkg-obj-path-objects) | Show objects' properties, as T3D or as a table. |
+| [`pkg export`](#usagi-pkg-export-paths---output-dir) | Write objects' native data and properties to files. |
 | [`format`](#usagi-format) | Not implemented yet. |
 
 Every command that takes paths accepts files and directories. Directories are
@@ -630,6 +631,58 @@ problem: as a comment in T3D, a line in `--raw`, `error` in JSON, and `?` in a
 table for a property that wasn't found. Each such problem is also reported on
 standard error, and the command exits with code 1.
 
+### `usagi pkg export <PATHS>... --output <DIR>`
+
+Writes objects from package files to a directory, two files for each:
+
+- `.bin`: the object's native data, the bytes after its tagged properties (a
+  texture's mipmaps, a sound's wave data, ...). The properties themselves
+  aren't included.
+- `.t3d`: its properties as T3D, exactly as
+  [`pkg obj`](#usagi-pkg-obj-path-objects) prints them.
+
+Both are written even when empty, and files already in the directory are
+overwritten. The directory is made if it doesn't exist.
+
+```sh
+usagi pkg export MyTex.utx -o out                                # every object
+usagi pkg export MyTex.utx --object "Texture'MyTex.UI.*'" -o out
+usagi pkg export Textures/*.utx --class Texture -o out --layout folder
+```
+
+Objects are chosen as in `pkg obj`, but with `--object`, since every other
+argument is a package file. Each pattern is looked for in every file, and it's
+an error (exit code 2) only if it matches in none of them: `MyTex.Brick` only
+matches in `MyTex.utx`, since the package is part of an object's path. With
+no `--object`, every object in every file is exported. Groups aren't
+exported: they're only containers, and appear in the files' names or folders.
+
+| Flag | Meaning |
+|---|---|
+| `-o`, `--output DIR` | The directory to write to. Required. |
+| `--object OBJECT,...` | The objects, as for `pkg obj`: `Texture'MyTex.Walls.Brick'`, or `MyTex.Walls.Brick`, with `*`, `**` and `?`. Can be given more than once. |
+| `--class CLASS,...` | Only objects of these classes, as for `pkg obj`. |
+| `--layout flat\|folder` | Where each object's files go. Default: `flat`. |
+
+The layouts, for `Texture'MyTex.Walls.Brick'`:
+
+| Layout | Files |
+|---|---|
+| `flat` | `Texture'MyTex.Walls.Brick'.bin` and `.t3d`, named as UnrealScript refers to the object, all in the directory. |
+| `folder` | `MyTex/Texture/Walls/Brick.bin` and `.t3d`: a folder for the package, then the class, then each group. |
+
+Both include everything that identifies an object (its package, class,
+groups and name), so two objects never share files. The engine allows two
+objects with the same path if their classes differ, such as a texture and the
+combiner made from it. The exception is the same package given twice, from
+two files: then the collisions are listed, nothing is written, and the command
+exits with code 2.
+
+A class's default properties can't be read (see `pkg obj`), so a class is
+skipped, with a note on standard error. An object whose properties are
+malformed isn't written either: the problem is reported on standard error,
+the other objects are written, and the command exits with code 1.
+
 ### Global flags
 
 | Flag | Meaning |
@@ -645,7 +698,7 @@ machine unresponsive.
 
 ## Output formats
 
-These are the formats of `lint` and `parse`. For `pkg list` and `pkg obj`,
+These are the formats of `lint` and `parse`. For `pkg list`, `pkg obj` and `pkg export`,
 see [their](#usagi-pkg-list-path) [sections](#usagi-pkg-obj-path-objects).
 
 | Format | Output |
@@ -670,8 +723,8 @@ Besides lint codes, a problem's code can be `parse` (a recovered problem),
 | 0 | Nothing to report. Recovered problems alone don't count, unless `--strict` is used. |
 | 1 | `lint`: a lint problem, or a file that failed to parse; with `--fix`, a problem left after fixing; with `--diff`, a change to show. `parse`: a file that failed to parse. |
 | 1 | `build`: a package failed to compile, or a source file failed to parse. |
-| 1 | `pkg obj`: an object whose data is malformed. |
-| 2 | A usage error, a configuration error or a missing path. `pkg list`, `pkg flags`, `pkg obj`: a file that can't be read or isn't a valid package; `pkg flags`: an official package without `--force`; `pkg obj`: an object that isn't in the package or isn't of the class given, or an invalid object reference. `build`: a setup problem, such as a missing folder, or a locked package that would have to be rebuilt. |
+| 1 | `pkg obj`, `pkg export`: an object whose data is malformed. |
+| 2 | A usage error, a configuration error or a missing path. `pkg list`, `pkg flags`, `pkg obj`, `pkg export`: a file that can't be read or isn't a valid package; `pkg flags`: an official package without `--force`; `pkg obj`, `pkg export`: an object that isn't in the package (for `pkg export`, in any of them) or isn't of the class given, or an invalid object reference; `pkg export`: the same package given twice, or files that can't be written. `build`: a setup problem, such as a missing folder, or a locked package that would have to be rebuilt. |
 
 ## Configuration
 

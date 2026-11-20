@@ -148,6 +148,9 @@ fn run(cli: Cli) -> Result<bool, String> {
             PkgCommand::Obj(args) => {
                 pkg::obj::obj(args, color, &mut io::stdout().lock(), &mut io::stderr())
             }
+            PkgCommand::Export(args) => {
+                pkg::export::export(args, &mut io::stdout().lock(), &mut io::stderr())
+            }
         },
         Command::Build(args) => {
             let config = load_root()?;

@@ -2598,3 +2598,243 @@ fn pkg_obj_other_types() {
     );
     assert_eq!(objects[0]["properties"][7]["tag_size"], 6);
 }
+
+fn pkg_export(dir: &Path, args: &[&str]) -> assert_cmd::assert::Assert {
+    usagi(dir).args(["pkg", "export"]).args(args).assert()
+}
+
+/// The files under `dir`, relative to it, sorted, with `/` between folders.
+fn files_under(dir: &Path) -> Vec<String> {
+    fn walk(root: &Path, dir: &Path, out: &mut Vec<String>) {
+        for entry in fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                walk(root, &path, out);
+            } else {
+                let relative = path.strip_prefix(root).unwrap();
+                let parts: Vec<_> = relative.iter().map(|p| p.to_string_lossy()).collect();
+                out.push(parts.join("/"));
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(dir, dir, &mut out);
+    out.sort();
+    out
+}
+
+#[test]
+fn pkg_export_writes_native_data_and_t3d() {
+    let dir = obj_dir();
+    pkg_export(
+        dir.path(),
+        &[
+            "MyPkg.utx",
+            "--object",
+            "Texture'MyPkg.UI.Button',MyPkg.Mix",
+            "-o",
+            "out",
+        ],
+    )
+    .code(0)
+    .stdout("Exported 2 objects to out\n")
+    .stderr("");
+    let out = dir.path().join("out");
+    assert_eq!(
+        files_under(&out),
+        [
+            "Combiner'MyPkg.Mix'.bin",
+            "Combiner'MyPkg.Mix'.t3d",
+            "Texture'MyPkg.UI.Button'.bin",
+            "Texture'MyPkg.UI.Button'.t3d",
+        ]
+    );
+    let button = |extension: &str| out.join(format!("Texture'MyPkg.UI.Button'.{}", extension));
+    assert_eq!(fs::read(button("bin")).unwrap(), [0xAA, 0xBB, 0xCC]);
+    assert_eq!(fs::read_to_string(button("t3d")).unwrap(), BUTTON_T3D);
+    // Parts with nothing in them are written anyway.
+    assert_eq!(
+        fs::read(out.join("Combiner'MyPkg.Mix'.bin")).unwrap(),
+        Vec::<u8>::new()
+    );
+    assert_eq!(
+        fs::read_to_string(out.join("Combiner'MyPkg.Mix'.t3d")).unwrap(),
+        MIX_T3D
+    );
+
+    // Files already there are overwritten.
+    fs::write(button("bin"), "old").unwrap();
+    pkg_export(
+        dir.path(),
+        &[
+            "MyPkg.utx",
+            "--object",
+            "MyPkg.UI.Button",
+            "--output",
+            "out",
+        ],
+    )
+    .code(0)
+    .stdout("Exported 1 object to out\n");
+    assert_eq!(fs::read(button("bin")).unwrap(), [0xAA, 0xBB, 0xCC]);
+}
+
+#[test]
+fn pkg_export_every_object() {
+    let dir = obj_dir();
+    // Not the group, UI.
+    pkg_export(dir.path(), &["MyPkg.utx", "-o", "out"])
+        .code(1)
+        .stdout("Exported 4 objects to out\n")
+        .stderr(
+            "usagi: MyPkg.utx: Class'MyPkg.MyClass': skipped: a class's default properties \
+             can't be read yet\n\
+             usagi: MyPkg.utx: Texture'MyPkg.Broken': invalid data at offset 2: the data ends in \
+             the property value\n",
+        );
+    let out = dir.path().join("out");
+    assert_eq!(files_under(&out).len(), 8);
+    assert_eq!(
+        fs::read_to_string(out.join("Texture'MyPkg.Odd'.t3d")).unwrap(),
+        ODD_T3D
+    );
+    // A class alone isn't an error, and nor is a group asked for by name.
+    pkg_export(dir.path(), &["MyPkg.utx", "--class", "Class", "-o", "x"])
+        .code(0)
+        .stdout("Exported 0 objects to x\n");
+    pkg_export(
+        dir.path(),
+        &["MyPkg.utx", "--object", "MyPkg.UI", "-o", "x"],
+    )
+    .code(0)
+    .stdout("Exported 0 objects to x\n");
+}
+
+#[test]
+fn pkg_export_folder_layout() {
+    let dir = obj_dir();
+    pkg_export(
+        dir.path(),
+        &[
+            "MyPkg.utx",
+            "--object",
+            "MyPkg.**",
+            "-o",
+            "out",
+            "--layout",
+            "folder",
+        ],
+    )
+    .code(1);
+    assert_eq!(
+        files_under(&dir.path().join("out")),
+        [
+            "MyPkg/Combiner/Mix.bin",
+            "MyPkg/Combiner/Mix.t3d",
+            "MyPkg/Texture/Odd.bin",
+            "MyPkg/Texture/Odd.t3d",
+            "MyPkg/Texture/UI/Bar.bin",
+            "MyPkg/Texture/UI/Bar.t3d",
+            "MyPkg/Texture/UI/Button.bin",
+            "MyPkg/Texture/UI/Button.t3d",
+        ]
+    );
+}
+
+#[test]
+fn pkg_export_several_packages() {
+    let dir = obj_dir();
+    fs::write(dir.path().join("Other.utx"), obj_package()).unwrap();
+    // A pattern only has to match in one of them.
+    pkg_export(
+        dir.path(),
+        &[
+            "MyPkg.utx",
+            "Other.utx",
+            "--object",
+            "Other.UI.Bar,MyPkg.Mix",
+            "-o",
+            "out",
+        ],
+    )
+    .code(0)
+    .stdout("Exported 2 objects to out\n");
+    assert_eq!(
+        files_under(&dir.path().join("out")),
+        [
+            "Combiner'MyPkg.Mix'.bin",
+            "Combiner'MyPkg.Mix'.t3d",
+            "Texture'Other.UI.Bar'.bin",
+            "Texture'Other.UI.Bar'.t3d",
+        ]
+    );
+    // The same package twice: nothing is written.
+    fs::create_dir(dir.path().join("copy")).unwrap();
+    fs::write(dir.path().join("copy/MyPkg.utx"), obj_package()).unwrap();
+    let args = [
+        "MyPkg.utx",
+        "copy/MyPkg.utx",
+        "--object",
+        "MyPkg.Mix",
+        "-o",
+        "x",
+    ];
+    pkg_export(dir.path(), &args).code(2).stderr(
+        "usagi: Combiner'MyPkg.Mix' and Combiner'MyPkg.Mix' would both be written to \
+             Combiner'MyPkg.Mix'\n",
+    );
+    pkg_export(dir.path(), &[&args[..], &["--layout", "folder"]].concat())
+        .code(2)
+        .stderr(format!(
+            "usagi: Combiner'MyPkg.Mix' and Combiner'MyPkg.Mix' would both be written to {}\n",
+            Path::new("MyPkg").join("Combiner").join("Mix").display()
+        ));
+    assert!(!dir.path().join("x").exists());
+}
+#[test]
+fn pkg_export_errors() {
+    let dir = obj_dir();
+    fs::write(dir.path().join("Other.utx"), obj_package()).unwrap();
+    let two = ["MyPkg.utx", "Other.utx", "-o", "out", "--object"];
+    for (args, message) in [
+        (
+            &["MyPkg.utx", "-o", "out", "--object", "MyPkg.Nope"][..],
+            "MyPkg.Nope isn't in MyPkg.utx",
+        ),
+        (
+            &[&two[..], &["MyPkg.Nope"]].concat(),
+            "MyPkg.Nope isn't in any of the 2 packages",
+        ),
+        (
+            &[&two[..], &["*.Nope.*"]].concat(),
+            "*.Nope.* matches no objects in the 2 packages",
+        ),
+        (
+            &[&two[..], &["Shader'Other.UI.Bar'"]].concat(),
+            "Shader'Other.UI.Bar' isn't a Shader: it's Texture'Other.UI.Bar'",
+        ),
+        (
+            &[&two[..], &["Texture'MyPkg.Mix"]].concat(),
+            "invalid object reference \"Texture'MyPkg.Mix\": it doesn't end with a '",
+        ),
+    ] {
+        pkg_export(dir.path(), args)
+            .code(2)
+            .stderr(format!("usagi: {}\n", message));
+    }
+    pkg_export(dir.path(), &["Missing.utx", "-o", "out"])
+        .code(2)
+        .stderr(predicate::str::starts_with("usagi: Missing.utx: "));
+    // -o is required, and so is a package.
+    pkg_export(dir.path(), &["MyPkg.utx"]).code(2);
+    pkg_export(dir.path(), &["-o", "out"]).code(2);
+    // The output can't be written.
+    fs::write(dir.path().join("file"), "").unwrap();
+    pkg_export(
+        dir.path(),
+        &["MyPkg.utx", "--object", "MyPkg.Mix", "-o", "file"],
+    )
+    .code(2)
+    .stderr(predicate::str::starts_with("usagi: file"));
+    assert!(!dir.path().join("out").exists());
+}
