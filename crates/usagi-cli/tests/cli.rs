@@ -1843,3 +1843,183 @@ fn pkg_list_groups() {
         "Empty.u\n\nGroups (0)\n"
     );
 }
+
+/// A package with these flags and nothing else.
+fn flagged_package(flags: u32) -> Vec<u8> {
+    let mut bytes = package_bytes();
+    bytes[8..12].copy_from_slice(&flags.to_le_bytes());
+    bytes
+}
+
+fn flags_of(path: &Path) -> u32 {
+    let bytes = fs::read(path).unwrap();
+    u32::from_le_bytes(bytes[8..12].try_into().unwrap())
+}
+
+fn pkg_flags(dir: &Path, args: &[&str]) -> assert_cmd::assert::Assert {
+    usagi(dir)
+        .args(["pkg", "flags", "--color", "never"])
+        .args(args)
+        .assert()
+}
+
+#[test]
+fn pkg_flags_shows_and_changes_flags() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("Mod.u");
+    fs::write(&path, flagged_package(0x5)).unwrap();
+    pkg_flags(dir.path(), &["Mod.u"])
+        .code(0)
+        .stdout("Mod.u: 0x00000005 (AllowDownload, ServerSideOnly)\n");
+
+    // A dry run changes nothing.
+    pkg_flags(dir.path(), &["Mod.u", "--clear", "serversideonly", "--dry-run"])
+        .code(0)
+        .stdout("Mod.u: 0x00000005 (AllowDownload, ServerSideOnly) -> 0x00000001 (AllowDownload) (dry run)\n");
+    assert_eq!(flags_of(&path), 0x5);
+
+    let before = fs::read(&path).unwrap();
+    pkg_flags(dir.path(), &["Mod.u", "--clear", "ServerSideOnly"])
+        .code(0)
+        .stdout(
+            "Mod.u: 0x00000005 (AllowDownload, ServerSideOnly) -> 0x00000001 (AllowDownload)\n",
+        );
+    assert_eq!(flags_of(&path), 0x1);
+    // Only the flags changed.
+    let after = fs::read(&path).unwrap();
+    assert_eq!(after[12..], before[12..]);
+
+    // Several at once, by name or comma-separated.
+    pkg_flags(
+        dir.path(),
+        &[
+            "Mod.u",
+            "--set",
+            "ClientOptional,Need",
+            "--set",
+            "unsecure",
+            "--clear",
+            "AllowDownload",
+        ],
+    )
+    .code(0)
+    .stdout("Mod.u: 0x00000001 (AllowDownload) -> 0x00008012 (ClientOptional, Unsecure, Need)\n");
+    assert_eq!(flags_of(&path), 0x8012);
+
+    pkg_flags(dir.path(), &["Mod.u", "--set", "Need"])
+        .code(0)
+        .stdout("Mod.u: 0x00008012 (ClientOptional, Unsecure, Need) (unchanged)\n");
+
+    // No flags.
+    fs::write(&path, flagged_package(0)).unwrap();
+    pkg_flags(dir.path(), &["Mod.u"])
+        .code(0)
+        .stdout("Mod.u: 0x00000000\n");
+}
+
+#[test]
+fn pkg_flags_official_packages_need_force() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("Core.u");
+    fs::write(&path, flagged_package(0x20)).unwrap();
+    pkg_flags(dir.path(), &["Core.u", "--set", "ServerSideOnly"])
+        .code(2)
+        .stdout("")
+        .stderr(
+            predicate::str::contains("Core.u: it's an Official package")
+                .and(predicate::str::contains("--force")),
+        );
+    assert_eq!(flags_of(&path), 0x20);
+    // Showing, or a change that changes nothing, is fine.
+    pkg_flags(dir.path(), &["Core.u"]).code(0);
+    pkg_flags(dir.path(), &["Core.u", "--set", "Official"]).code(0);
+    pkg_flags(
+        dir.path(),
+        &["Core.u", "--set", "ServerSideOnly", "--force"],
+    )
+    .code(0)
+    .stdout("Core.u: 0x00000020 (Official) -> 0x00000024 (ServerSideOnly, Official)\n");
+    assert_eq!(flags_of(&path), 0x24);
+}
+
+#[test]
+fn pkg_flags_several_files_and_uz2() {
+    use std::io::Write;
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("A.u"), flagged_package(0x1)).unwrap();
+    fs::write(dir.path().join("Official.u"), flagged_package(0x20)).unwrap();
+    fs::write(dir.path().join("Text.u"), "not a package").unwrap();
+    let bytes = flagged_package(0x1);
+    let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+    encoder.write_all(&bytes).unwrap();
+    let data = encoder.finish().unwrap();
+    let mut uz2 = Vec::new();
+    uz2.extend((data.len() as u32).to_le_bytes());
+    uz2.extend((bytes.len() as u32).to_le_bytes());
+    uz2.extend(data);
+    fs::write(dir.path().join("B.u.uz2"), uz2).unwrap();
+
+    // Each file is changed or fails on its own.
+    pkg_flags(
+        dir.path(),
+        &[
+            "A.u",
+            "Official.u",
+            "Text.u",
+            "B.u.uz2",
+            "--set",
+            "ServerSideOnly",
+        ],
+    )
+    .code(2)
+    .stdout(
+        "A.u: 0x00000001 (AllowDownload) -> 0x00000005 (AllowDownload, ServerSideOnly)\n\
+         B.u.uz2: 0x00000001 (AllowDownload) -> 0x00000005 (AllowDownload, ServerSideOnly)\n",
+    )
+    .stderr(
+        predicate::str::contains("usagi: Official.u: it's an Official package")
+            .and(predicate::str::contains(
+                "usagi: Text.u: not an Unreal package",
+            ))
+            .and(predicate::str::contains("usagi: 2 of 4 packages failed")),
+    );
+    assert_eq!(flags_of(&dir.path().join("A.u")), 0x5);
+    pkg_flags(dir.path(), &["B.u.uz2"])
+        .code(0)
+        .stdout("B.u.uz2: 0x00000005 (AllowDownload, ServerSideOnly)\n");
+}
+
+#[test]
+fn pkg_flags_usage_errors() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("A.u"), flagged_package(0x1)).unwrap();
+    pkg_flags(dir.path(), &["A.u", "--set", "Bogus"])
+        .code(2)
+        .stderr(predicate::str::contains(
+            "unknown package flag \"Bogus\"; the flags are AllowDownload, ClientOptional",
+        ));
+    pkg_flags(
+        dir.path(),
+        &["A.u", "--set", "Need,Unsecure", "--clear", "need,unsecure"],
+    )
+    .code(2)
+    .stderr("usagi: Unsecure, Need can't be both set and cleared\n");
+    pkg_flags(dir.path(), &[]).code(2);
+    pkg_flags(dir.path(), &["Missing.u"])
+        .code(2)
+        .stderr(predicate::str::starts_with("usagi: Missing.u: "));
+    assert_eq!(flags_of(&dir.path().join("A.u")), 0x1);
+}
+
+#[test]
+fn pkg_flags_colour() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("A.u"), flagged_package(0x10001)).unwrap();
+    usagi(dir.path())
+        .args(["pkg", "flags", "A.u", "--color", "always"])
+        .assert()
+        .code(0)
+        .stdout(
+            "A.u: 0x00010001 (\x1b[32mAllowDownload\x1b[0m, \x1b[31munknown 0x00010000\x1b[0m)\n",
+        );
+}

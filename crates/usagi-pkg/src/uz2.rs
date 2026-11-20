@@ -65,3 +65,22 @@ pub fn decompress(bytes: &[u8]) -> Result<Vec<u8>> {
     }
     Ok(out)
 }
+
+/// Compresses a file as `ucc compress` does: a block for each 32 KiB, each
+/// a zlib stream at the default level.
+pub fn compress(bytes: &[u8]) -> Vec<u8> {
+    use flate2::Compression;
+    use flate2::write::ZlibEncoder;
+    use std::io::Write;
+
+    let mut out = Vec::new();
+    for chunk in bytes.chunks(BLOCK_SIZE as usize) {
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(chunk).expect("writing to a Vec");
+        let data = encoder.finish().expect("writing to a Vec");
+        out.extend((data.len() as u32).to_le_bytes());
+        out.extend((chunk.len() as u32).to_le_bytes());
+        out.extend(data);
+    }
+    out
+}

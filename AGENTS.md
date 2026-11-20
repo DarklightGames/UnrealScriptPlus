@@ -113,7 +113,8 @@ document, update the document in the same change.
 | `src/summary.rs` | The package summary (`Summary`), its GUID and generations. |
 | `src/tables.rs` | The name, import and export tables, object references (`ObjectRef`), and the checks the engine would fail on. |
 | `src/flags.rs` | Package flags and object flags. |
-| `src/uz2.rs` | Decompressing `.uz2` files. |
+| `src/uz2.rs` | Decompressing and compressing `.uz2` files. |
+| `src/edit.rs` | Changing package files in place (`set_package_flags`). |
 | `src/package.rs` | `Package`: reads a file (decompressing a `.uz2`), and looks up names, paths and outers. |
 | `src/reader.rs` | The byte cursor: integers, compact indices and strings. |
 | `src/error.rs` | `Error`. |

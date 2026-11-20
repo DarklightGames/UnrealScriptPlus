@@ -12,6 +12,7 @@
 //! # Ok::<(), usagi_pkg::Error>(())
 //! ```
 
+mod edit;
 mod error;
 mod flags;
 mod package;
@@ -20,6 +21,7 @@ mod summary;
 mod tables;
 pub mod uz2;
 
+pub use edit::set_package_flags;
 pub use error::{Error, Result};
 pub use flags::{ObjectFlags, PackageFlags};
 pub use package::Package;

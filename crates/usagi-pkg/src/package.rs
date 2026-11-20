@@ -24,10 +24,7 @@ impl Package {
     /// whether a file is compressed.
     pub fn read(path: &Path) -> Result<Package> {
         let bytes = std::fs::read(path)?;
-        let compressed = path
-            .extension()
-            .is_some_and(|e| e.eq_ignore_ascii_case("uz2"));
-        if compressed {
+        if crate::edit::is_uz2(path) {
             Package::from_uz2_bytes(&bytes)
         } else {
             Package::from_bytes(&bytes)

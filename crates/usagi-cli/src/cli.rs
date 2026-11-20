@@ -60,6 +60,34 @@ pub enum PkgCommand {
     /// where its tables are) and the packages it depends on; with
     /// `--imports`/`--exports`, its imports and exports.
     List(PkgListArgs),
+    /// Show or change packages' flags (`AllowDownload`, `ServerSideOnly`,
+    /// ...).
+    Flags(PkgFlagsArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct PkgFlagsArgs {
+    /// The package files. A `.uz2` file is decompressed, changed and
+    /// compressed again.
+    #[arg(required = true)]
+    pub paths: Vec<PathBuf>,
+
+    /// Flags to set, by name (in any case), e.g. `ServerSideOnly`.
+    #[arg(long, value_name = "FLAG", value_delimiter = ',')]
+    pub set: Vec<String>,
+
+    /// Flags to clear, by name.
+    #[arg(long, value_name = "FLAG", value_delimiter = ',')]
+    pub clear: Vec<String>,
+
+    /// Show what would change without changing any file.
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// Change packages with the `Official` flag too. Changing their flags
+    /// changes their MD5, so they no longer match the stock files.
+    #[arg(long)]
+    pub force: bool,
 }
 
 #[derive(Debug, Args)]

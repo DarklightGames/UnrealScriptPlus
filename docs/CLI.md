@@ -19,6 +19,7 @@ usagi pkg list System/Engine.u --all     # show a package's summary, imports and
 | [`rule`](#usagi-rule-codename--usagi-rule---all) | Explain a lint, or list every lint. |
 | [`build`](#usagi-build) | Compile a mod's out-of-date packages with UCC. |
 | [`pkg list`](#usagi-pkg-list-path) | Show a package file's summary, dependencies, imports and exports. |
+| [`pkg flags`](#usagi-pkg-flags-paths) | Show or change package files' flags. |
 | [`format`](#usagi-format) | Not implemented yet. |
 
 Every command that takes paths accepts files and directories. Directories are
@@ -446,6 +447,48 @@ has something the engine would fail on: a negative count in the summary, a
 name or object reference that's out of range, an import inside an export,
 objects inside each other in a loop, or export data that isn't in the file.
 
+### `usagi pkg flags <PATHS>...`
+
+Shows package files' flags, or with `--set` and `--clear`, changes them:
+
+```sh
+usagi pkg flags MyMod.u                                   # show
+usagi pkg flags MyMod.u --clear ServerSideOnly            # change
+usagi pkg flags MyMod.u --set ClientOptional,ServerSideOnly --clear AllowDownload
+usagi pkg flags System/*.u --set ServerSideOnly --dry-run
+```
+
+| Flag | Meaning |
+|---|---|
+| `--set FLAG,...` | Flags to set. Can be given more than once. |
+| `--clear FLAG,...` | Flags to clear. Can be given more than once. |
+| `--dry-run` | Show what would change without changing any file. |
+| `--force` | Change packages with the `Official` flag too. |
+
+Flags are named as in [PACKAGE_FORMAT.md](PACKAGE_FORMAT.md#package-flags),
+without the `PKG_` prefix, in any case: `AllowDownload`, `ClientOptional`,
+`ServerSideOnly`, `BrokenLinks`, `Unsecure`, `Official`,
+`ExtraDownloadFile` and `Need`. A flag can't be both set and cleared.
+
+Each file gets one line: its flags, or the change.
+
+```text
+MyMod.u: 0x00000005 (AllowDownload, ServerSideOnly) -> 0x00000001 (AllowDownload)
+Other.u: 0x00000001 (AllowDownload) (unchanged)
+```
+
+Only the 4 bytes of the flags change. A `.uz2` file is decompressed,
+changed and compressed again (with the same blocks as `ucc compress`).
+
+A package with the `Official` flag isn't changed without `--force`.
+Changing a package's flags changes its MD5 (the engine's "QuickMD5" covers
+the summary), so an official package would no longer match the stock file,
+and servers that check packages' MD5s would reject it.
+
+Each file is changed, or fails, on its own. If any fails (it can't be read,
+isn't a package, or is official), the command reports each failure and exits
+with code 2.
+
 ### Global flags
 
 | Flag | Meaning |
@@ -486,7 +529,7 @@ Besides lint codes, a problem's code can be `parse` (a recovered problem),
 | 0 | Nothing to report. Recovered problems alone don't count, unless `--strict` is used. |
 | 1 | `lint`: a lint problem, or a file that failed to parse; with `--fix`, a problem left after fixing; with `--diff`, a change to show. `parse`: a file that failed to parse. |
 | 1 | `build`: a package failed to compile, or a source file failed to parse. |
-| 2 | A usage error, a configuration error or a missing path. `pkg list`: a file that can't be read or isn't a valid package. `build`: a setup problem, such as a missing folder, or a locked package that would have to be rebuilt. |
+| 2 | A usage error, a configuration error or a missing path. `pkg list`, `pkg flags`: a file that can't be read or isn't a valid package; `pkg flags`: an official package without `--force`. `build`: a setup problem, such as a missing folder, or a locked package that would have to be rebuilt. |
 
 ## Configuration
 

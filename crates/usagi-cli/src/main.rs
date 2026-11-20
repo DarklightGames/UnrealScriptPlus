@@ -171,6 +171,10 @@ fn run(cli: Cli) -> Result<bool, String> {
                 pkg::list(args, color, &mut io::stdout().lock())?;
                 Ok(true)
             }
+            PkgCommand::Flags(args) => {
+                pkg::flags(args, color, &mut io::stdout().lock())?;
+                Ok(true)
+            }
         },
         Command::Build(args) => {
             let config = load_root()?;

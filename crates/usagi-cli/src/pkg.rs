@@ -8,7 +8,7 @@ use usagi_pkg::{
     ObjectFlags, ObjectRef, Package, PackageFlags, Summary, TRIPWIRE_PACKAGE_FILE_TAG,
 };
 
-use crate::cli::{PkgDependencies, PkgFormat, PkgListArgs, PkgSort};
+use crate::cli::{PkgDependencies, PkgFlagsArgs, PkgFormat, PkgListArgs, PkgSort};
 
 /// `usagi pkg list`: prints a package's summary and, if asked, its imports
 /// and exports.
@@ -108,6 +108,93 @@ fn package_flags_text(flags: PackageFlags, style: Style) -> String {
         format!("{:#010X}", flags.0)
     } else {
         format!("{:#010X} ({})", flags.0, names.join(", "))
+    }
+}
+
+/// The bit of a package flag, by name in any case.
+fn package_flag_bit(name: &str) -> Result<u32, String> {
+    PackageFlags::ALL
+        .iter()
+        .find(|(flag, _)| flag.eq_ignore_ascii_case(name))
+        .map(|(_, bit)| *bit)
+        .ok_or_else(|| {
+            let names: Vec<&str> = PackageFlags::ALL.iter().map(|(n, _)| *n).collect();
+            format!(
+                "unknown package flag {:?}; the flags are {}",
+                name,
+                names.join(", ")
+            )
+        })
+}
+
+/// `usagi pkg flags`: shows packages' flags, or changes them.
+pub fn flags(args: &PkgFlagsArgs, color: bool, out: &mut impl Write) -> Result<(), String> {
+    let style = Style { color };
+    let bits = |names: &[String]| -> Result<u32, String> {
+        names
+            .iter()
+            .try_fold(0, |bits, name| Ok(bits | package_flag_bit(name)?))
+    };
+    let (set, clear) = (bits(&args.set)?, bits(&args.clear)?);
+    if set & clear != 0 {
+        let both: Vec<&str> = PackageFlags(set & clear).names();
+        return Err(format!("{} can't be both set and cleared", both.join(", ")));
+    }
+    let changing = !args.set.is_empty() || !args.clear.is_empty();
+    let mut errors = Vec::new();
+    for path in &args.paths {
+        let shown = path.display();
+        let result = (|| -> Result<(), String> {
+            let package = Package::read(path).map_err(|e| e.to_string())?;
+            let old = package.summary.package_flags;
+            let new = PackageFlags((old.0 | set) & !clear);
+            let old_text = package_flags_text(old, style);
+            if !changing {
+                return writeln!(out, "{}: {}", shown, old_text).map_err(|e| e.to_string());
+            }
+            if new == old {
+                return writeln!(out, "{}: {} (unchanged)", shown, old_text)
+                    .map_err(|e| e.to_string());
+            }
+            const OFFICIAL: u32 = 0x0020;
+            if old.0 & OFFICIAL != 0 && !args.force {
+                return Err(
+                    "it's an Official package: changing its flags changes its MD5, so it no \
+                     longer matches the stock file (use --force to change it anyway)"
+                        .to_string(),
+                );
+            }
+            if !args.dry_run {
+                usagi_pkg::set_package_flags(path, new).map_err(|e| e.to_string())?;
+            }
+            let dry_run = if args.dry_run { " (dry run)" } else { "" };
+            writeln!(
+                out,
+                "{}: {} -> {}{}",
+                shown,
+                old_text,
+                package_flags_text(new, style),
+                dry_run
+            )
+            .map_err(|e| e.to_string())
+        })();
+        if let Err(e) = result {
+            errors.push(format!("{}: {}", shown, e));
+        }
+    }
+    match errors.len() {
+        0 => Ok(()),
+        1 if args.paths.len() == 1 => Err(errors.remove(0)),
+        failed => {
+            for error in &errors {
+                eprintln!("usagi: {}", error);
+            }
+            Err(format!(
+                "{} of {} packages failed",
+                failed,
+                args.paths.len()
+            ))
+        }
     }
 }
 
