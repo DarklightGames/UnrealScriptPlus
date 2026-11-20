@@ -209,10 +209,11 @@ yet. The command doesn't read the configuration file.
 
 | Flag | Meaning |
 |---|---|
-| `--dependencies` | List the packages this one depends on. This is the default when none of these four flags is given. |
+| `--dependencies[=packages\|objects]` | List the packages this one depends on; with `=objects`, also the objects referenced in each, by group. This is the default when none of these five flags is given. |
+| `--groups` | List this package's groups (subpackages). |
 | `--imports` | List the imports. |
 | `--exports` | List the exports. |
-| `--all` | List the dependencies, the imports and the exports. |
+| `--all` | List the dependencies (packages only, unless `--dependencies=objects` is given too), the groups, the imports and the exports. |
 | `--no-summary` | Leave out the summary. |
 | `--sort index\|path\|class\|size\|offset` | How to sort the tables. Default: `index` (table order). |
 | `--reverse` | Reverse the sort order. |
@@ -248,6 +249,7 @@ one generation, made from its counts, as the engine does.
 
 Then the tables, with a header row and one line per package or object. The
 tables are listed in this order, whatever the order of the flags:
+dependencies, groups, imports, exports. For example:
 
 ```text
 Dependencies (2)
@@ -280,6 +282,33 @@ each, the most common first. Groups are left out: they're part of the
 package, not separate files. A package that imports nothing has an empty
 `Dependencies (0)` table.
 
+With `--dependencies=objects`, each package is followed by the objects
+referenced in it, as a tree under their groups. Each object is a row of the
+table, with its class in the `Classes` column. Groups and objects are sorted
+by name, ignoring case:
+
+```text
+Dependencies (2)
+  Package     Imports  Classes
+  Core              1  Class (1)
+  └─ Package           Class
+  Engine            3  Class (2), Texture (1)
+  ├─ Actor             Class
+  ├─ Group
+  │  └─ Rock           Texture
+  └─ Texture           Class
+```
+
+`--groups` lists this package's groups: its exports of class `Core.Package`,
+with the number of objects directly in each (not counting those in its
+subgroups, or the subgroups themselves) and their classes:
+
+```text
+Groups (1)
+  Group          Objects  Classes
+  MyPkg.MyGroup        1  Texture (1)
+```
+
 `#` is the object's number as a reference to it is stored in the file:
 imports are numbered -1, -2, -3, ... and exports 1, 2, 3, ...
 
@@ -300,9 +329,9 @@ The class, super and outer references, as stored, are only in the JSON.
 |---|---|
 | `index` | Table order (the default). |
 | `path` | Full path (a dependency's name), ignoring case. |
-| `class` | Class name, ignoring case. Dependencies keep table order. |
-| `size` | Size of the export's data, or the number of objects imported from a dependency; largest first. Imports keep table order. |
-| `offset` | File offset of the export's data, with exports that have no data last. Imports and dependencies keep table order. |
+| `class` | Class name, ignoring case. Dependencies and groups keep table order. |
+| `size` | Size of the export's data, or the number of objects in a dependency or group; largest first. Imports keep table order. |
+| `offset` | File offset of the export's data, with exports that have no data last. Imports, dependencies and groups keep table order. |
 
 Ties keep table order. `--reverse` reverses any of these, e.g. `--sort size
 --reverse` puts the smallest first. To find the largest objects in a package:
@@ -325,8 +354,9 @@ The text is coloured on a terminal (see `--color`). Lines can be long: the
 path column is as wide as the longest path.
 
 `concise` prints names only, one per line, without the summary, headings or
-colour: the dependencies' names, then the imports' and exports' full paths,
-for the tables asked for. For example, `usagi pkg list Foo.u --format
+colour: the dependencies' names (each followed, with `=objects`, by its
+objects' full paths), then the groups', imports' and exports' full paths, for
+the tables asked for. For example, `usagi pkg list Foo.u --format
 concise` lists the packages `Foo.u` depends on.
 
 `json` prints an object:
@@ -394,7 +424,10 @@ concise` lists the packages `Foo.u` depends on.
 - `size`, `compressed_size`, `version`, `licensee_version` and `summary` are
   left out with `--no-summary`; `dependencies`, `imports` and `exports` are
   only there for the tables asked for.
-- A dependency's `index` is its top-level import's.
+- A dependency's `index` is its top-level import's. With
+  `--dependencies=objects`, each dependency also has `objects`: an array of
+  `{index, path, class_package, class_name}`, sorted by path.
+- `groups` is an array of `{index, path, object_count, classes}`.
 - `compressed_size` is the size of the `.uz2` file, or `null`.
 - `tag` is `2653586369` (`0x9E2A83C1`), or `2653586370` (`0x9E2A83C2`) in Red
   Orchestra and Killing Floor.

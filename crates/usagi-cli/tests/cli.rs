@@ -1309,6 +1309,12 @@ Dependencies (2)
   Engine         3  Class (2), Texture (1)
 ";
 
+const GROUPS_TEXT: &str = "
+Groups (1)
+  Group          Objects  Classes
+  MyPkg.MyGroup        1  Texture (1)
+";
+
 const IMPORTS_TEXT: &str = "
 Imports (7)
    #  Class           Path
@@ -1344,14 +1350,20 @@ fn pkg_text(dir: &Path, args: &[&str]) -> String {
 fn pkg_list_imports_and_exports() {
     let dir = tables_dir();
     let all = format!(
-        "MyPkg.u\n{}{}{}",
-        DEPENDENCIES_TEXT, IMPORTS_TEXT, EXPORTS_TEXT
+        "MyPkg.u\n{}{}{}{}",
+        DEPENDENCIES_TEXT, GROUPS_TEXT, IMPORTS_TEXT, EXPORTS_TEXT
     );
     assert_eq!(pkg_text(dir.path(), &["--all", "--no-summary"]), all);
     assert_eq!(
         pkg_text(
             dir.path(),
-            &["--dependencies", "--imports", "--exports", "--no-summary"]
+            &[
+                "--dependencies",
+                "--groups",
+                "--imports",
+                "--exports",
+                "--no-summary"
+            ]
         ),
         all
     );
@@ -1403,7 +1415,11 @@ fn pkg_list_concise() {
         "MyPkg.None\nMyPkg.MyGroup.MyTex\nMyPkg.MyGroup\nMyPkg.MyClass\n"
     );
     let all = concise(&["--all"]);
-    assert!(all.starts_with("Core\nEngine\nCore\n"), "{}", all);
+    assert!(
+        all.starts_with("Core\nEngine\nMyPkg.MyGroup\nCore\n"),
+        "{}",
+        all
+    );
     assert!(
         all.ends_with(
             "Engine.Group.Rock\nMyPkg.MyClass\nMyPkg.MyGroup\nMyPkg.MyGroup.MyTex\nMyPkg.None\n"
@@ -1681,4 +1697,149 @@ fn pkg_list_humanize() {
     let text = String::from_utf8(output.stdout).unwrap();
     assert!(text.contains("  Names        15530 at 0x64\n"), "{}", text);
     assert!(text.contains("  Size         2722417 bytes\n"), "{}", text);
+}
+
+const OBJECTS_TEXT: &str = "
+Dependencies (2)
+  Package     Imports  Classes
+  Core              1  Class (1)
+  └─ Package           Class
+  Engine            3  Class (2), Texture (1)
+  ├─ Actor             Class
+  ├─ Group
+  │  └─ Rock           Texture
+  └─ Texture           Class
+";
+
+#[test]
+fn pkg_list_dependency_objects() {
+    let dir = tables_dir();
+    let objects = format!("MyPkg.u\n{}", OBJECTS_TEXT);
+    assert_eq!(
+        pkg_text(dir.path(), &["--dependencies=objects", "--no-summary"]),
+        objects
+    );
+    // --all lists the packages only, unless asked for the objects.
+    let all = pkg_text(dir.path(), &["--all", "--no-summary"]);
+    assert!(all.starts_with(&format!("MyPkg.u\n{}", DEPENDENCIES_TEXT)));
+    let all = pkg_text(
+        dir.path(),
+        &["--all", "--dependencies=objects", "--no-summary"],
+    );
+    assert!(all.starts_with(&objects), "{}", all);
+    assert_eq!(
+        pkg_text(dir.path(), &["--dependencies=packages", "--no-summary"]),
+        format!("MyPkg.u\n{}", DEPENDENCIES_TEXT)
+    );
+    // The level needs an `=`, so a path after --dependencies isn't one.
+    usagi(dir.path())
+        .args(["pkg", "list", "--dependencies", "MyPkg.u", "--no-summary"])
+        .assert()
+        .code(0);
+    usagi(dir.path())
+        .args(["pkg", "list", "MyPkg.u", "--dependencies=everything"])
+        .assert()
+        .code(2);
+
+    // Concise: each package, then its objects' full paths.
+    assert_eq!(
+        pkg_text(
+            dir.path(),
+            &["--dependencies=objects", "--format", "concise"]
+        ),
+        "Core\nCore.Package\nEngine\nEngine.Actor\nEngine.Group.Rock\nEngine.Texture\n"
+    );
+
+    // Colour: classes cyan, in the Classes column.
+    let output = usagi(dir.path())
+        .args([
+            "pkg",
+            "list",
+            "MyPkg.u",
+            "--dependencies=objects",
+            "--color",
+            "always",
+        ])
+        .output()
+        .unwrap();
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        text.contains("  ├─ Actor             \x1b[36mClass\x1b[0m\n"),
+        "{:?}",
+        text
+    );
+    assert!(text.contains("  ├─ Group\n"), "{:?}", text);
+
+    // JSON: each dependency's objects, sorted by path.
+    let output = usagi(dir.path())
+        .args([
+            "pkg",
+            "list",
+            "MyPkg.u",
+            "--dependencies=objects",
+            "--format",
+            "json",
+        ])
+        .output()
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        json["dependencies"][1]["objects"],
+        serde_json::json!([
+            { "index": -5, "path": "Engine.Actor", "class_package": "Core", "class_name": "Class" },
+            { "index": -7, "path": "Engine.Group.Rock", "class_package": "Engine", "class_name": "Texture" },
+            { "index": -3, "path": "Engine.Texture", "class_package": "Core", "class_name": "Class" },
+        ])
+    );
+    let output = usagi(dir.path())
+        .args(["pkg", "list", "MyPkg.u", "--format", "json"])
+        .output()
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(json["dependencies"][1].get("objects").is_none());
+}
+
+#[test]
+fn pkg_list_groups() {
+    let dir = tables_dir();
+    assert_eq!(
+        pkg_text(dir.path(), &["--groups", "--no-summary"]),
+        format!("MyPkg.u\n{}", GROUPS_TEXT)
+    );
+    assert_eq!(
+        pkg_text(dir.path(), &["--groups", "--format", "concise"]),
+        "MyPkg.MyGroup\n"
+    );
+    let output = usagi(dir.path())
+        .args(["pkg", "list", "MyPkg.u", "--groups", "--format", "json"])
+        .output()
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        json["groups"],
+        serde_json::json!([{
+            "index": 2,
+            "path": "MyPkg.MyGroup",
+            "object_count": 1,
+            "classes": [{ "name": "Texture", "count": 1 }],
+        }])
+    );
+    // A package without groups has an empty table.
+    fs::write(dir.path().join("Empty.u"), package_bytes()).unwrap();
+    let output = usagi(dir.path())
+        .args([
+            "pkg",
+            "list",
+            "Empty.u",
+            "--groups",
+            "--no-summary",
+            "--color",
+            "never",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "Empty.u\n\nGroups (0)\n"
+    );
 }

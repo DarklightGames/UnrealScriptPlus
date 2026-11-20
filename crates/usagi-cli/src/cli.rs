@@ -68,9 +68,21 @@ pub struct PkgListArgs {
     pub path: PathBuf,
 
     /// List the packages this one depends on: the top-level packages of its
-    /// imports. This is the default when no table is asked for.
+    /// imports. `--dependencies=objects` also lists the objects referenced in
+    /// each, by group. This is the default when no table is asked for.
+    #[arg(
+        long,
+        value_enum,
+        value_name = "LEVEL",
+        num_args = 0..=1,
+        require_equals = true,
+        default_missing_value = "packages"
+    )]
+    pub dependencies: Option<PkgDependencies>,
+
+    /// List this package's groups (subpackages), with the objects in each.
     #[arg(long)]
-    pub dependencies: bool,
+    pub groups: bool,
 
     /// List the imports: the objects in other packages that this one refers
     /// to.
@@ -81,7 +93,7 @@ pub struct PkgListArgs {
     #[arg(long)]
     pub exports: bool,
 
-    /// List the dependencies, the imports and the exports.
+    /// List the dependencies, the groups, the imports and the exports.
     #[arg(long)]
     pub all: bool,
 
@@ -109,6 +121,14 @@ pub struct PkgListArgs {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum PkgDependencies {
+    /// The packages only.
+    Packages,
+    /// The packages, and the objects referenced in each.
+    Objects,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum PkgSort {
     /// Table order.
     Index,
@@ -128,8 +148,9 @@ pub enum PkgSort {
 pub enum PkgFormat {
     /// Readable text: the summary and tables.
     Text,
-    /// Names only, one per line: the dependencies' names and the imports'
-    /// and exports' paths, without the summary.
+    /// Names only, one per line: the dependencies' names (and with
+    /// `--dependencies=objects`, their objects' paths), and the groups',
+    /// imports' and exports' paths, without the summary.
     Concise,
     /// A JSON object.
     Json,

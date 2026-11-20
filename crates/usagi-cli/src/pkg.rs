@@ -4,9 +4,11 @@ use std::io::{self, Write};
 use std::path::Path;
 
 use serde::Serialize;
-use usagi_pkg::{ObjectFlags, ObjectRef, Package, Summary, TRIPWIRE_PACKAGE_FILE_TAG};
+use usagi_pkg::{
+    ObjectFlags, ObjectRef, Package, PackageFlags, Summary, TRIPWIRE_PACKAGE_FILE_TAG,
+};
 
-use crate::cli::{PkgFormat, PkgListArgs, PkgSort};
+use crate::cli::{PkgDependencies, PkgFormat, PkgListArgs, PkgSort};
 
 /// `usagi pkg list`: prints a package's summary and, if asked, its imports
 /// and exports.
@@ -19,7 +21,11 @@ pub fn list(args: &PkgListArgs, color: bool, out: &mut impl Write) -> Result<(),
         package_name: package_name(&args.path),
         summary: !args.no_summary && args.format != PkgFormat::Concise,
         // The dependencies are listed when no table is asked for.
-        dependencies: args.dependencies || args.all || !(args.imports || args.exports),
+        dependencies: args.dependencies.or_else(|| {
+            let any_table = args.groups || args.imports || args.exports;
+            (args.all || !any_table).then_some(PkgDependencies::Packages)
+        }),
+        groups: args.groups || args.all,
         imports: args.imports || args.all,
         exports: args.exports || args.all,
         sort: args.sort,
@@ -47,7 +53,8 @@ struct View<'a> {
     package: &'a Package,
     package_name: String,
     summary: bool,
-    dependencies: bool,
+    dependencies: Option<PkgDependencies>,
+    groups: bool,
     imports: bool,
     exports: bool,
     sort: PkgSort,
@@ -84,6 +91,24 @@ fn width<S: AsRef<str>>(items: impl IntoIterator<Item = S>) -> usize {
         .map(|s| s.as_ref().chars().count())
         .max()
         .unwrap_or(0)
+}
+
+/// Package flags as text: `0x00000021 (AllowDownload, Official)`, with
+/// unknown bits as `unknown 0x...`.
+fn package_flags_text(flags: PackageFlags, style: Style) -> String {
+    let mut names: Vec<String> = flags
+        .names()
+        .iter()
+        .map(|n| style.paint(GREEN, n))
+        .collect();
+    if flags.unknown() != 0 {
+        names.push(style.paint(RED, &format!("unknown {:#010X}", flags.unknown())));
+    }
+    if names.is_empty() {
+        format!("{:#010X}", flags.0)
+    } else {
+        format!("{:#010X} ({})", flags.0, names.join(", "))
+    }
 }
 
 /// Flag names joined with commas, followed by any unknown bits.
@@ -203,11 +228,95 @@ struct Dependency<'a> {
     /// Its index in the import table.
     import: usize,
     name: &'a str,
-    /// How many objects are imported from it, not counting groups.
+    /// The objects imported from it (in it or its groups), not counting
+    /// groups, as indices in the import table.
+    objects: Vec<usize>,
+    /// The classes of those objects, with how many of each.
+    classes: ClassCounts<'a>,
+}
+
+/// A group (subpackage) of this package: an export of class `Core.Package`.
+struct Group<'a> {
+    /// Its index in the export table.
+    export: usize,
+    path: String,
+    /// How many objects are directly in it, not counting groups.
     count: usize,
-    /// The classes of those objects, with how many of each: the most common
-    /// first, then by name.
-    classes: Vec<(&'a str, usize)>,
+    classes: ClassCounts<'a>,
+}
+
+/// Classes, with how many objects of each.
+#[derive(Default)]
+struct ClassCounts<'a>(Vec<(&'a str, usize)>);
+
+impl<'a> ClassCounts<'a> {
+    fn add(&mut self, class: &'a str) {
+        match self.0.iter_mut().find(|(name, _)| *name == class) {
+            Some((_, count)) => *count += 1,
+            None => self.0.push((class, 1)),
+        }
+    }
+
+    /// The classes, the most common first, then by name.
+    fn sorted(mut self) -> Vec<(&'a str, usize)> {
+        self.0
+            .sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
+        self.0
+    }
+}
+
+/// A node of a dependency's object tree: a group or an object (or both, if
+/// an object has objects inside it).
+#[derive(Default)]
+struct Node<'a> {
+    name: &'a str,
+    /// The object's class; `None` for a group.
+    class: Option<&'a str>,
+    /// By lower-case name, so they're sorted ignoring case.
+    children: std::collections::BTreeMap<String, Node<'a>>,
+}
+
+impl<'a> Node<'a> {
+    /// Adds an object, given its name and its groups' names, outermost
+    /// first.
+    fn add(&mut self, path: &[&'a str], class: &'a str) {
+        let (name, rest) = path.split_first().expect("a path has a name");
+        let child = self.children.entry(name.to_lowercase()).or_default();
+        child.name = name;
+        if rest.is_empty() {
+            child.class = Some(class);
+        } else {
+            child.add(rest, class);
+        }
+    }
+
+    /// The tree below this node, one `(name with tree lines, class)` per
+    /// node. `prefix` is the lines drawn for the levels above.
+    fn rows(&self, prefix: &str, rows: &mut Vec<(String, Option<&'a str>)>) {
+        let count = self.children.len();
+        for (i, child) in self.children.values().enumerate() {
+            let last = i + 1 == count;
+            let branch = if last { "└─ " } else { "├─ " };
+            rows.push((format!("{}{}{}", prefix, branch, child.name), child.class));
+            let below = if last { "   " } else { "│  " };
+            child.rows(&format!("{}{}", prefix, below), rows);
+        }
+    }
+}
+
+/// Whether a class (`package`, `name`) is `Core.Package`: an object of that
+/// class is a group, or a package.
+fn is_package_class(package: &str, name: &str) -> bool {
+    package.eq_ignore_ascii_case("Core") && name.eq_ignore_ascii_case("Package")
+}
+
+/// Orders `ordering` by `reverse`.
+fn direction(ordering: std::cmp::Ordering, reverse: bool) -> std::cmp::Ordering {
+    if reverse {
+        ordering.reverse()
+    } else {
+        ordering
+    }
 }
 
 /// Sorts `0..len` with `compare`, reversed if `reverse`. The sort is
@@ -279,8 +388,11 @@ impl View<'_> {
         if self.summary {
             self.summary_text(out, style)?;
         }
-        if self.dependencies {
+        if self.dependencies.is_some() {
             self.dependencies_text(out, style)?;
+        }
+        if self.groups {
+            self.groups_text(out, style)?;
         }
         if self.imports {
             self.imports_text(out, style)?;
@@ -311,26 +423,12 @@ impl View<'_> {
             summary.licensee_version()
         )?;
 
-        let flags = summary.package_flags;
-        let mut names: Vec<String> = flags
-            .names()
-            .iter()
-            .map(|n| style.paint(GREEN, n))
-            .collect();
-        if flags.unknown() != 0 {
-            names.push(style.paint(RED, &format!("unknown {:#010X}", flags.unknown())));
-        }
-        if names.is_empty() {
-            writeln!(out, "{}{:#010X}", label("Flags"), flags.0)?;
-        } else {
-            writeln!(
-                out,
-                "{}{:#010X} ({})",
-                label("Flags"),
-                flags.0,
-                names.join(", ")
-            )?;
-        }
+        writeln!(
+            out,
+            "{}{}",
+            label("Flags"),
+            package_flags_text(summary.package_flags, style)
+        )?;
 
         writeln!(out, "{}{}", label("GUID"), summary.guid)?;
         let tables = [
@@ -464,40 +562,23 @@ impl View<'_> {
                 dependencies.push(Dependency {
                     import: i,
                     name: package.name(import.object_name),
-                    count: 0,
-                    classes: Vec::new(),
+                    objects: Vec::new(),
+                    classes: ClassCounts::default(),
                 });
             }
         }
         for (i, import) in imports.iter().enumerate() {
-            let is_group = package
-                .name(import.class_package)
-                .eq_ignore_ascii_case("Core")
-                && package
-                    .name(import.class_name)
-                    .eq_ignore_ascii_case("Package");
-            if import.outer == ObjectRef::Null || is_group {
+            let class_package = package.name(import.class_package);
+            let class = package.name(import.class_name);
+            if import.outer == ObjectRef::Null || is_package_class(class_package, class) {
                 continue;
             }
             let ObjectRef::Import(top) = package.top_level(ObjectRef::Import(i)) else {
                 unreachable!("an import's outers are imports");
             };
             let dependency = &mut dependencies[position[top].expect("a top-level import")];
-            dependency.count += 1;
-            let class = package.name(import.class_name);
-            match dependency
-                .classes
-                .iter_mut()
-                .find(|(name, _)| *name == class)
-            {
-                Some((_, count)) => *count += 1,
-                None => dependency.classes.push((class, 1)),
-            }
-        }
-        for dependency in &mut dependencies {
-            dependency
-                .classes
-                .sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
+            dependency.objects.push(i);
+            dependency.classes.add(class);
         }
         // Stable, so ties keep table order.
         dependencies.sort_by(|x, y| {
@@ -505,37 +586,121 @@ impl View<'_> {
                 PkgSort::Index => x.import.cmp(&y.import),
                 PkgSort::Path => x.name.to_lowercase().cmp(&y.name.to_lowercase()),
                 // Most objects first.
-                PkgSort::Size => y.count.cmp(&x.count),
+                PkgSort::Size => y.objects.len().cmp(&x.objects.len()),
                 PkgSort::Class | PkgSort::Offset => std::cmp::Ordering::Equal,
             };
-            if self.reverse {
-                ordering.reverse()
-            } else {
-                ordering
-            }
+            direction(ordering, self.reverse)
         });
         dependencies
     }
 
-    fn dependencies_text(&self, out: &mut impl Write, style: Style) -> io::Result<()> {
-        let rows: Vec<Vec<String>> = self
-            .dependencies()
-            .into_iter()
-            .map(|dependency| {
-                let classes: Vec<String> = dependency
-                    .classes
-                    .iter()
-                    .map(|(class, count)| format!("{} ({})", class, self.count(*count as u64)))
-                    .collect();
-                vec![
-                    dependency.name.to_string(),
-                    self.count(dependency.count as u64),
-                    classes.join(", "),
-                ]
+    /// A dependency's objects as a tree of groups, for
+    /// `--dependencies=objects`.
+    fn object_tree<'a>(&'a self, dependency: &Dependency<'a>) -> Node<'a> {
+        let package = self.package;
+        let mut root = Node::default();
+        for &i in &dependency.objects {
+            // The object's name and its groups', outermost first, without
+            // the package.
+            let mut path = Vec::new();
+            let mut current = ObjectRef::Import(i);
+            while package.outer(current) != ObjectRef::Null {
+                path.push(package.object_name(current).expect("an object"));
+                current = package.outer(current);
+            }
+            path.reverse();
+            root.add(&path, package.name(package.imports()[i].class_name));
+        }
+        root
+    }
+
+    /// This package's groups, in the order to show them.
+    fn groups(&self) -> Vec<Group<'_>> {
+        let package = self.package;
+        let exports = package.exports();
+        let is_group = |object: ObjectRef| match object {
+            ObjectRef::Export(i) => self.is_group_export(i),
+            _ => false,
+        };
+        let mut groups: Vec<Group> = (0..exports.len())
+            .filter(|&i| self.is_group_export(i))
+            .map(|i| Group {
+                export: i,
+                path: self.full_path(ObjectRef::Export(i)).expect("a path"),
+                count: 0,
+                classes: ClassCounts::default(),
             })
             .collect();
+        for (i, export) in exports.iter().enumerate() {
+            if is_group(ObjectRef::Export(i)) || !is_group(export.outer) {
+                continue;
+            }
+            let ObjectRef::Export(outer) = export.outer else {
+                unreachable!("a group is an export");
+            };
+            let group = groups
+                .iter_mut()
+                .find(|g| g.export == outer)
+                .expect("each group is listed");
+            group.count += 1;
+            group.classes.add(package.class_name(export));
+        }
+        groups.sort_by(|x, y| {
+            let ordering = match self.sort {
+                PkgSort::Index => x.export.cmp(&y.export),
+                PkgSort::Path => x.path.to_lowercase().cmp(&y.path.to_lowercase()),
+                PkgSort::Size => y.count.cmp(&x.count),
+                PkgSort::Class | PkgSort::Offset => std::cmp::Ordering::Equal,
+            };
+            direction(ordering, self.reverse)
+        });
+        groups
+    }
+
+    /// Whether export `i` is a group: its class is `Core.Package`.
+    fn is_group_export(&self, i: usize) -> bool {
+        let package = self.package;
+        let class = package.exports()[i].class;
+        let ObjectRef::Import(_) = class else {
+            return false;
+        };
+        let class_package = package.object_name(package.top_level(class)).unwrap_or("");
+        is_package_class(class_package, package.object_name(class).unwrap_or(""))
+    }
+
+    /// Class counts as text: `Texture (2), Shader (1)`.
+    fn classes_text(&self, classes: &[(&str, usize)]) -> String {
+        let parts: Vec<String> = classes
+            .iter()
+            .map(|(class, count)| format!("{} ({})", class, self.count(*count as u64)))
+            .collect();
+        parts.join(", ")
+    }
+
+    fn dependencies_text(&self, out: &mut impl Write, style: Style) -> io::Result<()> {
+        let with_objects = self.dependencies == Some(PkgDependencies::Objects);
+        let dependencies = self.dependencies();
+        let heading = format!("Dependencies ({})", self.count(dependencies.len() as u64));
+        let mut rows = Vec::new();
+        for dependency in dependencies {
+            let count = self.count(dependency.objects.len() as u64);
+            let tree = with_objects.then(|| self.object_tree(&dependency));
+            rows.push(vec![
+                dependency.name.to_string(),
+                count,
+                self.classes_text(&dependency.classes.sorted()),
+            ]);
+            // With `=objects`, each object is a row under its package, in
+            // the same columns, so its class lines up with the classes.
+            if let Some(tree) = tree {
+                let mut objects = Vec::new();
+                tree.rows("", &mut objects);
+                for (name, class) in objects {
+                    rows.push(vec![name, String::new(), class.unwrap_or("").to_string()]);
+                }
+            }
+        }
         writeln!(out)?;
-        let heading = format!("Dependencies ({})", self.count(rows.len() as u64));
         writeln!(out, "{}", style.paint(BOLD, &heading))?;
         const COLUMNS: [Column; 3] = [
             column("Package", Align::Left, None),
@@ -545,12 +710,55 @@ impl View<'_> {
         write_table(out, style, &COLUMNS, &rows)
     }
 
-    /// One name per line: the dependencies', then the imports' and exports'
-    /// full paths.
+    fn groups_text(&self, out: &mut impl Write, style: Style) -> io::Result<()> {
+        let rows: Vec<Vec<String>> = self
+            .groups()
+            .into_iter()
+            .map(|group| {
+                let count = self.count(group.count as u64);
+                let classes = self.classes_text(&group.classes.sorted());
+                vec![group.path, count, classes]
+            })
+            .collect();
+        writeln!(out)?;
+        let heading = format!("Groups ({})", self.count(rows.len() as u64));
+        writeln!(out, "{}", style.paint(BOLD, &heading))?;
+        const COLUMNS: [Column; 3] = [
+            column("Group", Align::Left, None),
+            column("Objects", Align::Right, None),
+            column("Classes", Align::Left, Some(CYAN)),
+        ];
+        write_table(out, style, &COLUMNS, &rows)
+    }
+
+    /// A dependency's objects' full paths, sorted ignoring case.
+    fn object_paths(&self, dependency: &Dependency) -> Vec<String> {
+        let mut paths: Vec<String> = dependency
+            .objects
+            .iter()
+            .map(|&i| self.full_path(ObjectRef::Import(i)).expect("a path"))
+            .collect();
+        paths.sort_by_key(|path| path.to_lowercase());
+        paths
+    }
+
+    /// One name per line: the dependencies' (and their objects' full paths,
+    /// with `=objects`), then the groups', imports' and exports' full paths.
     fn concise(&self, out: &mut impl Write) -> io::Result<()> {
-        if self.dependencies {
+        if self.dependencies.is_some() {
+            let with_objects = self.dependencies == Some(PkgDependencies::Objects);
             for dependency in self.dependencies() {
                 writeln!(out, "{}", dependency.name)?;
+                if with_objects {
+                    for path in self.object_paths(&dependency) {
+                        writeln!(out, "{}", path)?;
+                    }
+                }
+            }
+        }
+        if self.groups {
+            for group in self.groups() {
+                writeln!(out, "{}", group.path)?;
             }
         }
         if self.imports {
@@ -643,18 +851,43 @@ impl View<'_> {
             licensee_version: package.summary.licensee_version(),
             summary: &package.summary,
         });
-        let dependencies = self.dependencies.then(|| {
+        let with_objects = self.dependencies == Some(PkgDependencies::Objects);
+        let dependencies = self.dependencies.map(|_| {
             self.dependencies()
                 .into_iter()
                 .map(|dependency| JsonDependency {
                     name: dependency.name,
                     index: ObjectRef::Import(dependency.import).raw(),
-                    import_count: dependency.count,
-                    classes: dependency
-                        .classes
-                        .into_iter()
-                        .map(|(name, count)| JsonClassCount { name, count })
-                        .collect(),
+                    import_count: dependency.objects.len(),
+                    objects: with_objects.then(|| {
+                        let mut objects: Vec<JsonObject> = dependency
+                            .objects
+                            .iter()
+                            .map(|&i| {
+                                let import = &package.imports()[i];
+                                JsonObject {
+                                    index: ObjectRef::Import(i).raw(),
+                                    path: self.full_path(ObjectRef::Import(i)).expect("a path"),
+                                    class_package: package.name(import.class_package),
+                                    class_name: package.name(import.class_name),
+                                }
+                            })
+                            .collect();
+                        objects.sort_by_key(|object| object.path.to_lowercase());
+                        objects
+                    }),
+                    classes: json_classes(dependency.classes),
+                })
+                .collect()
+        });
+        let groups = self.groups.then(|| {
+            self.groups()
+                .into_iter()
+                .map(|group| JsonGroup {
+                    index: ObjectRef::Export(group.export).raw(),
+                    path: group.path,
+                    object_count: group.count,
+                    classes: json_classes(group.classes),
                 })
                 .collect()
         });
@@ -703,6 +936,7 @@ impl View<'_> {
                 path: self.path.display().to_string(),
                 summary,
                 dependencies,
+                groups,
                 imports,
                 exports,
             },
@@ -718,6 +952,8 @@ struct JsonPackage<'a> {
     summary: Option<JsonSummary<'a>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     dependencies: Option<Vec<JsonDependency<'a>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    groups: Option<Vec<JsonGroup<'a>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     imports: Option<Vec<JsonImport<'a>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -764,6 +1000,32 @@ struct JsonDependency<'a> {
     index: i32,
     import_count: usize,
     classes: Vec<JsonClassCount<'a>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    objects: Option<Vec<JsonObject<'a>>>,
+}
+
+#[derive(Serialize)]
+struct JsonObject<'a> {
+    index: i32,
+    path: String,
+    class_package: &'a str,
+    class_name: &'a str,
+}
+
+#[derive(Serialize)]
+struct JsonGroup<'a> {
+    index: i32,
+    path: String,
+    object_count: usize,
+    classes: Vec<JsonClassCount<'a>>,
+}
+
+fn json_classes(classes: ClassCounts) -> Vec<JsonClassCount> {
+    classes
+        .sorted()
+        .into_iter()
+        .map(|(name, count)| JsonClassCount { name, count })
+        .collect()
 }
 
 #[derive(Serialize)]
