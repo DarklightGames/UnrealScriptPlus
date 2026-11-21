@@ -1,5 +1,5 @@
 # Builds the usagi binary for Linux and Windows and attaches it to a GitHub
-# release, then publishes usagi-core and usagi-cli to crates.io. Runs when a
+# release, then publishes usagi-core, usagi-pkg and usagi-cli to crates.io. Runs when a
 # tag like `v0.3.0` is pushed; it can also be run by hand, which builds the
 # archives without publishing anything.
 #
@@ -98,4 +98,5 @@ jobs:
         CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
       run: |
         cargo publish --locked -p usagi-core
+        cargo publish --locked -p usagi-pkg
         cargo publish --locked -p usagi-cli

@@ -143,7 +143,7 @@ impl Locks {
 
 /// Finds the entry called `name` in `dir`, ignoring case, the way Windows
 /// (and so UCC) would.
-fn find_ci(dir: &Path, name: &str) -> Option<PathBuf> {
+pub(crate) fn find_ci(dir: &Path, name: &str) -> Option<PathBuf> {
     let exact = dir.join(name);
     if exact.exists() {
         return Some(exact);

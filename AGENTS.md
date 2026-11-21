@@ -5,12 +5,13 @@ Guidance for AI coding agents working on this repository.
 ## Project
 
 usagi is a Cargo workspace for parsing Unreal Engine 2 UnrealScript, running
-static analysis on it, and building mods with UCC:
+static analysis on it, building mods with UCC, and reading package files:
 
 | Crate | Contents |
 |---|---|
 | `crates/usagi-core` | The library (`usagi_core`): parser, AST, symbol table and lints. |
-| `crates/usagi-cli` | The `usagi` binary: `parse`, `lint`, `rule`, `build` (in `src/build/`) and configuration files. Its tests are in `tests/cli.rs`. |
+| `crates/usagi-pkg` | The package reader (`usagi_pkg`). See [Packages](#packages). |
+| `crates/usagi-cli` | The `usagi` binary: `parse`, `lint` (and `lint rule`), `build` (in `src/build/`), `pkg` (in `src/pkg/`; `pkg obj` in `obj.rs`, `pkg export` in `export.rs`, `pkg diff` in `diff.rs`, and finding a game's `Paths` in `game.rs`) and configuration files. Its tests are in `tests/cli.rs`. |
 
 Paths below are relative to `crates/usagi-core`.
 
@@ -94,10 +95,63 @@ install; use a scratch copy (copy `System/Default.ini`, the mod's `System`
 folder and the `.ini` files, and symlink the source package folders).
 
 Releases are built by `.github/workflows/release.yml` when a `v*` tag is
-pushed. It also publishes `usagi-core` and then `usagi-cli` to crates.io, so
-before tagging, set `version` in the root `Cargo.toml` to match the tag, and
-the `usagi-core` dependency's `version` in `crates/usagi-cli/Cargo.toml` to
-the same.
+pushed. It also publishes `usagi-core`, `usagi-pkg` and then `usagi-cli` to
+crates.io, so before tagging, set `version` in the root `Cargo.toml` to match
+the tag, and the `usagi-core` and `usagi-pkg` dependencies' `version` in
+`crates/usagi-cli/Cargo.toml` to the same.
+
+## Packages
+
+`crates/usagi-pkg` reads UE2 package files. **Keep
+[`docs/PACKAGE_FORMAT.md`](docs/PACKAGE_FORMAT.md) up to date:** it documents
+the binary format, with references to the engine source, and the crate
+follows it. When the crate reads something new, or turns out to differ from the
+document, update the document in the same change.
+
+| Path | Contents |
+|---|---|
+| `src/summary.rs` | The package summary (`Summary`), its GUID and generations. |
+| `src/tables.rs` | The name, import and export tables, object references (`ObjectRef`), and the checks the engine would fail on. |
+| `src/flags.rs` | Package flags and object flags. |
+| `src/uz2.rs` | Decompressing and compressing `.uz2` files. |
+| `src/edit.rs` | Changing package files in place (`set_package_flags`). |
+| `src/properties.rs` | Objects' tagged properties (`Package::properties`), read by their declarations when they can be found, and their values as T3D. |
+| `src/archive.rs` | `Archive` and `Serialize`: native data read and written by one function per type, as the engine does (`Loader`, `Saver`), `FString` and `LazyArray`. |
+| `src/class.rs` | Classes, states, functions, structs, property declarations, enums, constants and text buffers (`Package::class`, `Package::read_native`). |
+| `src/script.rs` | UnrealScript bytecode (`Script`, `Expr`). |
+| `src/media.rs` | Textures', sounds' and sound groups' native data (`Texture`, `Mipmap`, `Sound`, `SoundGroup`). |
+| `src/diff.rs` | Comparing two versions of a package (`diff`), for `pkg diff`. |
+| `src/volatile.rs` | Properties whose saved value the engine never uses (`VOLATILE_PROPERTIES`), which `pkg diff` shows only with `--all`. Add one with a row in its table, citing where in the engine's source the value is worked out. |
+| `src/packages.rs` | `Packages`: finding packages by a game's `Paths`, resolving imports, and finding properties' declarations. |
+| `src/pattern.rs` | Object references and globs (`ObjectPattern`), and finding the objects they match. |
+| `src/package.rs` | `Package`: reads a file (decompressing a `.uz2`), keeps its exports' data, and looks up names, paths, outers and references. |
+| `src/reader.rs` | The byte cursor: integers, compact indices and strings. |
+| `src/error.rs` | `Error`. |
+| `tests/` | Integration tests; `tests/common/mod.rs` writes packages (summary, tables and data) and `.uz2` files, and `tests/common/builder.rs` builds packages whose classes, properties and objects refer to each other. |
+
+Read the package exactly as the engine does (`ULinkerLoad` in
+`Core/Src/UnLinker.cpp`), including what it accepts that looks wrong, and
+reject only what it would fail on. The crate has 100% line, region and
+function coverage from its own tests (`cargo llvm-cov --summary-only -p
+usagi-pkg --all-features`); keep it that way, as for the parser.
+
+Objects are addressed UnrealScript-style, as the SDK and UnrealScript do:
+`Class'Package.Group.Name'` (e.g. `Texture'MyPkg.Walls.Brick'`). Use this
+form wherever the CLI prints an object reference. Where it takes one, the
+class is optional (`MyPkg.Walls.Brick`), since the path alone identifies the
+object.
+
+Tests write their packages as bytes: there are no game files in the
+repository. Check changes against a real game's packages (every one should
+read) on a local install, which is read-only: never write to it.
+
+**Don't pull from Git LFS when testing** unless explicitly asked to: our LFS
+bandwidth is very limited. A game or mod repository may keep its packages in
+LFS; use the files already checked out, and don't run anything that fetches
+LFS objects (`git lfs pull`/`fetch`, a checkout of other revisions, or
+`usagi pkg diff --online`). `usagi pkg diff` is offline by default: it reads
+only LFS objects already in the local cache, and fails rather than download
+one.
 
 ## Static analysis
 

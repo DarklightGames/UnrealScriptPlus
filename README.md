@@ -14,7 +14,8 @@ scripting language of Unreal Engine 2.
 | Component | Crate | Responsibilities |
 |-----------|-------|------------------|
 | Library | [`usagi-core`](crates/usagi-core) | Reads UnrealScript source files and turns them into a syntax tree, then analyses that tree to find problems and suggest fixes. Other tools can build on it. |
-| CLI | [`usagi-cli`](crates/usagi-cli) | The `usagi` command. Finds your files, reads `usagi.toml`, runs the library over them, prints the problems it finds and applies fixes when you ask it to. Also builds packages, for a mod or the game itself: it works out which are out of date and compiles them with UCC. |
+| Packages | [`usagi-pkg`](crates/usagi-pkg) | Reads Unreal package files (`.u`, `.utx`, `.ut2`, ...) and their `.uz2` compressed form. It reads the summary, the name, import and export tables, and objects' properties, and can change a package's flags. |
+| CLI | [`usagi-cli`](crates/usagi-cli) | The `usagi` command. Finds your files, reads `usagi.toml`, runs the library over them, prints the problems it finds and applies fixes when you ask it to. Also builds packages, for a mod or the game itself: it works out which are out of date and compiles them with UCC, and shows what's in package files. |
 
 > usagi is still young. Linting, parsing and building work today; a code
 > formatter and other tools are planned.
@@ -31,7 +32,8 @@ cargo install usagi-cli
 ```
 
 The parser and lints are also available as a library,
-[`usagi-core`](https://crates.io/crates/usagi-core).
+[`usagi-core`](https://crates.io/crates/usagi-core), and the package reader as
+[`usagi-pkg`](https://crates.io/crates/usagi-pkg).
 
 ## Getting started
 
@@ -41,8 +43,8 @@ Run usagi from the root of your source tree:
 usagi lint              # check every .uc file under the current directory
 usagi lint --fix        # apply safe fixes, then report what's left
 usagi lint --diff       # preview the fixes without changing any file
-usagi rule S003         # explain what a lint means
-usagi rule --all        # list every lint
+usagi lint rule S003    # explain what a lint means
+usagi lint rule --all   # list every lint
 ```
 
 To keep your settings with your project, add a `usagi.toml`:

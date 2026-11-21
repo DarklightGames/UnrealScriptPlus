@@ -6,6 +6,7 @@ mod cli;
 mod config;
 mod discover;
 mod output;
+mod pkg;
 
 use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
@@ -15,10 +16,11 @@ use clap::Parser;
 use usagi_core::{Applicability, Lint, ProgramErrorSeverity};
 
 use check::{CheckOptions, FileReport};
-use cli::{Cli, ColorChoice, Command, FileArgs, OutputFormat};
+use cli::{Cli, ColorChoice, Command, FileArgs, LintCommand, OutputFormat, PkgCommand, RuleArgs};
 use config::{ConfigError, Overrides, Settings};
 
 fn main() -> ExitCode {
+    restore_sigpipe();
     let cli = Cli::parse();
     match run(cli) {
         Ok(true) => ExitCode::SUCCESS,
@@ -63,6 +65,9 @@ fn run(cli: Cli) -> Result<bool, String> {
             Ok(!reports.iter().any(|r| r.outcome.is_failure()))
         }
         Command::Lint(args) => {
+            if let Some(LintCommand::Rule(args)) = &args.command {
+                return rule(args);
+            }
             let config = load()?;
             let overrides = Overrides {
                 select: args.select.clone(),
@@ -130,40 +135,26 @@ fn run(cli: Cli) -> Result<bool, String> {
                         .any(|p| matches!(p.kind, check::Kind::Lint(_)))
             }))
         }
-        Command::Rule(args) => {
-            let mut out = io::stdout().lock();
-            if args.all {
-                for &lint in Lint::ALL {
-                    writeln!(
-                        out,
-                        "{}  {:40} {}",
-                        lint.code(),
-                        lint.name(),
-                        lint.summary()
-                    )
-                    .map_err(|e| e.to_string())?;
-                }
-                return Ok(true);
-            }
-            let name = args.lint.as_deref().unwrap_or_default();
-            let lint = Lint::find(name).ok_or_else(|| format!("unknown lint {:?}", name))?;
-            let severity = match lint.severity() {
-                ProgramErrorSeverity::Error => "error",
-                ProgramErrorSeverity::Warning => "warning",
-            };
-            writeln!(
-                out,
-                "{} {}\ncategory: {}\nseverity: {}\n\n{}",
-                lint.code(),
-                lint.name(),
-                lint.category(),
-                severity,
-                lint.summary()
-            )
-            .map_err(|e| e.to_string())?;
-            Ok(true)
-        }
         Command::Format(_) => Err("format is not implemented yet".to_string()),
+        Command::Pkg(args) => match &args.command {
+            PkgCommand::List(args) => {
+                pkg::list(args, color, &mut io::stdout().lock())?;
+                Ok(true)
+            }
+            PkgCommand::Flags(args) => {
+                pkg::flags(args, color, &mut io::stdout().lock())?;
+                Ok(true)
+            }
+            PkgCommand::Obj(args) => {
+                pkg::obj::obj(args, color, &mut io::stdout().lock(), &mut io::stderr())
+            }
+            PkgCommand::Export(args) => {
+                pkg::export::export(args, &mut io::stdout().lock(), &mut io::stderr())
+            }
+            PkgCommand::Diff(args) => {
+                pkg::diff::diff(args, color, &mut io::stdout().lock(), &mut io::stderr())
+            }
+        },
         Command::Build(args) => {
             let config = load_root()?;
             let mod_name = if args.no_mod {
@@ -207,6 +198,52 @@ fn run(cli: Cli) -> Result<bool, String> {
                 version_class: build.version_class.clone(),
             })
         }
+    }
+}
+
+/// `usagi lint rule`: explains a lint, or lists every lint.
+fn rule(args: &RuleArgs) -> Result<bool, String> {
+    let mut out = io::stdout().lock();
+    if args.all {
+        for &lint in Lint::ALL {
+            writeln!(
+                out,
+                "{}  {:40} {}",
+                lint.code(),
+                lint.name(),
+                lint.summary()
+            )
+            .map_err(|e| e.to_string())?;
+        }
+        return Ok(true);
+    }
+    let name = args.lint.as_deref().unwrap_or_default();
+    let lint = Lint::find(name).ok_or_else(|| format!("unknown lint {:?}", name))?;
+    let severity = match lint.severity() {
+        ProgramErrorSeverity::Error => "error",
+        ProgramErrorSeverity::Warning => "warning",
+    };
+    writeln!(
+        out,
+        "{} {}\ncategory: {}\nseverity: {}\n\n{}",
+        lint.code(),
+        lint.name(),
+        lint.category(),
+        severity,
+        lint.summary()
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+/// Rust ignores `SIGPIPE`, so writing to a closed pipe (`usagi ... | head`)
+/// is an error, which would be reported. Restore the default, so that `usagi`
+/// stops quietly, like other command-line tools.
+fn restore_sigpipe() {
+    #[cfg(unix)]
+    // SAFETY: called first thing in `main`, before any other thread exists.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
     }
 }
 

@@ -49,6 +49,56 @@ Ideas that aren't implemented yet. For the lints that exist, see
   with UCC itself or hand them to the user to run, and read the results back
   from the log.
 
+## Packages
+
+* Write a byte whose property is an enum as the enum's value
+  (`LODSet=LODSET_Interface`), as UnrealEd does: the declaration now gives
+  the enum.
+* Fill in properties that aren't stored from the class's defaults, which are
+  a chain: a class's defaults are only those that differ from its
+  superclass's (see [ASSET_PIPELINE.md](ASSET_PIPELINE.md)).
+
+### `pkg diff`
+
+* Compare classes by what's in them: functions, states and variables added
+  or removed, signatures and flags changed, and bytecode changed (or a
+  disassembled diff of it).
+* Read more native data rather than comparing its bytes, so that it isn't a
+  change when only the rest of the package moved or its names were
+  reordered: static meshes, skeletal meshes and animations.
+* More properties whose saved value the engine never uses, in
+  `crates/usagi-pkg/src/volatile.rs` (which has the texture modifiers' `M`),
+  and fields of native data that are like them, marked in their types. Find
+  them by saving a package again without changes and comparing, by counting
+  which properties change across a repository's history, and by reading the
+  engine's source: `Texture.InternalTime` is a candidate, but nothing in the
+  source sets it.
+* Compare two folders of packages, such as two releases' `System` folders,
+  matching packages by name.
+* Revision ranges, as git takes them: `abc123..def456`, and `abc123^!` for
+  what one commit changed.
+* Every package that changed between two revisions, when no path is given,
+  or below a folder that is.
+* git's external diff (`*.u diff=upkg` in `.gitattributes`), so that `git
+  diff` and `git log -p` show packages' changes.
+* Other version control systems, such as Perforce (`p4 print`) and SVN (`svn
+  cat`).
+
+## A compiler
+
+* Compile UnrealScript to packages without UCC: see
+  [COMPILER.md](COMPILER.md).
+
+## A persistent runtime
+
+* A usagi runtime that loads a game's packages (and, potentially, its source)
+  into memory once, up front, and keeps indexes and caches: classes and their
+  defaults, where each object is, who refers to what. Commands now read every
+  file they need each time they run; exporting with class defaults and
+  cross-package references (see [ASSET_PIPELINE.md](ASSET_PIPELINE.md)) would
+  read many. The same runtime could serve an interactive mode, a TUI, and a
+  language server.
+
 ## Build
 
 * Clean up after an interrupted build: on Ctrl-C, stop UCC and remove the
@@ -66,3 +116,7 @@ of the annoyances of UnrealScript. For example:
 
 This would require a transpiler step, but investigation needs to be done as to how
 feasible this is given the odd environment that `UCC` operates in.
+
+With usagi's own compiler ([COMPILER.md](COMPILER.md#extending-the-language)),
+no transpiler is needed: new syntax compiles straight to the engine's
+bytecode, as long as it can be expressed in it.

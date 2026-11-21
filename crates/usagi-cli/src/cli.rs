@@ -38,12 +38,307 @@ pub enum Command {
     Parse(ParseArgs),
     /// Parse files and report lint problems.
     Lint(LintArgs),
-    /// Explain a lint, or list every lint.
-    Rule(RuleArgs),
     /// Format files (not implemented yet).
     Format(FormatArgs),
     /// Compile a mod's out-of-date packages with UCC.
     Build(BuildArgs),
+    /// Inspect package files (`.u`, `.utx`, `.ut2`, ...).
+    Pkg(PkgArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct PkgArgs {
+    #[command(subcommand)]
+    pub command: PkgCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum PkgCommand {
+    /// Print a package's summary (its version, flags, GUID, generations and
+    /// where its tables are) and the packages it depends on; with
+    /// `--imports`/`--exports`, its imports and exports.
+    List(PkgListArgs),
+    /// Show or change packages' flags (`AllowDownload`, `ServerSideOnly`,
+    /// ...).
+    Flags(PkgFlagsArgs),
+    /// Print objects' properties (`Format`, `USize`, ...) as T3D; with
+    /// `--property`, as a table with a column for each property.
+    Obj(PkgObjArgs),
+    /// Export objects to files: each object's native data (the bytes after
+    /// its properties) to a `.bin` file, and its properties as T3D to a
+    /// `.t3d` file.
+    Export(PkgExportArgs),
+    /// Compare two versions of a package: its summary, dependencies,
+    /// imports, and the objects added, removed or changed (their flags,
+    /// sizes, properties and native data).
+    Diff(PkgDiffArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct PkgDiffArgs {
+    /// `[REV [REV]] PATH`: a package file, compared in git revisions: HEAD
+    /// and the working tree, `REV` and the working tree, or the two
+    /// revisions. Or `OLD NEW`: two files, or `REV:PATH` for a file in a git
+    /// revision (e.g. `HEAD~3:System/MyMod.u`). A `.uz2` file is
+    /// decompressed first.
+    #[arg(value_name = "REV|PATH")]
+    pub args: Vec<String>,
+
+    /// After `--`: the package file, every argument before it being a
+    /// revision.
+    #[arg(last = true, value_name = "PATH")]
+    pub path: Option<String>,
+
+    /// Only these objects, as UnrealScript refers to them:
+    /// `Texture'MyPkg.Walls.Brick'`, or without the class,
+    /// `MyPkg.Walls.Brick`, with `*`, `**` and `?`. Leaves out the summary,
+    /// dependencies and imports.
+    #[arg(long = "object", value_name = "OBJECT", value_delimiter = ',')]
+    pub objects: Vec<String>,
+
+    /// Only objects of these classes, by name (`Texture`) or with their
+    /// package (`Engine.Texture`). Subclasses don't match. Leaves out the
+    /// summary, dependencies and imports.
+    #[arg(long, value_name = "CLASS", value_delimiter = ',')]
+    pub class: Vec<String>,
+
+    /// Also show what changes every time a package is saved: the GUID, the
+    /// generations, where the tables are, and each object's index and where
+    /// its data is.
+    #[arg(long)]
+    pub all: bool,
+
+    /// Exit with code 1 if the packages differ.
+    #[arg(long)]
+    pub exit_code: bool,
+
+    /// Never download a package that isn't stored locally (for git, an
+    /// object in Git LFS that isn't in the local cache): fail instead. This
+    /// is the default.
+    #[arg(long, overrides_with = "online")]
+    pub offline: bool,
+
+    /// Let git download what a revision's packages need, such as objects in
+    /// Git LFS, through its filters.
+    #[arg(long, overrides_with = "offline")]
+    pub online: bool,
+
+    /// Show sizes in units (`2.6 MB`). Text format only.
+    #[arg(long)]
+    pub humanize: bool,
+
+    /// How to print the differences.
+    #[arg(long, value_enum, default_value_t = PkgDiffFormat::Text)]
+    pub format: PkgDiffFormat,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum PkgDiffFormat {
+    /// Readable text, by section.
+    Text,
+    /// One line per difference, for `grep`.
+    Concise,
+    /// A JSON object.
+    Json,
+}
+
+#[derive(Debug, Args)]
+pub struct PkgExportArgs {
+    /// The package files. A `.uz2` file is decompressed first.
+    #[arg(required = true)]
+    pub paths: Vec<PathBuf>,
+
+    /// The objects, as UnrealScript refers to them: `Texture'MyPkg.Walls.Brick'`,
+    /// or without the class, `MyPkg.Walls.Brick`. In the path, `*` matches
+    /// any characters within a name, `**` any characters, and `?` one
+    /// character. Default: every object in the packages.
+    #[arg(long = "object", value_name = "OBJECT", value_delimiter = ',')]
+    pub objects: Vec<String>,
+
+    /// Only objects of these classes, by name (`Texture`) or with their
+    /// package (`Engine.Texture`). Subclasses don't match.
+    #[arg(long, value_name = "CLASS", value_delimiter = ',')]
+    pub class: Vec<String>,
+
+    /// The directory to write the files to. It's made if it doesn't exist;
+    /// files already in it are overwritten.
+    #[arg(short, long, value_name = "DIR")]
+    pub output: PathBuf,
+
+    /// Where in the directory each object's files go.
+    #[arg(long, value_enum, default_value_t = PkgExportLayout::Flat)]
+    pub layout: PkgExportLayout,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum PkgExportLayout {
+    /// Every file in the directory, named as UnrealScript refers to the
+    /// object: `Texture'MyPkg.Walls.Brick'.bin`.
+    Flat,
+    /// In folders for the package, the class and the groups:
+    /// `MyPkg/Texture/Walls/Brick.bin`.
+    Folder,
+}
+
+#[derive(Debug, Args)]
+pub struct PkgObjArgs {
+    /// The package file. A `.uz2` file is decompressed first.
+    pub path: PathBuf,
+
+    /// The objects, as UnrealScript refers to them: `Texture'MyPkg.Walls.Brick'`,
+    /// or without the class, `MyPkg.Walls.Brick`. In the path, `*` matches
+    /// any characters within a name, `**` any characters, and `?` one
+    /// character. Default: every object in the package.
+    #[arg(value_name = "OBJECT")]
+    pub objects: Vec<String>,
+
+    /// Only objects of these classes, by name (`Texture`) or with their
+    /// package (`Engine.Texture`). Subclasses don't match.
+    #[arg(long, value_name = "CLASS", value_delimiter = ',')]
+    pub class: Vec<String>,
+
+    /// Only these properties. The text format shows them as a table, with a
+    /// row for each object and a column for each property.
+    #[arg(long, value_name = "NAME", value_delimiter = ',')]
+    pub property: Vec<String>,
+
+    /// Show where each property is in the object's data, its type and size,
+    /// and its value's bytes. Text format only.
+    #[arg(long)]
+    pub raw: bool,
+
+    /// How to print the properties.
+    #[arg(long, value_enum, default_value_t = PkgObjFormat::Text)]
+    pub format: PkgObjFormat,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum PkgObjFormat {
+    /// T3D, as UnrealEd exports objects; with `--property`, a table.
+    Text,
+    /// One property per line, after its object: `Texture'MyPkg.Brick' Format=5`.
+    Concise,
+    /// A JSON array of objects.
+    Json,
+}
+
+#[derive(Debug, Args)]
+pub struct PkgFlagsArgs {
+    /// The package files. A `.uz2` file is decompressed, changed and
+    /// compressed again.
+    #[arg(required = true)]
+    pub paths: Vec<PathBuf>,
+
+    /// Flags to set, by name (in any case), e.g. `ServerSideOnly`.
+    #[arg(long, value_name = "FLAG", value_delimiter = ',')]
+    pub set: Vec<String>,
+
+    /// Flags to clear, by name.
+    #[arg(long, value_name = "FLAG", value_delimiter = ',')]
+    pub clear: Vec<String>,
+
+    /// Show what would change without changing any file.
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// Change packages with the `Official` flag too. Changing their flags
+    /// changes their MD5, so they no longer match the stock files.
+    #[arg(long)]
+    pub force: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct PkgListArgs {
+    /// The package file. A `.uz2` file is decompressed first.
+    pub path: PathBuf,
+
+    /// List the packages this one depends on: the top-level packages of its
+    /// imports. `--dependencies=objects` also lists the objects referenced in
+    /// each, by group. This is the default when no table is asked for.
+    #[arg(
+        long,
+        value_enum,
+        value_name = "LEVEL",
+        num_args = 0..=1,
+        require_equals = true,
+        default_missing_value = "packages"
+    )]
+    pub dependencies: Option<PkgDependencies>,
+
+    /// List this package's groups (subpackages), with the objects in each.
+    #[arg(long)]
+    pub groups: bool,
+
+    /// List the imports: the objects in other packages that this one refers
+    /// to.
+    #[arg(long)]
+    pub imports: bool,
+
+    /// List the exports: the objects in this package.
+    #[arg(long)]
+    pub exports: bool,
+
+    /// List the dependencies, the groups, the imports and the exports.
+    #[arg(long)]
+    pub all: bool,
+
+    /// Don't print the summary.
+    #[arg(long)]
+    pub no_summary: bool,
+
+    /// How to sort the tables. `size` puts the largest first; the others
+    /// sort in ascending order. Ties keep table order.
+    #[arg(long, value_enum, default_value_t = PkgSort::Index)]
+    pub sort: PkgSort,
+
+    /// Reverse the sort order.
+    #[arg(long)]
+    pub reverse: bool,
+
+    /// Show sizes in units (`1.3 MB`) and counts with thousands separators
+    /// (`15,530`), in the text format.
+    #[arg(long)]
+    pub humanize: bool,
+
+    /// How to print the package.
+    #[arg(long, value_enum, default_value_t = PkgFormat::Text)]
+    pub format: PkgFormat,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum PkgDependencies {
+    /// The packages only.
+    Packages,
+    /// The packages, and the objects referenced in each.
+    Objects,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum PkgSort {
+    /// Table order.
+    Index,
+    /// Full path (or package name), ignoring case.
+    Path,
+    /// Class name, ignoring case. Dependencies keep table order.
+    Class,
+    /// Size of the export's data, or the number of objects imported from a
+    /// dependency; largest first. Imports keep table order.
+    Size,
+    /// File offset of the export's data; exports with no data last. Imports
+    /// and dependencies keep table order.
+    Offset,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum PkgFormat {
+    /// Readable text: the summary and tables.
+    Text,
+    /// Names only, one per line: the dependencies' names (and with
+    /// `--dependencies=objects`, their objects' paths), and the groups',
+    /// imports' and exports' paths, without the summary.
+    Concise,
+    /// A JSON object.
+    Json,
 }
 
 #[derive(Debug, Args)]
@@ -138,7 +433,11 @@ pub struct ParseArgs {
 }
 
 #[derive(Debug, Args)]
+#[command(args_conflicts_with_subcommands = true)]
 pub struct LintArgs {
+    #[command(subcommand)]
+    pub command: Option<LintCommand>,
+
     #[command(flatten)]
     pub files: FileArgs,
 
@@ -171,6 +470,12 @@ pub struct LintArgs {
     /// changing any file.
     #[arg(long, conflicts_with = "fix")]
     pub diff: bool,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum LintCommand {
+    /// Explain a lint, or list every lint.
+    Rule(RuleArgs),
 }
 
 #[derive(Debug, Args)]
