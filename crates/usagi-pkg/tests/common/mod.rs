@@ -2,6 +2,8 @@
 
 #![allow(dead_code)]
 
+pub mod builder;
+
 use std::io::Write;
 
 use flate2::Compression;

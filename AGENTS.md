@@ -125,7 +125,7 @@ document, update the document in the same change.
 | `src/package.rs` | `Package`: reads a file (decompressing a `.uz2`), keeps its exports' data, and looks up names, paths, outers and references. |
 | `src/reader.rs` | The byte cursor: integers, compact indices and strings. |
 | `src/error.rs` | `Error`. |
-| `tests/` | Integration tests; `tests/common/mod.rs` writes packages (summary, tables and data) and `.uz2` files. |
+| `tests/` | Integration tests; `tests/common/mod.rs` writes packages (summary, tables and data) and `.uz2` files, and `tests/common/builder.rs` builds packages whose classes, properties and objects refer to each other. |
 
 Read the package exactly as the engine does (`ULinkerLoad` in
 `Core/Src/UnLinker.cpp`), including what it accepts that looks wrong, and
