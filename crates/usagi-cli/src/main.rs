@@ -151,6 +151,9 @@ fn run(cli: Cli) -> Result<bool, String> {
             PkgCommand::Export(args) => {
                 pkg::export::export(args, &mut io::stdout().lock(), &mut io::stderr())
             }
+            PkgCommand::Diff(args) => {
+                pkg::diff::diff(args, color, &mut io::stdout().lock(), &mut io::stderr())
+            }
         },
         Command::Build(args) => {
             let config = load_root()?;

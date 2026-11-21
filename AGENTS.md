@@ -11,7 +11,7 @@ static analysis on it, building mods with UCC, and reading package files:
 |---|---|
 | `crates/usagi-core` | The library (`usagi_core`): parser, AST, symbol table and lints. |
 | `crates/usagi-pkg` | The package reader (`usagi_pkg`). See [Packages](#packages). |
-| `crates/usagi-cli` | The `usagi` binary: `parse`, `lint` (and `lint rule`), `build` (in `src/build/`), `pkg` (in `src/pkg/`; `pkg obj` in `obj.rs`, `pkg export` in `export.rs`, and finding a game's `Paths` in `game.rs`) and configuration files. Its tests are in `tests/cli.rs`. |
+| `crates/usagi-cli` | The `usagi` binary: `parse`, `lint` (and `lint rule`), `build` (in `src/build/`), `pkg` (in `src/pkg/`; `pkg obj` in `obj.rs`, `pkg export` in `export.rs`, `pkg diff` in `diff.rs`, and finding a game's `Paths` in `game.rs`) and configuration files. Its tests are in `tests/cli.rs`. |
 
 Paths below are relative to `crates/usagi-core`.
 

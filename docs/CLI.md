@@ -23,6 +23,7 @@ usagi pkg obj Textures/UI.utx "Texture'UI.HUD.*'" --property Format,LODSet
 | [`pkg flags`](#usagi-pkg-flags-paths) | Show or change package files' flags. |
 | [`pkg obj`](#usagi-pkg-obj-path-objects) | Show objects' properties, as T3D or as a table. |
 | [`pkg export`](#usagi-pkg-export-paths---output-dir) | Write objects' native data and properties to files. |
+| [`pkg diff`](#usagi-pkg-diff-rev-rev----path) | Compare two versions of a package, in git revisions or files. |
 | [`format`](#usagi-format) | Not implemented yet. |
 
 Every command that takes paths accepts files and directories. Directories are
@@ -700,6 +701,250 @@ isn't written: the problem is reported on standard error, the other objects
 are written, and the command exits with code 1. Properties are read by their
 declarations, found as for `pkg obj`.
 
+### `usagi pkg diff [REV [REV]] [--] PATH`
+
+Compares two versions of a package and prints what changed: the summary, the
+packages it depends on, its imports, and the objects added, removed or
+changed, with their properties and native data.
+
+```sh
+usagi pkg diff System/MyMod.u                     # HEAD and the working tree
+usagi pkg diff abc123 System/MyMod.u              # abc123 and the working tree
+usagi pkg diff abc123 def456 System/MyMod.u       # two commits
+usagi pkg diff v1.0 v1.1 Textures/MyTex.utx --class Texture
+usagi pkg diff main -- System/MyMod.u             # `main` is a revision, even if there's a file named main
+usagi pkg diff old/MyMod.u System/MyMod.u         # two files
+usagi pkg diff HEAD~3:System/MyMod.u Other/MyMod.u   # a file in a revision and another file
+```
+
+With revisions, the package is compared in git: HEAD and the working tree,
+`REV` and the working tree, or the two revisions, as `git diff` compares them.
+A revision is anything git accepts as a commit (`HEAD~3`, `v1.0`, `main`, a
+hash). `PATH` is an ordinary path, relative to the current directory or
+absolute, in the repository the current directory is in; it needn't be in the
+working tree when two revisions are given. Exactly one package is compared.
+
+Or the arguments name the two packages: each a file, or a file in a git
+revision as git names it, `REV:PATH`. There, `PATH` is as git reads it:
+relative to the top of the repository, or to the current directory if it
+starts with `./` or `../`.
+
+Which is which, as in `git diff`:
+
+- Everything before `--` is a revision, and the one argument after it is the
+  path.
+- Otherwise, two arguments that are both files, or `REV:PATH` (with no such
+  file), are the two packages.
+- Otherwise, the last argument is the path, and each one before it must be a
+  revision.
+
+`pkg diff` works offline unless `--online` is given: it never downloads a
+package that isn't stored locally, and fails instead. Files in git are read as
+they're stored (`git cat-file blob`, in the current directory), and one stored
+in Git LFS, which is then a pointer to it, is read from the local LFS cache
+(`lfs/objects` in the git folder, or `lfs.storage`) without running Git LFS.
+If it isn't there, that's an error (exit code 2), and nothing is downloaded:
+
+```text
+usagi: abc123:System/MyMod.u: it's in Git LFS, and its object isn't downloaded; nothing was downloaded, since `pkg diff` works offline unless `--online` is given
+```
+
+With `--online`, files in git are read through git's filters (`git cat-file
+--filters`), so Git LFS downloads what isn't cached, and other filters apply.
+A file in the working tree that Git LFS hasn't downloaded is a pointer too:
+that's an error either way (`it's a Git LFS pointer: its object isn't
+downloaded`). A `.uz2` file is decompressed first, by the extension of the
+file or of `PATH`. The package's name is taken from the
+file name, as the engine does. The two files may have different names: the
+old package is then given the new one's name, since its references to its
+own objects include it (`Texture'MyMod.Brick'`). In the output,
+a package in a revision is named `REV:PATH`, with `PATH` from the top of the
+repository: `--- abc123:System/MyMod.u`.
+
+It's an error (exit code 2) if an argument before the path is neither a file
+nor a revision, if more than two revisions are given, if the current
+directory isn't in a git repository, if the path is outside it, or if the
+package isn't in a revision.
+
+Properties are read by their declarations, found as for `pkg obj`, by the
+game the file is in. For `REV:PATH`, that's the game the file is in in the
+working tree, as it is now, not as it was in that revision.
+
+| Flag | Meaning |
+|---|---|
+| `--object OBJECT,...` | Only these objects, as for `pkg obj`: `Texture'MyTex.Walls.Brick'`, or `MyTex.Walls.Brick`, with `*`, `**` and `?`. Can be given more than once. |
+| `--class CLASS,...` | Only objects of these classes, as for `pkg obj`. |
+| `--all` | Also show what changes every time a package is saved, even when nothing else does: the GUID, the generations, where the tables are (and how many names there are), and each object's index and where its data is. |
+| `--exit-code` | Exit with code 1 if the packages differ (counting what `--all` shows only with `--all`). |
+| `--offline` | Never download a package that isn't stored locally, such as an object in Git LFS that isn't in the local cache: fail instead. The default. |
+| `--online` | Let git download what the packages in revisions need, such as objects in Git LFS. The last of `--offline` and `--online` given counts. |
+| `--humanize` | Show sizes in units (`2.6 MB`). Text format only. |
+| `--format text\|concise\|json` | How to print the differences. Default: `text`. |
+
+With `--object` or `--class`, only the objects are compared: the summary,
+dependencies and imports are left out. An object without wildcards that's in
+neither package is an error (exit code 2), as in `pkg obj`.
+
+What's compared:
+
+- **The summary**: the tag, the version and licensee version, the package
+  flags, the size (once decompressed), and the size of the `.uz2` file. With
+  `--all`, the GUID, the number of generations, the heritage table, and the
+  name, import and export tables' counts and offsets.
+- **Dependencies**: the packages each depends on (its top-level imports), by
+  name, ignoring case.
+- **Imports**: added and removed, as `Class'Package.Group.Name'`, ignoring
+  case.
+- **Objects** (exports), matched by their class and path, ignoring case, not
+  by their index, so objects that have only moved in the file aren't a
+  change. An object whose class changed is one removed and one added. For an
+  object in both:
+  - its data's size, its object flags, and the struct it extends (a class's
+    superclass). When its properties and native data are the same, a change
+    in its size is only how its object references and names are stored (an
+    index takes more bytes once it's 64 or more), and is shown only with
+    `--all`, except for a class, whose own data isn't compared;
+  - its properties (a class's default properties), as T3D, by name: added,
+    removed or changed. A reference to an object is its path, so it's the same
+    even when the object's index changed. A property whose saved value the
+    engine never uses, since it works it out again before reading it, is
+    volatile: its changes are shown only with `--all`, marked `(volatile)`.
+    These are listed, with why, in `crates/usagi-pkg/src/volatile.rs`; so far
+    `M` of the texture modifiers `TexOscillator`, `TexPanner`,
+    `VariableTexPanner`, `TexRotator` and `TexScaler`, and of their
+    subclasses, which their `GetMatrix` sets whenever it's used;
+  - its native data, the bytes after its properties: changed or not, with its
+    sizes. Textures (`Engine.Texture` and its subclasses, as far as the
+    classes can be found) are compared by their mipmaps' pixels and sizes,
+    sounds (`Engine.Sound`) by their file type, likelihood and data, and sound
+    groups (`Engine.SoundGroup`) by their sounds' references, not by their
+    bytes: these hold the offset in the file where their data ends (see
+    [PACKAGE_FORMAT.md](PACKAGE_FORMAT.md#absolute-offsets-inside-export-data)),
+    or objects and names by their index, which change whenever the rest of
+    the package does. Other native data is compared as bytes, so data that
+    holds file offsets, or names and objects by their index (such as a static
+    or skeletal mesh's), can show as changed when only the rest of the
+    package did;
+  - with `--all`, its index, where its data is, a size that changed only in
+    how references are stored, and its volatile properties.
+
+  Classes are compared by their size, flags, superclass and default
+  properties, not their functions, states or bytecode. The other parts of a
+  class's script (functions, states, structs, property declarations, enums,
+  constants and its source text: objects of those classes in `Core`) are only
+  shown when they're added or removed.
+
+`text` prints the files' names, then a section for each kind of difference,
+with `+` for what was added, `-` for what was removed and `~` for what
+changed. Sizes are followed by the difference between them. Nothing is printed
+when the packages are the same.
+
+```text
+--- HEAD:System/MyMod.u
++++ System/MyMod.u
+Summary
+  Flags        0x00000001 (AllowDownload) -> 0x00000005 (AllowDownload, ServerSideOnly)
+  Size         595 -> 615 bytes (+20)
+Dependencies
+  + Zone
+Imports
+  + Class'Engine.Actor'
+  + Package'Zone'
+  - Class'Engine.Texture'
+Exports
+  - Combiner'MyMod.Button' (5 bytes)
+  + Combiner'MyMod.Odd' (11 bytes)
+  ~ Combiner'MyMod.UI.Bar'
+      Size         6 -> 13 bytes (+7)
+      ~ Format=3 -> 5
+      + USize=256
+      Native data  2 -> 3 bytes (+1)
+```
+
+Objects are sorted by path, then class, ignoring case. An object added or
+removed shows the size of its data. Native data that changed but is the same
+size is `Native data  32786 bytes (changed)`. With `--humanize`, sizes are in
+units, as for `pkg list`: `2.6 MB -> 2.6 MB (+7.5 KB)`. With `--all`, an
+object can be listed for its `Index` and `Offset` alone, and the summary adds
+`GUID`, `Generations` (their number), `Heritage`, and `Names`, `Imports` and
+`Exports` (`8773 at 0x2A0 -> 8780 at 0x2A0`).
+
+`concise` prints one line per difference, without headings or colour, for
+`grep`: the sign, what it's in, and what changed.
+
+```text
+~ Flags: 0x00000001 (AllowDownload) -> 0x00000005 (AllowDownload, ServerSideOnly)
+~ Size: 595 -> 615 bytes (+20)
++ Dependencies: Zone
+- Imports: Class'Engine.Texture'
+- Combiner'MyMod.Button'
+~ Combiner'MyMod.UI.Bar' Size: 6 -> 13 bytes (+7)
+~ Combiner'MyMod.UI.Bar' Format=3 -> 5
++ Combiner'MyMod.UI.Bar' USize=256
+~ Combiner'MyMod.UI.Bar' Native data: 2 -> 3 bytes (+1)
+```
+
+`json` prints an object:
+
+```json
+{
+  "old": "HEAD:System/MyMod.u",
+  "new": "System/MyMod.u",
+  "summary": {
+    "package_flags": {
+      "old": { "bits": 1, "names": ["AllowDownload"], "unknown": 0 },
+      "new": { "bits": 5, "names": ["AllowDownload", "ServerSideOnly"], "unknown": 0 }
+    },
+    "size": { "old": 595, "new": 615, "delta": 20 }
+  },
+  "dependencies": { "added": ["Zone"], "removed": [] },
+  "imports": { "added": ["Class'Engine.Actor'", "Package'Zone'"], "removed": ["Class'Engine.Texture'"] },
+  "exports": [
+    {
+      "status": "changed",
+      "reference": "Combiner'MyMod.UI.Bar'",
+      "old_index": 3,
+      "new_index": 2,
+      "size": { "old": 6, "new": 13, "delta": 7 },
+      "flags": null,
+      "super": null,
+      "properties": [
+        { "name": "Format", "old": "3", "new": "5", "volatile": null },
+        { "name": "USize", "old": null, "new": "256", "volatile": null }
+      ],
+      "native": { "old": 2, "new": 3, "delta": 1, "changed": true },
+      "old_error": null,
+      "new_error": null
+    },
+    ...
+  ]
+}
+```
+
+- `summary` has only the fields that changed: `tag`, `version`,
+  `licensee_version`, `package_flags`, `size` and `compressed_size`, and with
+  `--all`, `guid`, `generations`, `heritage`, and `names`, `imports` and
+  `exports` (each `{count, offset}`). Each is `{old, new}`; a size also has
+  `delta`. `compressed_size` is `null` for a file that isn't a `.uz2`.
+- `summary`, `dependencies` and `imports` are left out with `--object` and
+  `--class`.
+- An export's `status` is `added`, `removed` or `changed`. `old_index` and
+  `new_index` are its numbers in each export table (from 1, as in `pkg list`),
+  or `null`. `size` is its data's sizes and their difference, counting a
+  missing object as 0, or `null` if it didn't change. `flags` and `super` are
+  `{old, new}` or `null`. Property values are T3D text, and `null` where the
+  property isn't stored. A property's `volatile` is why it's volatile, or
+  `null`; volatile properties are only listed with `--all`. `native` is
+  `null` if the native data didn't change.
+  With `--all`, an export also has `offset`, and `encoded_size`: its sizes
+  when only how its references are stored changed (and then `size` is
+  `null`), or `null`.
+
+If an object's properties or native data can't be read in either package, the
+problem is shown with the object (`Error (old): ...` in the text, a line
+starting with `!` in `concise`, `old_error` and `new_error` in JSON) and on
+standard error, and the command exits with code 1.
+
 ### Global flags
 
 | Flag | Meaning |
@@ -715,7 +960,7 @@ machine unresponsive.
 
 ## Output formats
 
-These are the formats of `lint` and `parse`. For `pkg list`, `pkg obj` and `pkg export`,
+These are the formats of `lint` and `parse`. For `pkg list`, `pkg obj`, `pkg export` and `pkg diff`,
 see [their](#usagi-pkg-list-path) [sections](#usagi-pkg-obj-path-objects).
 
 | Format | Output |
@@ -740,8 +985,8 @@ Besides lint codes, a problem's code can be `parse` (a recovered problem),
 | 0 | Nothing to report. Recovered problems alone don't count, unless `--strict` is used. |
 | 1 | `lint`: a lint problem, or a file that failed to parse; with `--fix`, a problem left after fixing; with `--diff`, a change to show. `parse`: a file that failed to parse. |
 | 1 | `build`: a package failed to compile, or a source file failed to parse. |
-| 1 | `pkg obj`, `pkg export`: an object whose data is malformed. |
-| 2 | A usage error, a configuration error or a missing path. `pkg list`, `pkg flags`, `pkg obj`, `pkg export`: a file that can't be read or isn't a valid package; `pkg flags`: an official package without `--force`; `pkg obj`, `pkg export`: an object that isn't in the package (for `pkg export`, in any of them) or isn't of the class given, or an invalid object reference; `pkg export`: the same package given twice, or files that can't be written. `build`: a setup problem, such as a missing folder, or a locked package that would have to be rebuilt. |
+| 1 | `pkg obj`, `pkg export`, `pkg diff`: an object whose data is malformed. `pkg diff --exit-code`: the packages differ. |
+| 2 | A usage error, a configuration error or a missing path. `pkg list`, `pkg flags`, `pkg obj`, `pkg export`, `pkg diff`: a file that can't be read or isn't a valid package; `pkg flags`: an official package without `--force`; `pkg obj`, `pkg export`: an object that isn't in the package (for `pkg export`, in any of them) or isn't of the class given, or an invalid object reference; `pkg export`: the same package given twice, or files that can't be written. `pkg diff`: an argument that's neither a file nor a git revision, more than two revisions, a path outside the repository or not in a revision, a package that isn't stored locally (offline, an object in Git LFS that isn't in the cache, or a Git LFS pointer in the working tree), an object without wildcards that's in neither package, or `git` failing to read a file. `build`: a setup problem, such as a missing folder, or a locked package that would have to be rebuilt. |
 
 ## Configuration
 

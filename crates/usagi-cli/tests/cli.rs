@@ -1952,22 +1952,26 @@ fn pkg_flags_official_packages_need_force() {
     assert_eq!(flags_of(&path), 0x24);
 }
 
-#[test]
-fn pkg_flags_several_files_and_uz2() {
+/// A `.uz2` file of `bytes`, in one block.
+fn uz2_file(bytes: &[u8]) -> Vec<u8> {
     use std::io::Write;
-    let dir = TempDir::new().unwrap();
-    fs::write(dir.path().join("A.u"), flagged_package(0x1)).unwrap();
-    fs::write(dir.path().join("Official.u"), flagged_package(0x20)).unwrap();
-    fs::write(dir.path().join("Text.u"), "not a package").unwrap();
-    let bytes = flagged_package(0x1);
     let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
-    encoder.write_all(&bytes).unwrap();
+    encoder.write_all(bytes).unwrap();
     let data = encoder.finish().unwrap();
     let mut uz2 = Vec::new();
     uz2.extend((data.len() as u32).to_le_bytes());
     uz2.extend((bytes.len() as u32).to_le_bytes());
     uz2.extend(data);
-    fs::write(dir.path().join("B.u.uz2"), uz2).unwrap();
+    uz2
+}
+
+#[test]
+fn pkg_flags_several_files_and_uz2() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("A.u"), flagged_package(0x1)).unwrap();
+    fs::write(dir.path().join("Official.u"), flagged_package(0x20)).unwrap();
+    fs::write(dir.path().join("Text.u"), "not a package").unwrap();
+    fs::write(dir.path().join("B.u.uz2"), uz2_file(&flagged_package(0x1))).unwrap();
 
     // Each file is changed or fails on its own.
     pkg_flags(
@@ -2865,4 +2869,851 @@ fn pkg_export_errors() {
     .code(2)
     .stderr(predicate::str::starts_with("usagi: file"));
     assert!(!dir.path().join("out").exists());
+}
+
+/// `MyPkg.u` for `pkg diff`, old or new: a group `UI`, a combiner `UI.Bar`
+/// whose properties and native data change, one `Mix` that doesn't, and one
+/// removed (`Button`) and one added (`Odd`). The new one also has the flag
+/// `ServerSideOnly`, imports `Engine.Actor` rather than `Engine.Texture`,
+/// and depends on `Zone`.
+fn diff_package(new: bool) -> Vec<u8> {
+    let n = obj_name;
+    let mut imports = vec![
+        (n("Core"), n("Package"), 0, n("Core")),
+        (n("Core"), n("Package"), 0, n("Engine")),
+        (n("Core"), n("Class"), -2, n("Combiner")),
+        (n("Core"), n("Class"), -1, n("Package")),
+    ];
+    if new {
+        imports.push((n("Core"), n("Class"), -2, n("Actor")));
+        imports.push((n("Core"), n("Package"), 0, n("Zone")));
+    } else {
+        imports.push((n("Core"), n("Class"), -2, n("Texture")));
+    }
+    let properties = |props: &[Vec<u8>], native: &[u8]| {
+        let mut data = props.concat();
+        data.push(0);
+        data.extend(native);
+        data
+    };
+    let flags = 0x00070004;
+    let bar = if new {
+        properties(
+            &[
+                obj_prop("Format", 1, None, &[5]),
+                obj_prop("USize", 2, None, &256i32.to_le_bytes()),
+            ],
+            &[1, 2, 3],
+        )
+    } else {
+        properties(&[obj_prop("Format", 1, None, &[3])], &[1, 2])
+    };
+    let mix = properties(&[obj_prop("USize", 2, None, &7i32.to_le_bytes())], &[]);
+    let mut exports = vec![
+        (-4, 0, n("UI"), flags, vec![]),
+        (-3, 1, n("Bar"), flags, bar),
+        (-3, 0, n("Mix"), flags, mix),
+    ];
+    if new {
+        exports.push((-3, 0, n("Odd"), flags, properties(&[], &[0; 10])));
+    } else {
+        exports.insert(0, (-3, 0, n("Button"), flags, properties(&[], &[0; 4])));
+        // The group is now the second export.
+        for export in &mut exports[2..] {
+            if export.1 == 1 {
+                export.1 = 2;
+            }
+        }
+    }
+    let mut bytes = package_file(OBJ_NAMES, &imports, &exports);
+    if new {
+        bytes[8..12].copy_from_slice(&0x5u32.to_le_bytes());
+    }
+    bytes
+}
+
+fn diff_dir() -> TempDir {
+    let dir = TempDir::new().unwrap();
+    fs::create_dir(dir.path().join("old")).unwrap();
+    fs::write(dir.path().join("old/MyPkg.u"), diff_package(false)).unwrap();
+    fs::write(dir.path().join("MyPkg.u"), diff_package(true)).unwrap();
+    dir
+}
+
+fn pkg_diff(dir: &Path, args: &[&str]) -> assert_cmd::assert::Assert {
+    usagi(dir)
+        .args(["pkg", "diff", "old/MyPkg.u", "MyPkg.u", "--color", "never"])
+        .args(args)
+        .assert()
+}
+
+const DIFF_TEXT: &str = "\
+--- old/MyPkg.u
++++ MyPkg.u
+Summary
+  Flags        0x00000001 (AllowDownload) -> 0x00000005 (AllowDownload, ServerSideOnly)
+  Size         595 -> 615 bytes (+20)
+Dependencies
+  + Zone
+Imports
+  + Class'Engine.Actor'
+  + Package'Zone'
+  - Class'Engine.Texture'
+Exports
+  - Combiner'MyPkg.Button' (5 bytes)
+  + Combiner'MyPkg.Odd' (11 bytes)
+  ~ Combiner'MyPkg.UI.Bar'
+      Size         6 -> 13 bytes (+7)
+      ~ Format=3 -> 5
+      + USize=256
+      Native data  2 -> 3 bytes (+1)
+";
+
+#[test]
+fn pkg_diff_text() {
+    let dir = diff_dir();
+    pkg_diff(dir.path(), &[]).code(0).stdout(DIFF_TEXT);
+    pkg_diff(dir.path(), &["--exit-code"])
+        .code(1)
+        .stdout(DIFF_TEXT);
+    // Colour.
+    let out = usagi(dir.path())
+        .args(["pkg", "diff", "old/MyPkg.u", "MyPkg.u", "--color", "always"])
+        .assert()
+        .code(0)
+        .get_output()
+        .stdout
+        .clone();
+    let out = String::from_utf8(out).unwrap();
+    assert!(out.contains("\x1b[32m+\x1b[0m Zone"), "{}", out);
+    assert!(
+        out.contains("\x1b[31m-\x1b[0m Combiner'MyPkg.Button'"),
+        "{}",
+        out
+    );
+    assert!(
+        out.contains("\x1b[33m~\x1b[0m Combiner'MyPkg.UI.Bar'"),
+        "{}",
+        out
+    );
+}
+
+#[test]
+fn pkg_diff_identical_packages() {
+    let dir = diff_dir();
+    for args in [&[][..], &["--all"], &["--format", "concise"]] {
+        usagi(dir.path())
+            .args(["pkg", "diff", "MyPkg.u", "MyPkg.u", "--exit-code"])
+            .args(args)
+            .assert()
+            .code(0)
+            .stdout("");
+    }
+    let out = usagi(dir.path())
+        .args(["pkg", "diff", "MyPkg.u", "MyPkg.u", "--format", "json"])
+        .assert()
+        .code(0)
+        .get_output()
+        .stdout
+        .clone();
+    let json: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(json["summary"], serde_json::json!({}));
+    assert_eq!(json["exports"], serde_json::json!([]));
+}
+
+#[test]
+fn pkg_diff_concise() {
+    let dir = diff_dir();
+    pkg_diff(dir.path(), &["--format", "concise"])
+        .code(0)
+        .stdout(
+            "\
+~ Flags: 0x00000001 (AllowDownload) -> 0x00000005 (AllowDownload, ServerSideOnly)
+~ Size: 595 -> 615 bytes (+20)
++ Dependencies: Zone
++ Imports: Class'Engine.Actor'
++ Imports: Package'Zone'
+- Imports: Class'Engine.Texture'
+- Combiner'MyPkg.Button'
++ Combiner'MyPkg.Odd'
+~ Combiner'MyPkg.UI.Bar' Size: 6 -> 13 bytes (+7)
+~ Combiner'MyPkg.UI.Bar' Format=3 -> 5
++ Combiner'MyPkg.UI.Bar' USize=256
+~ Combiner'MyPkg.UI.Bar' Native data: 2 -> 3 bytes (+1)
+",
+        );
+}
+
+#[test]
+fn pkg_diff_json() {
+    let dir = diff_dir();
+    let out = pkg_diff(dir.path(), &["--format", "json"])
+        .code(0)
+        .get_output()
+        .stdout
+        .clone();
+    let json: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(json["old"], "old/MyPkg.u");
+    assert_eq!(json["summary"]["package_flags"]["new"]["bits"], 5);
+    assert_eq!(
+        json["summary"]["size"],
+        serde_json::json!({ "old": 595, "new": 615, "delta": 20 })
+    );
+    assert_eq!(json["dependencies"]["added"], serde_json::json!(["Zone"]));
+    assert_eq!(
+        json["imports"]["removed"],
+        serde_json::json!(["Class'Engine.Texture'"])
+    );
+    let exports = json["exports"].as_array().unwrap();
+    assert_eq!(exports.len(), 3);
+    assert_eq!(exports[0]["status"], "removed");
+    assert_eq!(
+        exports[0]["size"],
+        serde_json::json!({ "old": 5, "new": null, "delta": -5 })
+    );
+    assert_eq!(exports[1]["status"], "added");
+    assert_eq!(exports[1]["new_index"], 4);
+    let bar = &exports[2];
+    assert_eq!(bar["status"], "changed");
+    assert_eq!(
+        (&bar["old_index"], &bar["new_index"]),
+        (&3.into(), &2.into())
+    );
+    assert_eq!(
+        bar["properties"],
+        serde_json::json!([
+            { "name": "Format", "old": "3", "new": "5", "volatile": null },
+            { "name": "USize", "old": null, "new": "256", "volatile": null },
+        ])
+    );
+    assert_eq!(
+        bar["native"],
+        serde_json::json!({ "old": 2, "new": 3, "delta": 1, "changed": true })
+    );
+    assert!(bar.get("offset").is_none());
+    // With --all, what changes on every save.
+    let out = pkg_diff(dir.path(), &["--format", "json", "--all"])
+        .get_output()
+        .stdout
+        .clone();
+    let json: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(json["summary"]["exports"]["new"]["offset"], 0x231);
+    assert_eq!(json["exports"].as_array().unwrap().len(), 5);
+    assert_eq!(
+        json["exports"][4]["offset"],
+        serde_json::json!({ "old": 0x1ED, "new": 0x1E8 })
+    );
+}
+
+#[test]
+fn pkg_diff_all_and_humanize() {
+    let dir = diff_dir();
+    let out = pkg_diff(dir.path(), &["--all", "--humanize"])
+        .code(0)
+        .get_output()
+        .stdout
+        .clone();
+    let out = String::from_utf8(out).unwrap();
+    for line in [
+        "  Size         595 B -> 615 B (+20 B)\n",
+        "  Imports      5 at 0x1FA -> 6 at 0x207\n",
+        "  ~ Combiner'MyPkg.Mix'\n      Index        4 -> 3\n      Offset       0x1F3 -> 0x1F5\n",
+        "  ~ Package'MyPkg.UI'\n      Index        2 -> 1\n",
+        "  + Combiner'MyPkg.Odd' (11 B)\n",
+        "      Native data  2 B -> 3 B (+1 B)\n",
+    ] {
+        assert!(out.contains(line), "{:?} isn't in\n{}", line, out);
+    }
+    // Only the save changed: nothing without --all.
+    let dir = TempDir::new().unwrap();
+    let old = diff_package(true);
+    let mut new = old.clone();
+    // The GUID.
+    new[36] ^= 0xFF;
+    fs::write(dir.path().join("Old.u"), old).unwrap();
+    fs::write(dir.path().join("New.u"), new).unwrap();
+    let diff = |args: &[&str]| {
+        usagi(dir.path())
+            .args([
+                "pkg",
+                "diff",
+                "Old.u",
+                "New.u",
+                "--exit-code",
+                "--color",
+                "never",
+            ])
+            .args(args)
+            .assert()
+    };
+    diff(&[]).code(0).stdout("");
+    diff(&["--all"])
+        .code(1)
+        .stdout(predicate::str::contains("  GUID  "));
+}
+
+#[test]
+fn pkg_diff_objects_and_classes() {
+    let dir = diff_dir();
+    // Only the objects: no summary, dependencies or imports.
+    pkg_diff(dir.path(), &["--object", "MyPkg.UI.**", "--exit-code"])
+        .code(1)
+        .stdout(
+            "\
+--- old/MyPkg.u
++++ MyPkg.u
+Exports
+  ~ Combiner'MyPkg.UI.Bar'
+      Size         6 -> 13 bytes (+7)
+      ~ Format=3 -> 5
+      + USize=256
+      Native data  2 -> 3 bytes (+1)
+",
+        );
+    pkg_diff(dir.path(), &["--object", "MyPkg.Mix", "--exit-code"])
+        .code(0)
+        .stdout("");
+    // In only one of them.
+    pkg_diff(
+        dir.path(),
+        &["--object", "MyPkg.Button", "--format", "concise"],
+    )
+    .code(0)
+    .stdout("- Combiner'MyPkg.Button'\n");
+    pkg_diff(
+        dir.path(),
+        &["--class", "Package", "--all", "--format", "concise"],
+    )
+    .code(0)
+    .stdout("~ Package'MyPkg.UI' Index: 2 -> 1\n");
+    let out = pkg_diff(dir.path(), &["--class", "Package", "--format", "json"])
+        .get_output()
+        .stdout
+        .clone();
+    let json: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert!(json.get("summary").is_none() && json.get("imports").is_none());
+    pkg_diff(dir.path(), &["--object", "MyPkg.Nope"])
+        .code(2)
+        .stderr(predicate::str::contains("MyPkg.Nope isn't in MyPkg.u"));
+    pkg_diff(dir.path(), &["--object", "Bad'"]).code(2);
+}
+
+#[test]
+fn pkg_diff_errors() {
+    let dir = diff_dir();
+    usagi(dir.path())
+        .args(["pkg", "diff", "Missing.u", "MyPkg.u"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("Missing.u"));
+    fs::write(dir.path().join("Junk.u"), b"junk").unwrap();
+    usagi(dir.path())
+        .args(["pkg", "diff", "MyPkg.u", "Junk.u"])
+        .assert()
+        .code(2);
+    // An object whose properties are cut short, in the new package.
+    let n = obj_name;
+    let imports = [
+        (n("Core"), n("Package"), 0, n("Engine")),
+        (n("Core"), n("Class"), -1, n("Combiner")),
+    ];
+    let package =
+        |data: Vec<u8>| package_file(OBJ_NAMES, &imports, &[(-2, 0, n("Mix"), 0x00070004, data)]);
+    fs::write(dir.path().join("Good.u"), package(vec![0])).unwrap();
+    let cut = obj_prop("USize", 2, None, &7i32.to_le_bytes())[..3].to_vec();
+    fs::write(dir.path().join("Cut.u"), package(cut)).unwrap();
+    let out = usagi(dir.path())
+        .args(["pkg", "diff", "Good.u", "Cut.u", "--color", "never"])
+        .assert()
+        .code(1)
+        .get_output()
+        .clone();
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    let stderr = String::from_utf8(out.stderr).unwrap();
+    assert!(stdout.contains("      Error (new): "), "{}", stdout);
+    assert!(
+        stderr.starts_with("usagi: Cut.u: Combiner'Cut.Mix': "),
+        "{}",
+        stderr
+    );
+    let out = usagi(dir.path())
+        .args(["pkg", "diff", "Cut.u", "Good.u", "--format", "concise"])
+        .assert()
+        .code(1)
+        .get_output()
+        .stdout
+        .clone();
+    let concise = String::from_utf8(out).unwrap();
+    assert!(
+        concise.contains("\n! Combiner'Good.Mix' Error (old): invalid data at offset 2"),
+        "{}",
+        concise
+    );
+}
+
+fn git(dir: &Path, args: &[&str]) {
+    let status = std::process::Command::new("git")
+        .args([
+            "-c",
+            "user.name=usagi",
+            "-c",
+            "user.email=usagi@example.com",
+        ])
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .unwrap()
+        .status;
+    assert!(status.success(), "git {:?}", args);
+}
+
+#[test]
+fn pkg_diff_git_revisions() {
+    if std::process::Command::new("git")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let system = dir.path().join("System");
+    fs::create_dir(&system).unwrap();
+    fs::write(system.join("MyPkg.u"), diff_package(false)).unwrap();
+    git(dir.path(), &["init", "-q"]);
+    git(dir.path(), &["add", "."]);
+    git(dir.path(), &["commit", "-q", "-m", "old"]);
+    fs::write(system.join("MyPkg.u"), diff_package(true)).unwrap();
+    let expected = DIFF_TEXT
+        .replace("--- old/MyPkg.u", "--- HEAD:System/MyPkg.u")
+        .replace("+++ MyPkg.u", "+++ System/MyPkg.u");
+    usagi(dir.path())
+        .args([
+            "pkg",
+            "diff",
+            "HEAD:System/MyPkg.u",
+            "System/MyPkg.u",
+            "--color",
+            "never",
+        ])
+        .assert()
+        .code(0)
+        .stdout(expected);
+    // From a folder below the top: relative to it with `./`, as git reads
+    // it.
+    let expected = DIFF_TEXT
+        .replace("--- old/MyPkg.u", "--- HEAD:./MyPkg.u")
+        .replace("+++ MyPkg.u", "+++ MyPkg.u");
+    usagi(&system)
+        .args([
+            "pkg",
+            "diff",
+            "HEAD:./MyPkg.u",
+            "MyPkg.u",
+            "--color",
+            "never",
+        ])
+        .assert()
+        .code(0)
+        .stdout(expected);
+    // Both in git.
+    git(dir.path(), &["commit", "-q", "-am", "new"]);
+    usagi(&system)
+        .args([
+            "pkg",
+            "diff",
+            "HEAD~:System/MyPkg.u",
+            "HEAD:System/MyPkg.u",
+            "--exit-code",
+        ])
+        .assert()
+        .code(1);
+    // A revision or path that isn't there.
+    usagi(dir.path())
+        .args(["pkg", "diff", "nope:System/MyPkg.u", "System/MyPkg.u"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("usagi: nope:System/MyPkg.u: "));
+    // Not a package.
+    fs::write(dir.path().join("Junk.u"), b"junk").unwrap();
+    git(dir.path(), &["add", "Junk.u"]);
+    git(dir.path(), &["commit", "-q", "-m", "junk"]);
+    usagi(dir.path())
+        .args(["pkg", "diff", "HEAD:Junk.u", "System/MyPkg.u"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("HEAD:Junk.u: "));
+}
+
+#[test]
+fn pkg_diff_compressed_packages_from_git() {
+    if std::process::Command::new("git")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("MyPkg.u"), diff_package(true)).unwrap();
+    fs::write(
+        dir.path().join("MyPkg.u.uz2"),
+        uz2_file(&diff_package(true)),
+    )
+    .unwrap();
+    git(dir.path(), &["init", "-q"]);
+    git(dir.path(), &["add", "."]);
+    git(dir.path(), &["commit", "-q", "-m", "packages"]);
+    usagi(dir.path())
+        .args([
+            "pkg",
+            "diff",
+            "HEAD:MyPkg.u.uz2",
+            "MyPkg.u",
+            "--format",
+            "concise",
+        ])
+        .assert()
+        .code(0)
+        .stdout(predicate::str::starts_with("~ Compressed: "));
+}
+
+/// A git repository with `System/MyPkg.u` committed twice (old, then new),
+/// then changed back to the old one in the working tree.
+fn diff_repo() -> Option<TempDir> {
+    std::process::Command::new("git")
+        .arg("--version")
+        .output()
+        .ok()?;
+    let dir = TempDir::new().unwrap();
+    let system = dir.path().join("System");
+    fs::create_dir(&system).unwrap();
+    fs::write(system.join("MyPkg.u"), diff_package(false)).unwrap();
+    git(dir.path(), &["init", "-q"]);
+    git(dir.path(), &["add", "."]);
+    git(dir.path(), &["commit", "-q", "-m", "old"]);
+    git(dir.path(), &["tag", "old"]);
+    fs::write(system.join("MyPkg.u"), diff_package(true)).unwrap();
+    git(dir.path(), &["commit", "-q", "-am", "new"]);
+    fs::write(system.join("MyPkg.u"), diff_package(false)).unwrap();
+    Some(dir)
+}
+
+/// `DIFF_TEXT` with these names for the old and new packages.
+fn diff_text(old: &str, new: &str) -> String {
+    DIFF_TEXT
+        .replace("--- old/MyPkg.u", &format!("--- {}", old))
+        .replace("+++ MyPkg.u", &format!("+++ {}", new))
+}
+
+#[test]
+fn pkg_diff_revisions_and_a_path() {
+    let Some(dir) = diff_repo() else { return };
+    let diff = |cwd: &Path, args: &[&str]| {
+        usagi(cwd)
+            .args(["pkg", "diff", "--color", "never"])
+            .args(args)
+            .assert()
+    };
+    let root = dir.path();
+    // Two revisions.
+    diff(root, &["old", "HEAD", "System/MyPkg.u"])
+        .code(0)
+        .stdout(diff_text("old:System/MyPkg.u", "HEAD:System/MyPkg.u"));
+    // A revision and the working tree, which is the old one again.
+    diff(root, &["old", "System/MyPkg.u", "--exit-code"])
+        .code(0)
+        .stdout("");
+    // HEAD and the working tree.
+    let reversed = diff(root, &["System/MyPkg.u", "--format", "concise"])
+        .code(0)
+        .get_output()
+        .stdout
+        .clone();
+    let reversed = String::from_utf8(reversed).unwrap();
+    assert!(
+        reversed.contains("+ Combiner'MyPkg.Button'\n"),
+        "{}",
+        reversed
+    );
+    // From a folder below the top, and with `..`; or an absolute path.
+    let system = root.join("System");
+    diff(&system, &["HEAD~", "HEAD", "MyPkg.u"])
+        .code(0)
+        .stdout(diff_text("HEAD~:System/MyPkg.u", "HEAD:System/MyPkg.u"));
+    diff(&system, &["HEAD~", "HEAD", "../System/./MyPkg.u"])
+        .code(0)
+        .stdout(diff_text("HEAD~:System/MyPkg.u", "HEAD:System/MyPkg.u"));
+    let absolute = system.join("MyPkg.u");
+    diff(&system, &["old", "HEAD", absolute.to_str().unwrap()])
+        .code(0)
+        .stdout(diff_text("old:System/MyPkg.u", "HEAD:System/MyPkg.u"));
+    // `--`: everything before it is a revision, even a file's name.
+    fs::write(root.join("old"), "not a package").unwrap();
+    diff(root, &["old", "HEAD", "--", "System/MyPkg.u"])
+        .code(0)
+        .stdout(diff_text("old:System/MyPkg.u", "HEAD:System/MyPkg.u"));
+    diff(root, &["--exit-code", "--", "System/MyPkg.u"]).code(1);
+    // Two files are still two files.
+    fs::create_dir(root.join("New")).unwrap();
+    fs::write(root.join("New/MyPkg.u"), diff_package(true)).unwrap();
+    diff(root, &["System/MyPkg.u", "New/MyPkg.u"])
+        .code(0)
+        .stdout(diff_text("System/MyPkg.u", "New/MyPkg.u"));
+}
+
+#[test]
+fn pkg_diff_revision_errors() {
+    let Some(dir) = diff_repo() else { return };
+    let diff = |args: &[&str]| usagi(dir.path()).args(["pkg", "diff"]).args(args).assert();
+    diff(&[])
+        .code(2)
+        .stderr(predicate::str::contains("a package's path is needed"));
+    diff(&["nope", "System/MyPkg.u"])
+        .code(2)
+        .stderr(predicate::str::contains(
+            "nope is neither a file nor a git revision",
+        ));
+    diff(&["old", "HEAD", "HEAD", "System/MyPkg.u"])
+        .code(2)
+        .stderr(predicate::str::contains("at most two revisions"));
+    diff(&["old", "System/Gone.u"])
+        .code(2)
+        .stderr(predicate::str::contains("System/Gone.u isn't in old"));
+    diff(&["old", "HEAD", "../Elsewhere.u"])
+        .code(2)
+        .stderr(predicate::str::contains(
+            "../Elsewhere.u is outside the repository",
+        ));
+    diff(&["old", "HEAD", "/Elsewhere.u"])
+        .code(2)
+        .stderr(predicate::str::contains(
+            "/Elsewhere.u is outside the repository",
+        ));
+    // Not in a repository.
+    let outside = TempDir::new().unwrap();
+    usagi(outside.path())
+        .args(["pkg", "diff", "MyPkg.u"])
+        .env("GIT_CEILING_DIRECTORIES", outside.path().parent().unwrap())
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains(
+            "MyPkg.u: fatal: not a git repository",
+        ));
+}
+
+#[test]
+fn pkg_diff_sizes_that_changed_only_in_encoding() {
+    // `Holder` refers to `Target`, whose index needs a byte more in the new
+    // package, behind 70 other objects.
+    let package = |padding: usize| {
+        let pads: Vec<String> = (0..padding).map(|i| format!("Pad{}", i)).collect();
+        let mut names = vec![
+            "None",
+            "Core",
+            "Package",
+            "Engine",
+            "Class",
+            "Combiner",
+            "Material1",
+        ];
+        names.extend(["Target", "Holder"]);
+        names.extend(pads.iter().map(String::as_str));
+        let n = |text: &str| names.iter().position(|&n| n == text).unwrap() as i32;
+        let imports = [
+            (n("Core"), n("Package"), 0, n("Engine")),
+            (n("Core"), n("Class"), -1, n("Combiner")),
+        ];
+        let flags = 0x00070004;
+        let mut exports: Vec<_> = pads
+            .iter()
+            .map(|pad| (-2, 0, n(pad), flags, vec![0]))
+            .collect();
+        let target = exports.len() as i32 + 1;
+        exports.push((-2, 0, n("Target"), flags, vec![0]));
+        let mut holder = compact_index(n("Material1"));
+        let reference = compact_index(target);
+        holder.push(5 | if reference.len() == 1 { 0x00 } else { 0x10 });
+        holder.extend(reference);
+        holder.push(0);
+        exports.push((-2, 0, n("Holder"), flags, holder));
+        package_file(&names, &imports, &exports)
+    };
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("Old.u"), package(0)).unwrap();
+    fs::write(dir.path().join("New.u"), package(70)).unwrap();
+    let diff = |args: &[&str]| {
+        usagi(dir.path())
+            .args([
+                "pkg", "diff", "Old.u", "New.u", "--object", "*.Holder", "--color", "never",
+            ])
+            .args(args)
+            .assert()
+    };
+    diff(&["--exit-code"]).code(0).stdout("");
+    diff(&["--all", "--format", "concise"]).code(0).stdout(
+        "~ Combiner'New.Holder' Size: 4 -> 5 bytes (+1)\n\
+         ~ Combiner'New.Holder' Index: 2 -> 72\n\
+         ~ Combiner'New.Holder' Offset: 0xAE -> 0x3EC\n",
+    );
+    let out = diff(&["--all", "--format", "json"])
+        .get_output()
+        .stdout
+        .clone();
+    let json: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    let holder = &json["exports"][0];
+    assert_eq!(holder["size"], serde_json::Value::Null);
+    assert_eq!(
+        holder["encoded_size"],
+        serde_json::json!({ "old": 4, "new": 5, "delta": 1 })
+    );
+}
+
+#[test]
+fn pkg_diff_volatile_properties() {
+    // A texture panner whose `M` (as an int, for brevity) changed.
+    let package = |m: i32| {
+        let names = [
+            "None",
+            "Core",
+            "Package",
+            "Engine",
+            "Class",
+            "TexPanner",
+            "Pan",
+            "M",
+        ];
+        let n = |text: &str| names.iter().position(|&n| n == text).unwrap() as i32;
+        let imports = [
+            (n("Core"), n("Package"), 0, n("Engine")),
+            (n("Core"), n("Class"), -1, n("TexPanner")),
+        ];
+        let mut data = compact_index(n("M"));
+        data.push(0x22);
+        data.extend(m.to_le_bytes());
+        data.push(0);
+        package_file(&names, &imports, &[(-2, 0, n("Pan"), 0x00070004, data)])
+    };
+    let dir = TempDir::new().unwrap();
+    fs::create_dir(dir.path().join("old")).unwrap();
+    fs::write(dir.path().join("old/MyPkg.u"), package(1)).unwrap();
+    fs::write(dir.path().join("MyPkg.u"), package(2)).unwrap();
+    pkg_diff(dir.path(), &["--exit-code"]).code(0).stdout("");
+    pkg_diff(dir.path(), &["--all", "--format", "concise"])
+        .code(0)
+        .stdout("~ TexPanner'MyPkg.Pan' M=1 -> 2 (volatile)\n");
+    let out = pkg_diff(dir.path(), &["--all", "--format", "json"])
+        .get_output()
+        .stdout
+        .clone();
+    let json: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(
+        json["exports"][0]["properties"][0]["volatile"],
+        "set from the time by GetMatrix whenever it's used"
+    );
+    let out = pkg_diff(dir.path(), &["--format", "json"])
+        .get_output()
+        .stdout
+        .clone();
+    let json: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(json["exports"], serde_json::json!([]));
+}
+
+/// A Git LFS pointer to an object of `size` bytes named `oid`.
+fn lfs_pointer(oid: &str, size: usize) -> String {
+    format!(
+        "version https://git-lfs.github.com/spec/v1\noid sha256:{}\nsize {}\n",
+        oid, size
+    )
+}
+
+#[test]
+fn pkg_diff_is_offline_unless_asked() {
+    if std::process::Command::new("git")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        return;
+    }
+    // `MyPkg.u` committed as a Git LFS pointer, as Git LFS commits it, then
+    // the new package in the working tree. The pointer's object isn't in the
+    // cache yet.
+    let oid = "ab12".to_string() + &"0".repeat(60);
+    let old = diff_package(false);
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("MyPkg.u"), lfs_pointer(&oid, old.len())).unwrap();
+    git(dir.path(), &["init", "-q"]);
+    git(dir.path(), &["add", "."]);
+    git(dir.path(), &["commit", "-q", "-m", "old"]);
+    fs::write(dir.path().join("MyPkg.u"), diff_package(true)).unwrap();
+    let diff = |args: &[&str]| {
+        usagi(dir.path())
+            .args(["pkg", "diff", "MyPkg.u", "--color", "never"])
+            .args(args)
+            .assert()
+    };
+    let not_downloaded = "usagi: HEAD:MyPkg.u: it's in Git LFS, and its object isn't downloaded; \
+                          nothing was downloaded, since `pkg diff` works offline unless \
+                          `--online` is given\n";
+    diff(&[]).code(2).stderr(not_downloaded);
+    diff(&["--offline"]).code(2).stderr(not_downloaded);
+    diff(&["--online", "--offline"])
+        .code(2)
+        .stderr(not_downloaded);
+    // Online, through git's filters: with no Git LFS filter here, that's the
+    // pointer itself.
+    diff(&["--online"]).code(2).stderr(predicate::str::contains(
+        "HEAD:MyPkg.u: not an Unreal package",
+    ));
+    // Only part of the object is in the cache.
+    let objects = dir.path().join(".git/lfs/objects/ab/12");
+    fs::create_dir_all(&objects).unwrap();
+    fs::write(objects.join(&oid), &old[..10]).unwrap();
+    diff(&[]).code(2).stderr(not_downloaded);
+    // All of it.
+    fs::write(objects.join(&oid), &old).unwrap();
+    let expected = diff_text("HEAD:MyPkg.u", "MyPkg.u");
+    diff(&[]).code(0).stdout(expected.clone());
+    diff(&["--offline", "--online", "--offline"])
+        .code(0)
+        .stdout(expected.clone());
+    // In a cache elsewhere (`lfs.storage`).
+    git(dir.path(), &["config", "lfs.storage", "elsewhere"]);
+    diff(&[]).code(2).stderr(not_downloaded);
+    let elsewhere = dir.path().join(".git/elsewhere/objects/ab/12");
+    fs::create_dir_all(&elsewhere).unwrap();
+    fs::write(elsewhere.join(&oid), &old).unwrap();
+    diff(&[]).code(0).stdout(expected);
+    // A pointer with no size, or a short object name, isn't one usagi reads.
+    fs::write(dir.path().join("Short.u"), lfs_pointer("ab", 4)).unwrap();
+    fs::write(
+        dir.path().join("Odd.u"),
+        "version https://git-lfs.github.com/spec/v1\noid sha256:ab12\n",
+    )
+    .unwrap();
+    git(dir.path(), &["add", "Short.u", "Odd.u"]);
+    git(dir.path(), &["commit", "-q", "-m", "odd"]);
+    usagi(dir.path())
+        .args(["pkg", "diff", "HEAD", "HEAD", "Short.u"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("its object isn't downloaded"));
+    usagi(dir.path())
+        .args(["pkg", "diff", "HEAD", "HEAD", "Odd.u"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("Odd.u: not an Unreal package"));
+}
+
+#[test]
+fn pkg_diff_a_git_lfs_pointer_in_the_working_tree() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("Old.u"), diff_package(false)).unwrap();
+    fs::write(dir.path().join("New.u"), lfs_pointer(&"0".repeat(64), 10)).unwrap();
+    usagi(dir.path())
+        .args(["pkg", "diff", "Old.u", "New.u"])
+        .assert()
+        .code(2)
+        .stderr("usagi: New.u: it's a Git LFS pointer: its object isn't downloaded\n");
 }

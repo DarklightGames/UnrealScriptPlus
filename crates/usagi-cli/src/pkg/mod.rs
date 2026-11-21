@@ -1,5 +1,6 @@
 //! `usagi pkg`: inspect package files.
 
+pub mod diff;
 pub mod export;
 pub mod game;
 pub mod obj;
@@ -70,6 +71,7 @@ const BOLD: &str = "1";
 const DIM: &str = "2";
 const RED: &str = "31";
 const GREEN: &str = "32";
+const YELLOW: &str = "33";
 const CYAN: &str = "36";
 
 impl Style {

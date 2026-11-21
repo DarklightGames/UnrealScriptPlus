@@ -68,6 +68,78 @@ pub enum PkgCommand {
     /// its properties) to a `.bin` file, and its properties as T3D to a
     /// `.t3d` file.
     Export(PkgExportArgs),
+    /// Compare two versions of a package: its summary, dependencies,
+    /// imports, and the objects added, removed or changed (their flags,
+    /// sizes, properties and native data).
+    Diff(PkgDiffArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct PkgDiffArgs {
+    /// `[REV [REV]] PATH`: a package file, compared in git revisions: HEAD
+    /// and the working tree, `REV` and the working tree, or the two
+    /// revisions. Or `OLD NEW`: two files, or `REV:PATH` for a file in a git
+    /// revision (e.g. `HEAD~3:System/MyMod.u`). A `.uz2` file is
+    /// decompressed first.
+    #[arg(value_name = "REV|PATH")]
+    pub args: Vec<String>,
+
+    /// After `--`: the package file, every argument before it being a
+    /// revision.
+    #[arg(last = true, value_name = "PATH")]
+    pub path: Option<String>,
+
+    /// Only these objects, as UnrealScript refers to them:
+    /// `Texture'MyPkg.Walls.Brick'`, or without the class,
+    /// `MyPkg.Walls.Brick`, with `*`, `**` and `?`. Leaves out the summary,
+    /// dependencies and imports.
+    #[arg(long = "object", value_name = "OBJECT", value_delimiter = ',')]
+    pub objects: Vec<String>,
+
+    /// Only objects of these classes, by name (`Texture`) or with their
+    /// package (`Engine.Texture`). Subclasses don't match. Leaves out the
+    /// summary, dependencies and imports.
+    #[arg(long, value_name = "CLASS", value_delimiter = ',')]
+    pub class: Vec<String>,
+
+    /// Also show what changes every time a package is saved: the GUID, the
+    /// generations, where the tables are, and each object's index and where
+    /// its data is.
+    #[arg(long)]
+    pub all: bool,
+
+    /// Exit with code 1 if the packages differ.
+    #[arg(long)]
+    pub exit_code: bool,
+
+    /// Never download a package that isn't stored locally (for git, an
+    /// object in Git LFS that isn't in the local cache): fail instead. This
+    /// is the default.
+    #[arg(long, overrides_with = "online")]
+    pub offline: bool,
+
+    /// Let git download what a revision's packages need, such as objects in
+    /// Git LFS, through its filters.
+    #[arg(long, overrides_with = "offline")]
+    pub online: bool,
+
+    /// Show sizes in units (`2.6 MB`). Text format only.
+    #[arg(long)]
+    pub humanize: bool,
+
+    /// How to print the differences.
+    #[arg(long, value_enum, default_value_t = PkgDiffFormat::Text)]
+    pub format: PkgDiffFormat,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum PkgDiffFormat {
+    /// Readable text, by section.
+    Text,
+    /// One line per difference, for `grep`.
+    Concise,
+    /// A JSON object.
+    Json,
 }
 
 #[derive(Debug, Args)]

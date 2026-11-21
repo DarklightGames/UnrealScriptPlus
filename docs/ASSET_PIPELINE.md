@@ -2,10 +2,12 @@
 
 A design for exporting objects' native data to usable formats (textures to
 DDS and PNG, sounds to WAV, meshes and animations to glTF, ...), and later for
-importing those formats back into package data. **Nothing here is
-implemented yet** except the fallback: `usagi pkg export` writes every
-object's tagged properties as T3D and its native data, unread, as `.bin`
-(see [CLI.md](CLI.md#usagi-pkg-export-paths---output-dir)). The native data
+importing those formats back into package data. **Little here is
+implemented yet**: the fallback, `usagi pkg export`, writes every object's
+tagged properties as T3D and its native data, unread, as `.bin` (see
+[CLI.md](CLI.md#usagi-pkg-export-paths---output-dir)); and the first native
+data types (step 1, below) read textures and sounds, which `usagi pkg diff`
+compares. The native data
 formats known so far are in
 [PACKAGE_FORMAT.md](PACKAGE_FORMAT.md#native-data).
 
@@ -65,6 +67,11 @@ Each is serialized by a single function that both reads and writes, as the
 engine's `FArchive` and `operator<<` do, so reading and writing can't
 disagree. `TLazyArray`'s absolute `SeekPos` is handled once, in its own
 type, and fixed up on writing.
+
+Done so far, by hand, in `usagi-pkg`: `LazyArray<u8>` (in `src/archive.rs`,
+which works out `SeekPos` from `Archive::file_offset` when writing),
+`Mipmap`, `Texture` and `Sound` (in `src/media.rs`). Textures before version
+84 aren't read yet, and there's no registry by class yet.
 
 **We intend to generate these functions with a derive macro, in a
 proc-macro crate of its own**, once a few have been written by hand (texture,
