@@ -407,7 +407,8 @@ impl Package {
     ///
     /// If `export` is out of range.
     pub fn read_native<T: Serialize>(&self, export: usize, offset: usize) -> Result<(T, usize)> {
-        let mut loader = Loader::new(self, self.export_data(export));
+        let file_offset = self.exports()[export].serial_offset.unwrap_or(0) as usize;
+        let mut loader = Loader::new(self, self.export_data(export)).at(file_offset);
         loader.seek(offset);
         let mut value = T::default();
         value

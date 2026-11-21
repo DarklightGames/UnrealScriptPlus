@@ -116,9 +116,10 @@ document, update the document in the same change.
 | `src/uz2.rs` | Decompressing and compressing `.uz2` files. |
 | `src/edit.rs` | Changing package files in place (`set_package_flags`). |
 | `src/properties.rs` | Objects' tagged properties (`Package::properties`), read by their declarations when they can be found, and their values as T3D. |
-| `src/archive.rs` | `Archive` and `Serialize`: native data read and written by one function per type, as the engine does (`Loader`, `Saver`), and `FString`. |
+| `src/archive.rs` | `Archive` and `Serialize`: native data read and written by one function per type, as the engine does (`Loader`, `Saver`), `FString` and `LazyArray`. |
 | `src/class.rs` | Classes, states, functions, structs, property declarations, enums, constants and text buffers (`Package::class`, `Package::read_native`). |
 | `src/script.rs` | UnrealScript bytecode (`Script`, `Expr`). |
+| `src/media.rs` | Textures', sounds' and sound groups' native data (`Texture`, `Mipmap`, `Sound`, `SoundGroup`). |
 | `src/packages.rs` | `Packages`: finding packages by a game's `Paths`, resolving imports, and finding properties' declarations. |
 | `src/pattern.rs` | Object references and globs (`ObjectPattern`), and finding the objects they match. |
 | `src/package.rs` | `Package`: reads a file (decompressing a `.uz2`), keeps its exports' data, and looks up names, paths, outers and references. |

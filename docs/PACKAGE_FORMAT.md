@@ -386,11 +386,21 @@ Most packages in UT2004 have one generation; 39 have more (`Engine.u` has 77).
 
 The container has no other absolute offsets, but some export data does:
 `TLazyArray` (`Core/Inc/UnTemplate.h`), used for large arrays such as texture
-mipmaps, is written as an `i32` absolute file offset of the end of the array,
-followed by the array. The loader uses it to skip the array and load it later.
-So **moving an export's data within the file breaks it** unless those offsets
-are fixed up, which needs knowledge of the object's format. Copying export data
-verbatim is only safe at the same offset.
+mipmaps and sounds' data, is written as an `i32` absolute file offset of the
+end of the array (`SeekPos`), followed by the array. The loader uses it to skip
+the array and load it later, and carries on reading from `SeekPos`, wherever the
+array really ends. Before version 62 there's no `SeekPos`: only the array, and
+the loader works out where it ends. So **moving an export's data within the
+file breaks it** unless those offsets are fixed up, which needs knowledge of the
+object's format. Copying export data verbatim is only safe at the same offset.
+It also means that the same texture or sound has different bytes in two
+packages if its data is at different offsets, which is why `pkg diff` reads
+them rather than comparing their bytes.
+
+usagi (`LazyArray` in `src/archive.rs`) skips to `SeekPos` when it's after
+the end of the array, as the engine does, and rejects one before it, which
+would mean reading the array's own bytes again as what follows it. When
+writing, it works out `SeekPos` from where the data will be in the file.
 
 ## Tagged properties
 
@@ -739,11 +749,31 @@ UnTexture2.cpp`):
   emptied when it's saved: it's made at run time.
 - Before version 84, a texture with `bHasComp` has two arrays of mipmaps,
   and the first is thrown away.
+- The engine's subclasses of `Texture` don't write anything of their own,
+  so their data is a texture's too. usagi reads only textures from version 84
+  (`Package::texture`).
 
 UnrealEd exports DXT1, DXT3 and DXT5 textures as DDS (`UTextureExporterDDS`
 in `Editor/Src/UnEdFact.cpp`): a DDS header, then every mipmap's data as it
 is. It exports `TEXF_RGBA8` as TGA (`UTextureExporterTGA`), the rows of the
 first mipmap bottom to top, the bytes as they are, since TGA is BGRA too.
+
+### Sounds (`Engine.Sound`)
+
+`USound::Serialize` (`Engine/Src/UnAudio.cpp`) writes, after the tagged
+properties:
+
+| Field | Type | Notes |
+|---|---|---|
+| `FileType` | name | The format of `Data`, such as `WAV`. |
+| `Likelihood` | `f32` | From licensee version 2. |
+| `Data` | `TLazyArray<BYTE>` | The sound file: `SeekPos` (see [Absolute offsets inside export data](#absolute-offsets-inside-export-data)), then a compact index count and the bytes. |
+
+Its subclasses don't start with this: `UProceduralSound` and `USoundGroup`
+call `UObject::Serialize` (`Super::Super`), then write their own data. A
+`SoundGroup` writes, before licensee version 27, `Package`, an `FString`,
+and from it, its `Sounds`, an array of object references (`SoundGroup` in
+`src/media.rs`).
 
 ### Palettes (`Engine.Palette`)
 

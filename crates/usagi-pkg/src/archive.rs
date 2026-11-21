@@ -25,6 +25,11 @@ pub trait Archive {
     /// The offset of the next byte.
     fn pos(&self) -> usize;
 
+    /// Where the data starts in the file: the export's `SerialOffset`, or 0.
+    /// `file_offset() + pos()` is the position in the file (`Ar.Tell()`),
+    /// which a [`LazyArray`] stores.
+    fn file_offset(&self) -> usize;
+
     /// Reads into `bytes`, or writes them. `what` names them if the data
     /// ends first.
     fn raw(&mut self, bytes: &mut [u8], what: &'static str) -> Result<()>;
@@ -215,11 +220,68 @@ impl Serialize for FString {
     }
 }
 
+/// A `TLazyArray` (`Core/Inc/UnTemplate.h`): an array the engine can skip
+/// when it loads the object, and load later. From version 62 it's preceded
+/// by `SeekPos`, the absolute file offset of its end, from which the engine
+/// carries on reading.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LazyArray<T> {
+    /// As stored; `None` before version 62. Worked out when saving, from
+    /// where the array ends in the file ([`Archive::file_offset`]).
+    pub seek_pos: Option<i32>,
+    pub items: Vec<T>,
+}
+
+impl Serialize for LazyArray<u8> {
+    fn serialize(&mut self, ar: &mut dyn Archive) -> Result<()> {
+        if ar.version() <= 61 {
+            // Only the array: the engine works out where it ends.
+            return byte_array(ar, &mut self.items, "lazy array");
+        }
+        let at = ar.pos();
+        if !ar.is_loading() {
+            let count = i32::try_from(self.items.len()).expect("fewer than 2^31 bytes");
+            let end = ar.file_offset() + at + 4 + compact_index(count).len() + self.items.len();
+            self.seek_pos = Some(i32::try_from(end).expect("a file smaller than 2 GiB"));
+        }
+        let seek_pos = self.seek_pos.get_or_insert(0);
+        ar.i32(seek_pos, "lazy array")?;
+        let seek_pos = i64::from(*seek_pos);
+        byte_array(ar, &mut self.items, "lazy array")?;
+        if ar.is_loading() {
+            // The engine carries on from `SeekPos`: skip to it.
+            let end = (ar.file_offset() + ar.pos()) as i64;
+            let skip = usize::try_from(seek_pos - end).map_err(|_| Error::InvalidData {
+                offset: at,
+                reason: format!(
+                    "the lazy array ends at {:#X}, after its SeekPos, {:#X}",
+                    end, seek_pos
+                ),
+            })?;
+            ar.bytes(&mut Vec::new(), skip, "lazy array")?;
+        }
+        Ok(())
+    }
+}
+
+/// A `TArray<BYTE>`: a compact index count, then the bytes.
+fn byte_array(ar: &mut dyn Archive, bytes: &mut Vec<u8>, what: &'static str) -> Result<()> {
+    let mut count = i32::try_from(bytes.len()).expect("fewer than 2^31 bytes");
+    let at = ar.pos();
+    ar.index(&mut count, what)?;
+    let len = usize::try_from(count).map_err(|_| Error::InvalidData {
+        offset: at,
+        reason: format!("the {} has {} items", what, count),
+    })?;
+    ar.bytes(bytes, len, what)
+}
+
 /// Reads values from an export's data. Names and object references are
 /// checked against the package's tables, as the engine checks them.
 pub struct Loader<'a> {
     package: &'a Package,
     reader: Reader<'a>,
+    file_offset: usize,
 }
 
 impl<'a> Loader<'a> {
@@ -228,6 +290,15 @@ impl<'a> Loader<'a> {
         Loader {
             package,
             reader: Reader::new(data),
+            file_offset: 0,
+        }
+    }
+
+    /// The same loader, for data at `file_offset` in the file.
+    pub fn at(self, file_offset: usize) -> Self {
+        Loader {
+            file_offset,
+            ..self
         }
     }
 
@@ -252,6 +323,10 @@ impl Archive for Loader<'_> {
 
     fn pos(&self) -> usize {
         self.reader.pos()
+    }
+
+    fn file_offset(&self) -> usize {
+        self.file_offset
     }
 
     fn raw(&mut self, bytes: &mut [u8], what: &'static str) -> Result<()> {
@@ -315,6 +390,7 @@ pub struct Saver {
     bytes: Vec<u8>,
     version: u16,
     licensee_version: u16,
+    file_offset: usize,
 }
 
 impl Saver {
@@ -324,6 +400,15 @@ impl Saver {
             bytes: Vec::new(),
             version,
             licensee_version,
+            file_offset: 0,
+        }
+    }
+
+    /// The same saver, for data that will be at `file_offset` in the file.
+    pub fn at(self, file_offset: usize) -> Self {
+        Saver {
+            file_offset,
+            ..self
         }
     }
 
@@ -348,6 +433,10 @@ impl Archive for Saver {
 
     fn pos(&self) -> usize {
         self.bytes.len()
+    }
+
+    fn file_offset(&self) -> usize {
+        self.file_offset
     }
 
     fn raw(&mut self, bytes: &mut [u8], _: &'static str) -> Result<()> {

@@ -6,7 +6,8 @@
 //! The summary and the name, import and export tables are read, and in each
 //! export's data, its tagged properties ([`Package::properties`]) and, for
 //! classes, states, functions, structs, property declarations and the like,
-//! its native data ([`Package::class`], [`Package::read_native`]).
+//! its native data ([`Package::class`], [`Package::read_native`]), and
+//! textures' and sounds' ([`Package::texture`], [`Texture`], [`Sound`]).
 //!
 //! Native data is read and written by one function per type, as the engine
 //! does ([`archive::Serialize`]), so what's read can be written back the
@@ -24,6 +25,7 @@ mod class;
 mod edit;
 mod error;
 mod flags;
+mod media;
 mod package;
 mod packages;
 mod pattern;
@@ -41,6 +43,9 @@ pub use class::{
 pub use edit::set_package_flags;
 pub use error::{Error, Result};
 pub use flags::{ObjectFlags, PackageFlags};
+pub use media::{
+    Mipmap, SOUND_GROUP_SOUNDS_LICENSEE_VERSION, Sound, SoundGroup, TEXTURE_MIPS_VERSION, Texture,
+};
 pub use package::{Package, package_name};
 pub use packages::{Decl, Lookup, Packages, Scope, SearchPath, Type};
 pub use pattern::ObjectPattern;
