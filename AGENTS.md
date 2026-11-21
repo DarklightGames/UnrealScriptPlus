@@ -145,6 +145,14 @@ Tests write their packages as bytes: there are no game files in the
 repository. Check changes against a real game's packages (every one should
 read) on a local install, which is read-only: never write to it.
 
+**Don't pull from Git LFS when testing** unless explicitly asked to: our LFS
+bandwidth is very limited. A game or mod repository may keep its packages in
+LFS; use the files already checked out, and don't run anything that fetches
+LFS objects (`git lfs pull`/`fetch`, a checkout of other revisions, or
+`usagi pkg diff --online`). `usagi pkg diff` is offline by default: it reads
+only LFS objects already in the local cache, and fails rather than download
+one.
+
 ## Static analysis
 
 **Keep [`docs/STATIC_ANALYSIS.md`](docs/STATIC_ANALYSIS.md) up to date.** It lists every
