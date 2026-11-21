@@ -120,6 +120,8 @@ document, update the document in the same change.
 | `src/class.rs` | Classes, states, functions, structs, property declarations, enums, constants and text buffers (`Package::class`, `Package::read_native`). |
 | `src/script.rs` | UnrealScript bytecode (`Script`, `Expr`). |
 | `src/media.rs` | Textures', sounds' and sound groups' native data (`Texture`, `Mipmap`, `Sound`, `SoundGroup`). |
+| `src/diff.rs` | Comparing two versions of a package (`diff`), for `pkg diff`. |
+| `src/volatile.rs` | Properties whose saved value the engine never uses (`VOLATILE_PROPERTIES`), which `pkg diff` shows only with `--all`. Add one with a row in its table, citing where in the engine's source the value is worked out. |
 | `src/packages.rs` | `Packages`: finding packages by a game's `Paths`, resolving imports, and finding properties' declarations. |
 | `src/pattern.rs` | Object references and globs (`ObjectPattern`), and finding the objects they match. |
 | `src/package.rs` | `Package`: reads a file (decompressing a `.uz2`), keeps its exports' data, and looks up names, paths, outers and references. |

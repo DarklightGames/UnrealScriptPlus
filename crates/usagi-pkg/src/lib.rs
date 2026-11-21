@@ -13,6 +13,7 @@
 //! does ([`archive::Serialize`]), so what's read can be written back the
 //! same. [`Packages`] finds the packages a package refers to, and reads
 //! tagged properties by their declarations ([`Packages::properties`]).
+//! [`diff`] compares two versions of a package.
 //!
 //! ```no_run
 //! let package = usagi_pkg::Package::read("System/Engine.u".as_ref())?;
@@ -22,6 +23,7 @@
 
 pub mod archive;
 mod class;
+pub mod diff;
 mod edit;
 mod error;
 mod flags;
@@ -35,6 +37,7 @@ pub mod script;
 mod summary;
 mod tables;
 pub mod uz2;
+pub mod volatile;
 
 pub use class::{
     Class, Const, Dependency, Enum, Field, Function, PropertyDecl, PropertyKind, State, StateFrame,
